@@ -11,13 +11,18 @@
 #include <thread>
 #include "lock.hh"
 #include "sholder.hh"
+#include "config.h"
+#ifdef HAVE_HDR_HISTOGRAM
 #include "hdr/hdr_histogram.h"
+#endif /* HAVE_HDR_HISTOGRAM */
 
 void* carbonDumpThread();
 uint64_t uptimeOfProcess(const std::string& str);
 
+#ifdef HAVE_HDR_HISTOGRAM
 extern pthread_rwlock_t g_histolock;
 extern struct hdr_histogram * g_histo;
+#endif /* HAVE_HDR_HISTOGRAM */
 
 struct DNSDistStats
 {

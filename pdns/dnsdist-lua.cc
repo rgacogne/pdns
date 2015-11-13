@@ -352,12 +352,14 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
       }catch(std::exception& e) { g_outputBuffer=e.what(); throw; }
     });
 
+#ifdef HAVE_HDR_HISTOGRAM
   g_lua.writeFunction("showHDRHistogram", []() {  
       ReadLock rl(&g_histolock);
       if (g_histo)
         hdr_percentiles_print(g_histo, stdout, 5, 1.0, CLASSIC);
     });
-
+#endif /* HAVE_HDR_HISTOGRAM */
+  
   g_lua.writeFunction("addLuaAction", [](luadnsrule_t var, LuaAction::func_t func) 
 		      {
 			auto rule=makeRule(var);

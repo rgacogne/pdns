@@ -65,8 +65,10 @@ GlobalStateHolder<NetmaskGroup> g_ACL;
 string g_outputBuffer;
 vector<std::pair<ComboAddress, bool>> g_locals;
 
+#ifdef HAVE_HDR_HISTOGRAM
 pthread_rwlock_t g_histolock = PTHREAD_RWLOCK_INITIALIZER;
 struct hdr_histogram * g_histo = 0;
+#endif /* HAVE_HDR_HISTOGRAM */
 
 /* UDP: the grand design. Per socket we listen on for incoming queries there is one thread.
    Then we have a bunch of connected sockets for talking to downstream servers. 
@@ -196,13 +198,15 @@ void* responderThread(std::shared_ptr<DownstreamState> state)
     else if(udiff < 100000) g_stats.latency50_100++;
     else if(udiff < 1000000) g_stats.latency100_1000++;
     else g_stats.latencySlow++;
-    
+
+#ifdef HAVE_HDR_HISTOGRAM    
     {
       WriteLock wl(&g_histolock);
       if (g_histo)
         hdr_record_value(g_histo, state->latencyUsec);
     }
-
+#endif /* HAVE_HDR_HISTOGRAM */
+    
     auto doAvg = [](double& var, double n, double weight) {
       var = (weight -1) * var/weight + n/weight;
     };
@@ -1032,10 +1036,12 @@ try
 
   g_maxOutstanding = 1024;
 
+#ifdef HAVE_HDR_HISTOGRAM
   int res = hdr_init(1, 100000, 1, &g_histo);
   if (res != 0)
     warnlog("Error setting up HDR histogram: %d", res);
-
+#endif /* HAVE_HDR_HISTOGRAM */
+  
   ServerPolicy leastOutstandingPol{"leastOutstanding", leastOutstanding};
 
   g_policy.setState(leastOutstandingPol);

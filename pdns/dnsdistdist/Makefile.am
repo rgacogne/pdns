@@ -14,6 +14,11 @@ htmlfiles.h: html/*
 
 man_MANS=dnsdist.1
 
+if HDR_HISTOGRAM
+HDR_HISTOGRAM_LIBS = -lhdr_histogram
+endif
+
+
 EXTRA_DIST=dnslabeltext.rl \
 	   dnsdistconf.lua \
 	   README.md \
@@ -68,5 +73,6 @@ dnsdist_LDADD = \
 	$(READLINE_LIBS) \
 	$(RT_LIBS) \
 	$(YAHTTP_LIBS) \
-	$(LIBSODIUM_LIBS)
+	$(LIBSODIUM_LIBS) \
+	$(HDR_HISTOGRAM_LIBS)
 
