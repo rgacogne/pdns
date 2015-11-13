@@ -9,9 +9,16 @@
 #include <boost/variant.hpp>
 #include <mutex>
 #include <thread>
+#include "lock.hh"
 #include "sholder.hh"
+#include "hdr/hdr_histogram.h"
+
 void* carbonDumpThread();
 uint64_t uptimeOfProcess(const std::string& str);
+
+extern pthread_rwlock_t g_histolock;
+extern struct hdr_histogram * g_histo;
+
 struct DNSDistStats
 {
   using stat_t=std::atomic<uint64_t>; // aww yiss ;-)
