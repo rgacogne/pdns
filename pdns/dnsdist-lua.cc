@@ -39,7 +39,7 @@ private:
 };
 
 typedef boost::variant<string,vector<pair<int, string>>, std::shared_ptr<DNSRule> > luadnsrule_t;
-std::shared_ptr<DNSRule> makeRule(const luadnsrule_t& var)
+static std::shared_ptr<DNSRule> makeRule(const luadnsrule_t& var)
 {
   if(auto src = boost::get<std::shared_ptr<DNSRule>>(&var))
     return *src;
@@ -67,7 +67,7 @@ std::shared_ptr<DNSRule> makeRule(const luadnsrule_t& var)
     return std::make_shared<NetmaskGroupRule>(nmg);
 }
 
-std::unordered_map<int, vector<boost::variant<string,double>>> getGenResponses(unsigned int top, boost::optional<int> labels, std::function<bool(const Rings::Response&)> pred) 
+static std::unordered_map<int, vector<boost::variant<string,double>>> getGenResponses(unsigned int top, boost::optional<int> labels, std::function<bool(const Rings::Response&)> pred)
 {
   setLuaNoSideEffect();
   map<DNSName, int> counts;

@@ -127,9 +127,9 @@ public:
   void getCertificateResponse(const std::shared_ptr<DnsCryptQuery> query, std::vector<uint8_t>& response) const;
   void loadNewCertificate(const std::string& certFile, const std::string& keyFile);
   void setNewCertificate(const DnsCryptCert& newCert, const DnsCryptPrivateKey& newKey);
-  const DnsCryptCert& getCurrentCertificate() const { return cert; };
-  const DnsCryptCert& getOldCertificate() const { return oldCert; };
-  bool hadOldCertificate() const { return hasOldCert; };
+  const DnsCryptCert& getCurrentCertificate() const { return cert; }
+  const DnsCryptCert& getOldCertificate() const { return oldCert; }
+  bool hadOldCertificate() const { return hasOldCert; }
   const std::string& getProviderName() const { return providerName; }
   int encryptQuery(char* query, uint16_t queryLen, uint16_t querySize, const unsigned char clientPublicKey[DNSCRYPT_PUBLIC_KEY_SIZE], const DnsCryptPrivateKey& clientPrivateKey, const unsigned char clientNonce[DNSCRYPT_NONCE_SIZE / 2], bool tcp, uint16_t* encryptedResponseLen) const;
 

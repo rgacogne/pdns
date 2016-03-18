@@ -293,7 +293,6 @@ void* tcpClientThread(int pipefd)
             case DNSAction::Action::Drop:
               g_stats.ruleDrop++;
               goto drop;
-              break;
             case DNSAction::Action::Nxdomain:
               dq.dh->rcode = RCode::NXDomain;
               dq.dh->qr=true;
@@ -414,7 +413,7 @@ void* tcpClientThread(int pipefd)
             sendMsgWithTimeout(dsock, query, dq.len, ds->tcpSendTimeout, ds->remote, ds->sourceAddr, ds->sourceItf);
           }
         }
-        catch(const runtime_error& e) {
+        catch(const runtime_error&) {
           vinfolog("Downstream connection to %s died on us, getting a new one!", ds->getName());
           close(dsock);
           sockets[ds->remote]=dsock=setupTCPDownstream(ds);

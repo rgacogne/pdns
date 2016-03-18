@@ -10,7 +10,7 @@
 #include <fstream>
 #include <boost/logic/tribool.hpp>
 
-boost::tribool g_noLuaSideEffect;
+static boost::tribool g_noLuaSideEffect;
 
 /* this is a best effort way to prevent logging calls with no side-effects in the output of delta()
    Functions can declare setLuaNoSideEffect() and if nothing else does declare a side effect, or nothing
@@ -37,7 +37,7 @@ void resetLuaSideEffect()
   g_noLuaSideEffect = boost::logic::indeterminate;
 }
 
-map<ComboAddress,int> filterScore(const map<ComboAddress, unsigned int,ComboAddress::addressOnlyLessThan >& counts, 
+static map<ComboAddress,int> filterScore(const map<ComboAddress, unsigned int,ComboAddress::addressOnlyLessThan >& counts,
 				  double delta, int rate)
 {
   std::multimap<unsigned int,ComboAddress> score;
@@ -55,7 +55,7 @@ map<ComboAddress,int> filterScore(const map<ComboAddress, unsigned int,ComboAddr
 
 
 typedef   map<ComboAddress, unsigned int,ComboAddress::addressOnlyLessThan > counts_t;
-map<ComboAddress,int> exceedRespGen(int rate, int seconds, std::function<void(counts_t&, const Rings::Response&)> T) 
+static map<ComboAddress,int> exceedRespGen(int rate, int seconds, std::function<void(counts_t&, const Rings::Response&)> T)
 {
   counts_t counts;
   struct timespec cutoff, mintime, now;
@@ -78,7 +78,7 @@ map<ComboAddress,int> exceedRespGen(int rate, int seconds, std::function<void(co
   return filterScore(counts, delta, rate);
 }
 
-map<ComboAddress,int> exceedQueryGen(int rate, int seconds, std::function<void(counts_t&, const Rings::Query&)> T) 
+static map<ComboAddress,int> exceedQueryGen(int rate, int seconds, std::function<void(counts_t&, const Rings::Query&)> T)
 {
   counts_t counts;
   struct timespec cutoff, mintime, now;
@@ -101,7 +101,7 @@ map<ComboAddress,int> exceedQueryGen(int rate, int seconds, std::function<void(c
 }
 
 
-map<ComboAddress,int> exceedRCode(int rate, int seconds, int rcode) 
+static map<ComboAddress,int> exceedRCode(int rate, int seconds, int rcode)
 {
   return exceedRespGen(rate, seconds, [rcode](counts_t& counts, const Rings::Response& r) 
 		   {
@@ -110,7 +110,7 @@ map<ComboAddress,int> exceedRCode(int rate, int seconds, int rcode)
 		   });
 }
 
-map<ComboAddress,int> exceedRespByterate(int rate, int seconds) 
+static map<ComboAddress,int> exceedRespByterate(int rate, int seconds)
 {
   return exceedRespGen(rate, seconds, [](counts_t& counts, const Rings::Response& r) 
 		   {

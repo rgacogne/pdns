@@ -184,7 +184,7 @@ void DNSPacketWriter::xfrUnquotedText(const string& text, bool lenField)
 }
 
 /* FIXME400: check that this beats a map */
-DNSPacketWriter::lmap_t::iterator find(DNSPacketWriter::lmap_t& nmap, const DNSName& name)
+static DNSPacketWriter::lmap_t::iterator find(DNSPacketWriter::lmap_t& nmap, const DNSName& name)
 {
   DNSPacketWriter::lmap_t::iterator ret;
   for(ret=nmap.begin(); ret != nmap.end(); ++ret)

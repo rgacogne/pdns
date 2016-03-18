@@ -398,7 +398,7 @@ public:
   {
     return d_network;
   }
-  int getBits() const
+  uint8_t getBits() const
   {
     return d_bits;
   }
@@ -534,7 +534,7 @@ public:
 
     if (key.getNetwork().sin4.sin_family == AF_INET) {
       std::bitset<32> addr(be32toh(key.getNetwork().sin4.sin_addr.s_addr));
-      int bits = 0;
+      uint8_t bits = 0;
       // we turn left on 0 and right on 1
       while(bits < key.getBits()) {
         uint8_t val = addr[31-bits];
@@ -554,7 +554,7 @@ public:
       uint64_t* addr = (uint64_t*)key.getNetwork().sin6.sin6_addr.s6_addr;
       std::bitset<64> addr_low(be64toh(addr[1]));
       std::bitset<64> addr_high(be64toh(addr[0]));
-      int bits = 0;
+      uint8_t bits = 0;
       while(bits < key.getBits()) {
         uint8_t val;
         // we use high address until we are

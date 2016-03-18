@@ -7,7 +7,7 @@
 vector<pair<struct timeval, string> > g_confDelta;
 
 // MUST BE CALLED UNDER A LOCK - right now the LuaLock
-void feedConfigDelta(const std::string& line)
+static void feedConfigDelta(const std::string& line)
 {
   if(line.empty())
     return;
@@ -181,7 +181,7 @@ void doConsole()
 }
 /**** CARGO CULT CODE AHEAD ****/
 extern "C" {
-char* my_generator(const char* text, int state)
+static char* my_generator(const char* text, int state)
 {
   string t(text);
   /* to keep it readable, we try to keep only 4 keywords per line

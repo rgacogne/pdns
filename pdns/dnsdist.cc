@@ -145,7 +145,7 @@ struct DelayedPacket
   }
 };
 
-DelayPipe<DelayedPacket> * g_delay = 0;
+static DelayPipe<DelayedPacket> * g_delay = 0;
 
 static void doLatencyAverages(double udiff)
 {
@@ -390,7 +390,7 @@ shared_ptr<DownstreamState> leastOutstanding(const NumberedServerVector& servers
   return poss.begin()->second;
 }
 
-shared_ptr<DownstreamState> valrandom(unsigned int val, const NumberedServerVector& servers, const DNSQuestion* dq)
+static shared_ptr<DownstreamState> valrandom(unsigned int val, const NumberedServerVector& servers, const DNSQuestion* dq)
 {
   vector<pair<int, shared_ptr<DownstreamState>>> poss;
   int sum=0;
@@ -588,7 +588,7 @@ void spoofResponseFromString(DNSQuestion& dq, const string& spoofContent)
     SpoofAction sa({spoofAddr});
     sa(&dq, &result);
   }
-  catch(PDNSException &e) {
+  catch(const PDNSException&) {
     SpoofAction sa(spoofContent); // CNAME then
     sa(&dq, &result);
   }
@@ -1028,7 +1028,7 @@ catch(...)
 uint64_t g_maxTCPClientThreads{10};
 std::atomic<uint16_t> g_cacheCleaningDelay{60};
 
-void* maintThread()
+static void* maintThread()
 {
   int interval = 1;
   size_t counter = 0;
@@ -1064,7 +1064,7 @@ void* maintThread()
   return 0;
 }
 
-void* healthChecksThread()
+static void* healthChecksThread()
 {
   int interval = 1;
 

@@ -44,7 +44,7 @@ class DNSName
 public:
   DNSName()  {}          //!< Constructs an *empty* DNSName, NOT the root!
   explicit DNSName(const char* p);      //!< Constructs from a human formatted, escaped presentation
-  explicit DNSName(const std::string& str) : DNSName(str.c_str()) {}; //!< Constructs from a human formatted, escaped presentation
+  explicit DNSName(const std::string& str) : DNSName(str.c_str()) {} //!< Constructs from a human formatted, escaped presentation
   DNSName(const char* p, int len, int offset, bool uncompress, uint16_t* qtype=0, uint16_t* qclass=0, unsigned int* consumed=0); //!< Construct from a DNS Packet, taking the first question if offset=12
   
   bool isPartOf(const DNSName& rhs) const;   //!< Are we part of the rhs name?
@@ -209,12 +209,12 @@ struct SuffixMatchNode
     return strcasecmp(name.c_str(), rhs.name.c_str()) < 0;
   }
 
-  void add(const DNSName& name) 
+  void add(const DNSName& name_)
   {
     if(!d_human.empty())
       d_human.append(", ");
-    d_human += name.toString();
-    add(name.getRawLabels());
+    d_human += name_.toString();
+    add(name_.getRawLabels());
   }
 
   void add(std::vector<std::string> labels) const
@@ -232,11 +232,11 @@ struct SuffixMatchNode
     }
   }
 
-  bool check(const DNSName& name)  const
+  bool check(const DNSName& name_)  const
   {
     if(children.empty()) // speed up empty set
       return endNode;
-    return check(name.getRawLabels());
+    return check(name_.getRawLabels());
   }
 
   bool check(std::vector<std::string> labels) const

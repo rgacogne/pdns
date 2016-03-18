@@ -264,7 +264,7 @@ bool chopOffDotted(string &domain)
 }
 
 
-bool ciEqual(const string& a, const string& b)
+static bool ciEqual(const string& a, const string& b)
 {
   if(a.size()!=b.size())
     return false;
@@ -1276,7 +1276,7 @@ uid_t strToUID(const string &str)
     try {
       val = stoll(str);
     }
-    catch(std::exception& e) {
+    catch(std::exception&) {
       throw runtime_error((boost::format("Error: Unable to parse user ID %s") % cstr).str() );
     }
 
@@ -1305,7 +1305,7 @@ gid_t strToGID(const string &str)
     try {
       val = stoll(str);
     }
-    catch(std::exception& e) {
+    catch(std::exception&) {
       throw runtime_error((boost::format("Error: Unable to parse group ID %s") % cstr).str() );
     }
 

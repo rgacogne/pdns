@@ -107,11 +107,11 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheSimple) {
 
 static DNSDistPacketCache PC(500000);
 
-static void *threadMangler(void* a)
+static void *threadMangler(void* arg)
 {
   try {
     ComboAddress remote;
-    unsigned int offset=(unsigned int)(unsigned long)a;
+    unsigned int offset=(unsigned int)(unsigned long)arg;
     for(unsigned int counter=0; counter < 100000; ++counter) {
       DNSName a=DNSName("hello ")+DNSName(std::to_string(counter+offset));
       vector<uint8_t> query;
@@ -145,13 +145,13 @@ static void *threadMangler(void* a)
   return 0;
 }
 
-AtomicCounter g_missing;
+static AtomicCounter g_missing;
 
-static void *threadReader(void* a)
+static void *threadReader(void* arg)
 {
   try
   {
-    unsigned int offset=(unsigned int)(unsigned long)a;
+    unsigned int offset=(unsigned int)(unsigned long)arg;
     vector<DNSResourceRecord> entry;
     ComboAddress remote;
     for(unsigned int counter=0; counter < 100000; ++counter) {

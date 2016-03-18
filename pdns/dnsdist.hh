@@ -391,6 +391,7 @@ extern std::string g_outputBuffer; // locking for this is ok, as locked by g_lua
 class DNSRule
 {
 public:
+  virtual ~DNSRule() { }
   virtual bool matches(const DNSQuestion* dq) const =0;
   virtual string toString() const = 0;
   mutable std::atomic<uint64_t> d_matches{0};
@@ -409,6 +410,7 @@ class DNSAction
 {
 public:
   enum class Action { Drop, Nxdomain, Spoof, Allow, HeaderModify, Pool, Delay, None};
+  virtual ~DNSAction() { }
   virtual Action operator()(DNSQuestion*, string* ruleresult) const =0;
   virtual string toString() const = 0;
 };
@@ -424,7 +426,7 @@ struct ServerPolicy
 
 struct ServerPool
 {
-  const std::shared_ptr<DNSDistPacketCache> getCache() const { return packetCache; };
+  const std::shared_ptr<DNSDistPacketCache> getCache() const { return packetCache; }
 
   NumberedVector<shared_ptr<DownstreamState>> servers;
   std::shared_ptr<DNSDistPacketCache> packetCache{nullptr};

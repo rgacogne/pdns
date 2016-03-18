@@ -9,7 +9,7 @@
 
 /* when we add EDNS to a query, we don't want to advertise
    a large buffer size */
-size_t q_EdnsUDPPayloadSize = 512;
+size_t g_EdnsUDPPayloadSize = 512;
 /* draft-ietf-dnsop-edns-client-subnet-04 "11.1.  Privacy" */
 uint16_t g_ECSSourcePrefixV4 = 24;
 uint16_t g_ECSSourcePrefixV6 = 56;
@@ -228,7 +228,7 @@ void generateOptRR(const std::string& optRData, string& res)
   edns0.Z = 0;
   
   dh.d_type = htons(QType::OPT);
-  dh.d_class = htons(q_EdnsUDPPayloadSize);
+  dh.d_class = htons(g_EdnsUDPPayloadSize);
   memcpy(&dh.d_ttl, &edns0, sizeof edns0);
   dh.d_clen = htons((uint16_t) optRData.length());
   res.assign((const char *) &name, sizeof name);
