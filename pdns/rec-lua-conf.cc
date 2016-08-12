@@ -98,7 +98,7 @@ void loadRecursorLuaConfig(const std::string& fname)
 	  if(have.count("defpol")) {
 	    defpol=DNSFilterEngine::Policy();
 	    defpol->d_kind = (DNSFilterEngine::PolicyKind)boost::get<int>(constGet(have, "defpol"));
-	    defpol->d_name = polName;
+	    defpol->d_name = std::make_shared<std::string>(polName);
 	    if(defpol->d_kind == DNSFilterEngine::PolicyKind::Custom) {
 	      defpol->d_custom=
 		shared_ptr<DNSRecordContent>(
@@ -114,8 +114,10 @@ void loadRecursorLuaConfig(const std::string& fname)
 	    }
 	  }
 	}
+        const size_t zoneIdx = lci.dfe.size();
         theL()<<Logger::Warning<<"Loading RPZ from file '"<<fname<<"'"<<endl;
-	loadRPZFromFile(fname, lci.dfe, polName, defpol, 0);
+        lci.dfe.setPolicyName(zoneIdx, polName);
+	loadRPZFromFile(fname, lci.dfe, defpol, zoneIdx);
         theL()<<Logger::Warning<<"Done loading RPZ from file '"<<fname<<"'"<<endl;
       }
       catch(std::exception& e) {
@@ -140,7 +142,7 @@ void loadRecursorLuaConfig(const std::string& fname)
 	    //	    cout<<"Set a default policy"<<endl;
 	    defpol=DNSFilterEngine::Policy();
 	    defpol->d_kind = (DNSFilterEngine::PolicyKind)boost::get<int>(constGet(have, "defpol"));
-	    defpol->d_name = polName;
+	    defpol->d_name = std::make_shared<std::string>(polName);
 	    if(defpol->d_kind == DNSFilterEngine::PolicyKind::Custom) {
 	      //	      cout<<"Setting a custom field even!"<<endl;
 	      defpol->d_custom=
@@ -170,11 +172,13 @@ void loadRecursorLuaConfig(const std::string& fname)
 	}
 	ComboAddress master(master_, 53);
 	DNSName zone(zone_);
+        const size_t zoneIdx = lci.dfe.size();
+        lci.dfe.setPolicyName(zoneIdx, polName);
 
-	auto sr=loadRPZFromServer(master, zone, lci.dfe, polName, defpol, 0, tt, maxReceivedXFRMBytes * 1024 * 1024);
+	auto sr=loadRPZFromServer(master, zone, lci.dfe, defpol, zoneIdx, tt, maxReceivedXFRMBytes * 1024 * 1024);
         if(refresh)
           sr->d_st.refresh=refresh;
-	std::thread t(RPZIXFRTracker, master, zone, polName, tt, sr, maxReceivedXFRMBytes * 1024 * 1024);
+	std::thread t(RPZIXFRTracker, master, zone, zoneIdx, tt, sr, maxReceivedXFRMBytes * 1024 * 1024);
 	t.detach();
       }
       catch(std::exception& e) {
