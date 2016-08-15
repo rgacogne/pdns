@@ -117,7 +117,7 @@ void loadRecursorLuaConfig(const std::string& fname)
         const size_t zoneIdx = lci.dfe.size();
         theL()<<Logger::Warning<<"Loading RPZ from file '"<<fname<<"'"<<endl;
         lci.dfe.setPolicyName(zoneIdx, polName);
-	loadRPZFromFile(fname, lci.dfe, defpol, zoneIdx);
+        loadRPZFromFile(fname, lci.dfe, defpol, zoneIdx);
         theL()<<Logger::Warning<<"Done loading RPZ from file '"<<fname<<"'"<<endl;
       }
       catch(std::exception& e) {
@@ -170,16 +170,16 @@ void loadRecursorLuaConfig(const std::string& fname)
             maxReceivedXFRMBytes = static_cast<size_t>(boost::get<int>(constGet(have,"maxReceivedMBytes")));
           }
 	}
-	ComboAddress master(master_, 53);
-	DNSName zone(zone_);
+        ComboAddress master(master_, 53);
+        DNSName zone(zone_);
         const size_t zoneIdx = lci.dfe.size();
         lci.dfe.setPolicyName(zoneIdx, polName);
 
-	auto sr=loadRPZFromServer(master, zone, lci.dfe, defpol, zoneIdx, tt, maxReceivedXFRMBytes * 1024 * 1024);
+        auto sr=loadRPZFromServer(master, zone, lci.dfe, defpol, zoneIdx, tt, maxReceivedXFRMBytes * 1024 * 1024);
         if(refresh)
           sr->d_st.refresh=refresh;
-	std::thread t(RPZIXFRTracker, master, zone, zoneIdx, tt, sr, maxReceivedXFRMBytes * 1024 * 1024);
-	t.detach();
+        std::thread t(RPZIXFRTracker, master, zone, zoneIdx, tt, sr, maxReceivedXFRMBytes * 1024 * 1024);
+        t.detach();
       }
       catch(std::exception& e) {
 	theL()<<Logger::Error<<"Unable to load RPZ zone '"<<zone_<<"' from '"<<master_<<"': "<<e.what()<<endl;
