@@ -1,4 +1,4 @@
-AM_CPPFLAGS += $(SYSTEMD_CFLAGS) $(LUA_CFLAGS) $(LIBEDIT_CFLAGS) $(LIBSODIUM_CFLAGS) $(YAHTTP_CFLAGS) $(SANITIZER_FLAGS) $(NET_SNMP_CFLAGS) -DSYSCONFDIR=\"${sysconfdir}\"
+AM_CPPFLAGS += $(SYSTEMD_CFLAGS) $(LUA_CFLAGS) $(LIBEDIT_CFLAGS) $(LIBSODIUM_CFLAGS) $(YAHTTP_CFLAGS) $(SANITIZER_FLAGS) $(NET_SNMP_CFLAGS) $(LIBSSL_CFLAGS) -DSYSCONFDIR=\"${sysconfdir}\"
 
 ACLOCAL_AMFLAGS = -I m4
 
@@ -27,7 +27,6 @@ min_js: $(MIN_JS_FILES)
 if HAVE_RE2
 AM_CPPFLAGS += $(RE2_CFLAGS)
 endif
-
 
 EXTRA_DIST=dnslabeltext.rl \
 	   dnsdistconf.lua \
@@ -112,6 +111,7 @@ dnsdist_SOURCES = \
 	sodcrypto.cc sodcrypto.hh \
 	sstuff.hh \
 	statnode.cc statnode.hh \
+	tcpiohandler.cc tcpiohandler.hh \
 	ext/luawrapper/include/LuaContext.hpp \
 	ext/json11/json11.cpp \
 	ext/json11/json11.hpp \
@@ -121,6 +121,7 @@ dnsdist_SOURCES = \
 dnsdist_LDFLAGS = \
 	$(AM_LDFLAGS) \
 	$(PROGRAM_LDFLAGS) \
+	-ls2n -lgnutls \
 	-pthread 
 
 dnsdist_LDADD = \
@@ -131,10 +132,19 @@ dnsdist_LDADD = \
 	$(LIBSODIUM_LIBS) \
 	$(SANITIZER_FLAGS) \
 	$(SYSTEMD_LIBS) \
-	$(NET_SNMP_LIBS)
+	$(NET_SNMP_LIBS) \
+	-lcrypto -lssl
 
 if HAVE_RE2
 dnsdist_LDADD += $(RE2_LIBS)
+endif
+
+if HAVE_S2N
+dnsdist_LDADD += -ls2n
+endif
+
+if HAVE_LIBSSL
+dnsdist_LDADD += $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
 endif
 
 if !HAVE_LUA_HPP
