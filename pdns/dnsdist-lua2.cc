@@ -1481,4 +1481,45 @@ void moreLua(bool client)
         g_outputBuffer="recvmmsg support is not available!\n";
 #endif
       });
+
+    g_lua.writeFunction("addTLSLocal", [client](const std::string& addr, const std::string& certFile, const std::string& keyFile, boost::optional<localbind_t> vars) {
+        if (client)
+          return;
+#ifdef HAVE_DNS_OVER_TLS
+        setLuaSideEffect();
+        if (g_configurationDone) {
+          g_outputBuffer="addTLSLocal cannot be used at runtime!\n";
+          return;
+        }
+        shared_ptr<TLSFrontend> frontend = std::make_shared<TLSFrontend>();
+        frontend->d_certFile = certFile;
+        frontend->d_keyFile = keyFile;
+
+        if (vars) {
+          bool doTCP = true;
+          parseLocalBindVars(vars, doTCP, frontend->d_reusePort, frontend->d_tcpFastOpenQueueSize, frontend->d_interface, frontend->d_cpus);
+
+          if (vars->count("provider")) {
+            frontend->d_provider = boost::get<const string>((*vars)["provider"]);
+          }
+          if (vars->count("caFile")) {
+          frontend->d_caFile = boost::get<const string>((*vars)["caFile"]);
+          }
+          if (vars->count("ciphers")) {
+            frontend->d_ciphers = boost::get<const string>((*vars)["ciphers"]);
+          }
+        }
+
+        try {
+          frontend->d_addr = ComboAddress(addr, 853);
+          vinfolog("Loading TLS provider %s", frontend->d_provider);
+          g_tlslocals.push_back(frontend); /// only works pre-startup, so no sync necessary
+        }
+        catch(std::exception& e) {
+          g_outputBuffer="Error: "+string(e.what())+"\n";
+        }
+#else
+        g_outputBuffer="DNS over TLS support is not present!\n";
+#endif
+      });
 }
