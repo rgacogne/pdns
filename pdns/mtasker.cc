@@ -275,10 +275,11 @@ template<class Key, class Val>void MTasker<Key,Val>::makeThread(tfunc_t *start, 
 #endif /* PDNS_USE_VALGRIND */
 
   auto& thread = d_threads[d_maxtid];
+  thread.startOfStack = &uc->uc_stack[uc->uc_stack.size()];
   auto mt = this;
   thread.start = [start, val, mt]() {
       char dummy;
-      mt->d_threads[mt->d_tid].startOfStack = mt->d_threads[mt->d_tid].highestStackSeen = &dummy;
+      mt->d_threads[mt->d_tid].highestStackSeen = &dummy;
       auto const tid = mt->d_tid;
       start (val);
       mt->d_zombiesQueue.push(tid);
@@ -337,7 +338,6 @@ template<class Key, class Val>bool MTasker<Key,Val>::schedule(struct timeval*  n
         auto uc = i->context;
         d_tid = i->tid;
         ttdindex.erase(i++);                  // removes the waitpoint
-
         notifyStackSwitch(d_threads[d_tid].startOfStack, d_stacksize);
         pdns_swapcontext(d_kernel, *uc); // swaps back to the above point 'A'
         notifyStackSwitchDone();
