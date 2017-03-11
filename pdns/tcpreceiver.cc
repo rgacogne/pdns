@@ -1233,7 +1233,11 @@ TCPNameserver::TCPNameserver()
       L<<Logger::Error<<"Setsockopt failed"<<endl;
       exit(1);  
     }
-    
+
+#ifdef TCP_DEFER_ACCEPT
+    setsockopt(s, SOL_TCP, TCP_DEFER_ACCEPT, &tmp, sizeof tmp);
+#endif
+
     if( ::arg().mustDo("non-local-bind") )
 	Utility::setBindAny(AF_INET, s);
 
@@ -1274,6 +1278,11 @@ TCPNameserver::TCPNameserver()
       L<<Logger::Error<<"Setsockopt failed"<<endl;
       exit(1);  
     }
+
+#ifdef TCP_DEFER_ACCEPT
+    setsockopt(s, SOL_TCP, TCP_DEFER_ACCEPT, &tmp, sizeof tmp);
+#endif
+
     if( ::arg().mustDo("non-local-bind") )
 	Utility::setBindAny(AF_INET6, s);
     if(setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &tmp, sizeof(tmp)) < 0) {
