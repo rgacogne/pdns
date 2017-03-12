@@ -1233,7 +1233,15 @@ TCPNameserver::TCPNameserver()
       L<<Logger::Error<<"Setsockopt failed"<<endl;
       exit(1);  
     }
-    
+
+#ifdef SO_REUSEPORT
+    if(::arg().mustDo("reuseport")) {
+      if(setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &tmp, sizeof(tmp))<0) {
+        L<<Logger::Warning<<"Unable to enable TCP Fast Open for socket: "<<strerror(errno)<<endl;
+      }
+    }
+#endif
+
     if( ::arg().mustDo("non-local-bind") )
 	Utility::setBindAny(AF_INET, s);
 
@@ -1274,6 +1282,15 @@ TCPNameserver::TCPNameserver()
       L<<Logger::Error<<"Setsockopt failed"<<endl;
       exit(1);  
     }
+
+#ifdef SO_REUSEPORT
+    if(::arg().mustDo("reuseport")) {
+      if(setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &tmp, sizeof(tmp))<0) {
+        L<<Logger::Warning<<"Unable to enable TCP Fast Open for socket: "<<strerror(errno)<<endl;
+      }
+    }
+#endif
+
     if( ::arg().mustDo("non-local-bind") )
 	Utility::setBindAny(AF_INET6, s);
     if(setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &tmp, sizeof(tmp)) < 0) {
