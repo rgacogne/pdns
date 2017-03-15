@@ -1971,6 +1971,15 @@ struct
 
 std::atomic<bool> g_configurationDone{false};
 
+static void sigterm_handler(int signo, siginfo_t* info, void* context)
+{
+  cerr<<"Received signal "<<info->si_signo<<" with code "<<info->si_code<<" from PID "<<info->si_pid<<" and UID "<<info->si_uid<<", exiting."<<endl;
+#ifdef HAVE_SYSTEMD
+  sd_notify(0, "STOPPING=1");
+#endif
+  _exit(EXIT_SUCCESS);
+}
+
 int main(int argc, char** argv)
 try
 {
@@ -1981,6 +1990,15 @@ try
 
   signal(SIGPIPE, SIG_IGN);
   signal(SIGCHLD, SIG_IGN);
+
+  struct sigaction sa;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_handler = nullptr;
+  sa.sa_flags = SA_SIGINFO;
+  sa.sa_sigaction = &sigterm_handler;
+
+  sigaction(SIGTERM, &sa, nullptr);
+
   openlog("dnsdist", LOG_PID, LOG_DAEMON);
   g_console=true;
 
