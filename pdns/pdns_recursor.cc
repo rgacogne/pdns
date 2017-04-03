@@ -99,7 +99,7 @@ typedef map<ComboAddress, uint32_t, ComboAddress::addressOnlyLessThan> tcpClient
 
 static __thread shared_ptr<RecursorLua4>* t_pdl;
 static __thread unsigned int t_id;
-static __thread shared_ptr<Regex>* t_traceRegex;
+static __thread std::shared_ptr<Regex>* t_traceRegex;
 static __thread tcpClientCounts_t* t_tcpClientCounts;
 
 __thread MT_t* MT; // the big MTasker
@@ -135,7 +135,7 @@ static std::unordered_map<unsigned int, deferredAdd_t> deferredAdds;
 static set<int> g_fromtosockets; // listen sockets that use 'sendfromto()' mechanism
 static vector<ComboAddress> g_localQueryAddresses4, g_localQueryAddresses6;
 static AtomicCounter counter;
-static SyncRes::domainmap_t* g_initialDomainMap; // new threads needs this to be setup
+static std::shared_ptr<SyncRes::domainmap_t> g_initialDomainMap; // new threads needs this to be setup
 static NetmaskGroup* g_initialAllowFrom; // new thread needs to be setup with this
 static size_t g_tcpMaxQueriesPerConn;
 static uint64_t g_latencyStatSize;
@@ -155,11 +155,10 @@ static bool g_weDistributeQueries; // if true, only 1 thread listens on the inco
 static bool g_reusePort{false};
 static bool g_useOneSocketPerThread;
 static bool g_gettagNeedsEDNSOptions{false};
+static bool g_useIncomingECS;
 
-std::unordered_set<DNSName> g_delegationOnly;
 RecursorControlChannel s_rcc; // only active in thread 0
 RecursorStats g_stats;
-NetmaskGroup* g_dontQuery;
 string s_programname="pdns_recursor";
 string s_pidfname;
 unsigned int g_numThreads;
@@ -2070,7 +2069,7 @@ static void houseKeeping(void *)
 	time_t limit=now.tv_sec-300;
 	for(SyncRes::nsspeeds_t::iterator i = t_sstorage->nsSpeeds.begin() ; i!= t_sstorage->nsSpeeds.end(); )
 	  if(i->second.stale(limit))
-	    t_sstorage->nsSpeeds.erase(i++);
+	    i = t_sstorage->nsSpeeds.erase(i);
 	  else
 	    ++i;
       }
@@ -2530,7 +2529,7 @@ try
     return new string("unset\n");
   }
   else {
-    (*t_traceRegex) = shared_ptr<Regex>(new Regex(newRegex));
+    (*t_traceRegex) = std::make_shared<Regex>(newRegex);
     return new string("ok\n");
   }
 }
@@ -2672,7 +2671,7 @@ static void setupDelegationOnly()
   vector<string> parts;
   stringtok(parts, ::arg()["delegation-only"], ", \t");
   for(const auto& p : parts) {
-    g_delegationOnly.insert(DNSName(p));
+    SyncRes::addDelegationOnly(DNSName(p));
   }
 }
 
@@ -2751,7 +2750,6 @@ static int serviceMain(int argc, char*argv[])
   sortPublicSuffixList();
 
   if(!::arg()["dont-query"].empty()) {
-    g_dontQuery=new NetmaskGroup;
     vector<string> ips;
     stringtok(ips, ::arg()["dont-query"], ", ");
     ips.push_back("0.0.0.0");
@@ -2759,7 +2757,7 @@ static int serviceMain(int argc, char*argv[])
 
     L<<Logger::Warning<<"Will not send queries to: ";
     for(vector<string>::const_iterator i = ips.begin(); i!= ips.end(); ++i) {
-      g_dontQuery->addMask(*i);
+      SyncRes::addDontQuery(*i);
       if(i!=ips.begin())
         L<<Logger::Warning<<", ";
       L<<Logger::Warning<<*i;
@@ -2849,7 +2847,7 @@ static int serviceMain(int argc, char*argv[])
     makeTCPServerSockets(0);
   }
 
-  parseEDNSSubnetWhitelist(::arg()["edns-subnet-whitelist"]);
+  SyncRes::parseEDNSSubnetWhitelist(::arg()["edns-subnet-whitelist"]);
   g_useIncomingECS = ::arg().mustDo("use-incoming-edns-subnet");
 
   int forks;
@@ -2979,7 +2977,7 @@ try
     _exit(99);
   }
 
-  t_traceRegex = new shared_ptr<Regex>();
+  t_traceRegex = new std::shared_ptr<Regex>();
   unsigned int ringsize=::arg().asNum("stats-ringbuffer-entries") / g_numWorkerThreads;
   if(ringsize) {
     t_remotes = new addrringbuf_t();
