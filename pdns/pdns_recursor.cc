@@ -105,14 +105,14 @@ static thread_local std::unique_ptr<tcpClientCounts_t> t_tcpClientCounts;
 thread_local std::unique_ptr<MT_t> MT; // the big MTasker
 thread_local std::unique_ptr<MemRecursorCache> t_RC;
 thread_local std::unique_ptr<RecursorPacketCache> t_packetCache;
-thread_local FDMultiplexer* t_fdm;
+thread_local FDMultiplexer* t_fdm{nullptr};
 thread_local std::unique_ptr<addrringbuf_t> t_remotes, t_servfailremotes, t_largeanswerremotes;
 thread_local std::unique_ptr<boost::circular_buffer<pair<DNSName, uint16_t> > > t_queryring, t_servfailqueryring;
 thread_local std::shared_ptr<NetmaskGroup> t_allowFrom;
 #ifdef HAVE_PROTOBUF
 thread_local std::unique_ptr<boost::uuids::random_generator> t_uuidGenerator;
 #endif
-__thread struct timeval g_now; // timestamp, updated (too) frequently
+thread_local struct timeval g_now; // timestamp, updated (too) frequently
 
 // for communicating with our threads
 struct ThreadPipeSet
@@ -135,7 +135,8 @@ static std::unordered_map<unsigned int, deferredAdd_t> deferredAdds;
 static set<int> g_fromtosockets; // listen sockets that use 'sendfromto()' mechanism
 static vector<ComboAddress> g_localQueryAddresses4, g_localQueryAddresses6;
 static AtomicCounter counter;
-static std::shared_ptr<SyncRes::domainmap_t> g_initialDomainMap; // new threads needs this to be setup
+static std::shared_ptr<SyncRes::AuthAndForwardDomainsMap_t> g_initialAuthAndForwardDomainsMap; // new threads needs this to be setup
+
 static std::shared_ptr<NetmaskGroup> g_initialAllowFrom; // new thread needs to be setup with this
 static size_t g_tcpMaxQueriesPerConn;
 static uint64_t g_latencyStatSize;
@@ -2046,9 +2047,9 @@ static void doStats(void)
 
 static void houseKeeping(void *)
 {
-  static __thread time_t last_stat, last_rootupdate, last_prune, last_secpoll;
-  static __thread int cleanCounter=0;
-  static __thread bool s_running;  // houseKeeping can get suspended in secpoll, and be restarted, which makes us do duplicate work
+  static thread_local time_t last_stat, last_rootupdate, last_prune, last_secpoll;
+  static thread_local int cleanCounter=0;
+  static thread_local bool s_running;  // houseKeeping can get suspended in secpoll, and be restarted, which makes us do duplicate work
   try {
     if(s_running)
       return;
@@ -2807,7 +2808,7 @@ static int serviceMain(int argc, char*argv[])
 
   g_networkTimeoutMsec = ::arg().asNum("network-timeout");
 
-  g_initialDomainMap = parseAuthAndForwards();
+  g_initialAuthAndForwardDomainsMap = parseAuthAndForwards();
 
   g_latencyStatSize=::arg().asNum("latency-statistic-size");
 
@@ -2945,7 +2946,7 @@ try
 {
   t_id=(int) (long) ptr;
   SyncRes tmp(g_now); // make sure it allocates tsstorage before we do anything, like primeHints or so..
-  SyncRes::t_sstorage.domainmap = g_initialDomainMap;
+  SyncRes::setAuthAndForwardDomainsMap(g_initialAuthAndForwardDomainsMap);
   t_allowFrom = g_initialAllowFrom;
   t_udpclientsocks = std::unique_ptr<UDPClientSocks>(new UDPClientSocks());
   t_tcpClientCounts = std::unique_ptr<tcpClientCounts_t>(new tcpClientCounts_t());

@@ -116,36 +116,50 @@ static void apiServerConfigAllowFrom(HttpRequest* req, HttpResponse* resp)
 
 static void fillZone(const DNSName& zonename, HttpResponse* resp)
 {
-  auto iter = SyncRes::t_sstorage.domainmap->find(zonename);
-  if (iter == SyncRes::t_sstorage.domainmap->end())
+  const auto& map = SyncRes::getAuthAndForwardDomainsMap();
+  
+  const auto *ptr = map->lookup(zonename);
+  if (ptr == nullptr) {
     throw ApiException("Could not find domain '"+zonename.toString()+"'");
-
-  const SyncRes::AuthDomain& zone = iter->second;
-
-  Json::array servers;
-  for(const ComboAddress& server : zone.d_servers) {
-    servers.push_back(server.toStringWithPort());
   }
 
+  Json::array servers;
   Json::array records;
-  for(const SyncRes::AuthDomain::records_t::value_type& dr : zone.d_records) {
-    records.push_back(Json::object {
-      { "name", dr.d_name.toString() },
-      { "type", DNSRecordContent::NumberToType(dr.d_type) },
-      { "ttl", (double)dr.d_ttl },
-      { "content", dr.d_content->getZoneRepresentation() }
-    });
+  DNSName name;
+  bool rd = false;
+  bool auth = false;
+
+  if (ptr->type() == typeid(SyncRes::AuthDomain)) {
+    const SyncRes::AuthDomain* domain = boost::get<SyncRes::AuthDomain>(ptr);
+    auth = true;
+    name = domain->getName();
+    for(const auto& dr : domain->d_records) {
+      records.push_back(Json::object {
+          { "name", dr.d_name.toString() },
+          { "type", DNSRecordContent::NumberToType(dr.d_type) },
+          { "ttl", (double)dr.d_ttl },
+          { "content", dr.d_content->getZoneRepresentation() }
+        });
+    }
+  }
+  else {
+    const SyncRes::ForwardDomain* domain = boost::get<SyncRes::ForwardDomain>(ptr);
+    name = domain->getName();
+    rd = domain->d_rd;
+    for(const ComboAddress& server : domain->d_servers) {
+      servers.push_back(server.toStringWithPort());
+    }
   }
 
   // id is the canonical lookup key, which doesn't actually match the name (in some cases)
-  string zoneId = apiZoneNameToId(iter->first);
+  string zoneId = apiZoneNameToId(name);
   Json::object doc = {
     { "id", zoneId },
     { "url", "/api/v1/servers/localhost/zones/" + zoneId },
-    { "name", iter->first.toString() },
-    { "kind", zone.d_servers.empty() ? "Native" : "Forwarded" },
+    { "name", name.toString() },
+    { "kind", auth ? "Native" : "Forwarded" },
     { "servers", servers },
-    { "recursion_desired", zone.d_servers.empty() ? false : zone.d_rdForward },
+    { "recursion_desired", rd },
     { "records", records }
   };
 
@@ -242,6 +256,7 @@ static bool doDeleteZone(const DNSName& zonename)
 
 static void apiServerZones(HttpRequest* req, HttpResponse* resp)
 {
+  const auto& map = SyncRes::getAuthAndForwardDomainsMap();
   if (req->method == "POST" && !::arg().mustDo("api-readonly")) {
     if (::arg()["api-config-dir"].empty()) {
       throw ApiException("Config Option \"api-config-dir\" must be set");
@@ -250,10 +265,11 @@ static void apiServerZones(HttpRequest* req, HttpResponse* resp)
     Json document = req->json();
 
     DNSName zonename = apiNameToDNSName(stringFromJson(document, "name"));
-
-    auto iter = SyncRes::t_sstorage.domainmap->find(zonename);
-    if (iter != SyncRes::t_sstorage.domainmap->end())
+  
+    const auto *ptr = map->lookup(zonename);
+    if (ptr != nullptr) {
       throw ApiException("Zone already exists");
+    }
 
     doCreateZone(document);
     reloadAuthAndForwards();
@@ -266,23 +282,36 @@ static void apiServerZones(HttpRequest* req, HttpResponse* resp)
     throw HttpMethodNotAllowedException();
 
   Json::array doc;
-  for(const SyncRes::domainmap_t::value_type& val :  *SyncRes::t_sstorage.domainmap) {
-    const SyncRes::AuthDomain& zone = val.second;
-    Json::array servers;
-    for(const ComboAddress& server : zone.d_servers) {
-      servers.push_back(server.toStringWithPort());
-    }
-    // id is the canonical lookup key, which doesn't actually match the name (in some cases)
-    string zoneId = apiZoneNameToId(val.first);
-    doc.push_back(Json::object {
-      { "id", zoneId },
-      { "url", "/api/v1/servers/localhost/zones/" + zoneId },
-      { "name", val.first.toString() },
-      { "kind", zone.d_servers.empty() ? "Native" : "Forwarded" },
-      { "servers", servers },
-      { "recursion_desired", zone.d_servers.empty() ? false : zone.d_rdForward }
-    });
-  }
+  map->visit([&doc](const SuffixMatchTree<boost::variant<SyncRes::AuthDomain,SyncRes::ForwardDomain>>& node) {
+               DNSName name;
+               bool rd = false;
+               bool isAuth = false;
+               Json::array servers;
+               if (node.d_value.type() == typeid(SyncRes::AuthDomain)) {
+                 const auto* auth = boost::get<SyncRes::AuthDomain>(&node.d_value);
+                 name = auth->getName();
+                 isAuth = true;
+               } else {
+                 const auto* domain = boost::get<SyncRes::ForwardDomain>(&node.d_value);
+                 name = domain->getName();
+                 rd = domain->d_rd;
+                 for(const ComboAddress& server : domain->d_servers) {
+                   servers.push_back(server.toStringWithPort());
+                 }
+               }
+                 
+               // id is the canonical lookup key, which doesn't actually match the name (in some cases)
+               string zoneId = apiZoneNameToId(name);
+               doc.push_back(Json::object {
+                   { "id", zoneId },
+                   { "url", "/api/v1/servers/localhost/zones/" + zoneId },
+                   { "name", name.toString() },
+                   { "kind", isAuth ? "Native" : "Forwarded" },
+                   { "servers", servers },
+                   { "recursion_desired", rd }
+                 });
+             });
+
   resp->setBody(doc);
 }
 
@@ -290,9 +319,11 @@ static void apiServerZoneDetail(HttpRequest* req, HttpResponse* resp)
 {
   DNSName zonename = apiZoneIdToName(req->parameters["id"]);
 
-  SyncRes::domainmap_t::const_iterator iter = SyncRes::t_sstorage.domainmap->find(zonename);
-  if (iter == SyncRes::t_sstorage.domainmap->end())
+  const auto& map = SyncRes::getAuthAndForwardDomainsMap();
+  const auto *ptr = map->lookup(zonename);
+  if (ptr == nullptr) {
     throw ApiException("Could not find domain '"+zonename.toString()+"'");
+  }
 
   if(req->method == "PUT" && !::arg().mustDo("api-readonly")) {
     Json document = req->json();
@@ -328,37 +359,46 @@ static void apiServerSearchData(HttpRequest* req, HttpResponse* resp) {
     throw ApiException("Query q can't be blank");
 
   Json::array doc;
-  for(const SyncRes::domainmap_t::value_type& val : *SyncRes::t_sstorage.domainmap) {
-    string zoneId = apiZoneNameToId(val.first);
-    string zoneName = val.first.toString();
-    if (pdns_ci_find(zoneName, q) != string::npos) {
-      doc.push_back(Json::object {
-        { "type", "zone" },
-        { "zone_id", zoneId },
-        { "name", zoneName }
-      });
-    }
+  const auto& map = SyncRes::getAuthAndForwardDomainsMap();
+  map->visit([q,&doc](const SuffixMatchTree<boost::variant<SyncRes::AuthDomain,SyncRes::ForwardDomain>>& node) {
+               DNSName name;
+               const SyncRes::AuthDomain* auth = nullptr;
+               if (node.d_value.type() == typeid(SyncRes::AuthDomain)) {
+                 auth = boost::get<SyncRes::AuthDomain>(&node.d_value);
+                 name = auth->getName();
+               } else {
+                 const auto* domain = boost::get<SyncRes::ForwardDomain>(&node.d_value);
+                 name = domain->getName();
+               }
+               string zoneId = apiZoneNameToId(name);
+               string zoneName = name.toString();
+               if (pdns_ci_find(zoneName, q) != string::npos) {
+                 doc.push_back(Json::object {
+                     { "type", "zone" },
+                     { "zone_id", zoneId },
+                     { "name", zoneName }
+                   });
+               }
 
-    // if zone name is an exact match, don't bother with returning all records/comments in it
-    if (val.first == DNSName(q)) {
-      continue;
-    }
+               // if zone name is an exact match, don't bother with returning all records/comments in it
+               if (auth == nullptr || name == DNSName(q)) {
+                 return;                 
+               }
 
-    const SyncRes::AuthDomain& zone = val.second;
+               for(const auto& rr : auth->d_records) {
+                 if (pdns_ci_find(rr.d_name.toString(), q) == string::npos && pdns_ci_find(rr.d_content->getZoneRepresentation(), q) == string::npos)
+                   continue;
 
-    for(const SyncRes::AuthDomain::records_t::value_type& rr : zone.d_records) {
-      if (pdns_ci_find(rr.d_name.toString(), q) == string::npos && pdns_ci_find(rr.d_content->getZoneRepresentation(), q) == string::npos)
-        continue;
+                 doc.push_back(Json::object {
+                     { "type", "record" },
+                     { "zone_id", zoneId },
+                     { "zone_name", zoneName },
+                     { "name", rr.d_name.toString() },
+                     { "content", rr.d_content->getZoneRepresentation() }
+                   });
+               }
+             });
 
-      doc.push_back(Json::object {
-        { "type", "record" },
-        { "zone_id", zoneId },
-        { "zone_name", zoneName },
-        { "name", rr.d_name.toString() },
-        { "content", rr.d_content->getZoneRepresentation() }
-      });
-    }
-  }
   resp->setBody(doc);
 }
 

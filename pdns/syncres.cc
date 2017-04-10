@@ -34,15 +34,25 @@
 #include "rec-lua-conf.hh"
 #include "syncres.hh"
 
-thread_local SyncRes::StaticStorage SyncRes::t_sstorage;
 thread_local SyncRes::nsspeeds_t SyncRes::t_nsSpeeds;
 thread_local SyncRes::throttle_t SyncRes::t_throttle;
 thread_local SyncRes::ednsstatus_t SyncRes::t_ednsstatus;
 thread_local SyncRes::fails_t SyncRes::t_fails;
 thread_local NegCache SyncRes::t_negcache;
+thread_local std::shared_ptr<SyncRes::AuthAndForwardDomainsMap_t> SyncRes::t_authAndForwardDomains;
 
+std::unordered_set<DNSName> SyncRes::s_delegationOnly;
+std::unique_ptr<NetmaskGroup> SyncRes::s_dontQuery{nullptr};
+NetmaskGroup SyncRes::s_ednssubnets;
+SuffixMatchNode SyncRes::s_ednsdomains;
+string SyncRes::s_serverID;
+SyncRes::LogMode SyncRes::s_lm;
 unsigned int SyncRes::s_maxnegttl;
 unsigned int SyncRes::s_maxcachettl;
+unsigned int SyncRes::s_maxqperq;
+unsigned int SyncRes::s_maxtotusec;
+unsigned int SyncRes::s_maxdepth;
+unsigned int SyncRes::s_minimumTTL;
 unsigned int SyncRes::s_packetcachettl;
 unsigned int SyncRes::s_packetcacheservfailttl;
 unsigned int SyncRes::s_serverdownmaxfails;
@@ -59,23 +69,12 @@ std::atomic<uint64_t> SyncRes::s_nodelegated;
 std::atomic<uint64_t> SyncRes::s_unreachables;
 uint8_t SyncRes::s_ecsipv4limit;
 uint8_t SyncRes::s_ecsipv6limit;
-unsigned int SyncRes::s_minimumTTL;
 bool SyncRes::s_doIPv6;
 bool SyncRes::s_nopacketcache;
 bool SyncRes::s_rootNXTrust;
-unsigned int SyncRes::s_maxqperq;
-unsigned int SyncRes::s_maxtotusec;
-unsigned int SyncRes::s_maxdepth;
-string SyncRes::s_serverID;
-SyncRes::LogMode SyncRes::s_lm;
-std::unordered_set<DNSName> SyncRes::s_delegationOnly;
-std::unique_ptr<NetmaskGroup> SyncRes::s_dontQuery{nullptr};
-NetmaskGroup SyncRes::s_ednssubnets;
-SuffixMatchNode SyncRes::s_ednsdomains;
+bool SyncRes::s_noEDNS;
 
 #define LOG(x) if(d_lm == Log) { L <<Logger::Warning << x; } else if(d_lm == Store) { d_trace << x; }
-
-bool SyncRes::s_noEDNS;
 
 static void accountAuthLatency(int usec, int family)
 {
@@ -104,7 +103,6 @@ static void accountAuthLatency(int usec, int family)
   }
 
 }
-
 
 SyncRes::SyncRes(const struct timeval& now) :  d_outqueries(0), d_tcpoutqueries(0), d_throttledqueries(0), d_timeouts(0), d_unreachables(0),
 					       d_totUsec(0), d_now(now),
@@ -203,113 +201,152 @@ bool SyncRes::doSpecialNamesResolve(const DNSName &qname, const QType &qtype, co
   return handled;
 }
 
-
-//! This is the 'out of band resolver', in other words, the authoritative server
-bool SyncRes::doOOBResolve(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, int& res)
+void SyncRes::AuthDomain::addSOA(std::vector<DNSRecord>& records) const
 {
-  string prefix;
-  if(doLog()) {
-    prefix=d_prefix;
-    prefix.append(depth, ' ');
+  SyncRes::AuthDomain::records_t::const_iterator ziter = d_records.find(boost::make_tuple(getName(), QType::SOA));
+  if (ziter != d_records.end()) {
+    DNSRecord dr = *ziter;
+    dr.d_place = DNSResourceRecord::AUTHORITY;
+    records.push_back(dr);
   }
-
-  LOG(prefix<<qname<<": checking auth storage for '"<<qname<<"|"<<qtype.getName()<<"'"<<endl);
-  DNSName authdomain(qname);
-
-  domainmap_t::const_iterator iter=getBestAuthZone(&authdomain);
-  if(iter==t_sstorage.domainmap->end()) {
-    LOG(prefix<<qname<<": auth storage has no zone for this query!"<<endl);
-    return false;
+  else {
+    // cerr<<qname<<": can't find SOA record '"<<getName()<<"' in our zone!"<<endl;
   }
-  LOG(prefix<<qname<<": auth storage has data, zone='"<<authdomain<<"'"<<endl);
-  pair<AuthDomain::records_t::const_iterator, AuthDomain::records_t::const_iterator> range;
+}
 
-  range=iter->second.d_records.equal_range(tie(qname)); // partial lookup
+int SyncRes::AuthDomain::getRecords(const DNSName& qname, uint16_t qtype, std::vector<DNSRecord>& records) const
+{
+  int result = RCode::NoError;
+  records.clear();
 
-  ret.clear();
-  AuthDomain::records_t::const_iterator ziter;
-  bool somedata=false;
-  for(ziter=range.first; ziter!=range.second; ++ziter) {
-    somedata=true;
-    if(qtype.getCode()==QType::ANY || ziter->d_type==qtype.getCode() || ziter->d_type==QType::CNAME)  // let rest of nameserver do the legwork on this one
-      ret.push_back(*ziter);
-    else if(ziter->d_type == QType::NS && ziter->d_name.countLabels() > authdomain.countLabels()) { // we hit a delegation point!
-      DNSRecord dr=*ziter;
+  // partial lookup
+  std::pair<records_t::const_iterator,records_t::const_iterator> range = d_records.equal_range(tie(qname));
+
+  SyncRes::AuthDomain::records_t::const_iterator ziter;
+  bool somedata = false;
+
+  for(ziter = range.first; ziter != range.second; ++ziter) {
+    somedata = true;
+
+    if(qtype == QType::ANY || ziter->d_type == qtype || ziter->d_type == QType::CNAME) {
+      // let rest of nameserver do the legwork on this one
+      records.push_back(*ziter);
+    }
+    else if (ziter->d_type == QType::NS && ziter->d_name.countLabels() > getName().countLabels()) {
+      // we hit a delegation point!
+      DNSRecord dr = *ziter;
       dr.d_place=DNSResourceRecord::AUTHORITY;
-      ret.push_back(dr);
+      records.push_back(dr);
     }
   }
-  if(!ret.empty()) {
-    LOG(prefix<<qname<<": exact match in zone '"<<authdomain<<"'"<<endl);
-    res=0;
-    return true;
-  }
-  if(somedata) {
-    LOG(prefix<<qname<<": found record in '"<<authdomain<<"', but nothing of the right type, sending SOA"<<endl);
-    ziter=iter->second.d_records.find(boost::make_tuple(authdomain, QType::SOA));
-    if(ziter!=iter->second.d_records.end()) {
-      DNSRecord dr=*ziter;
-      dr.d_place=DNSResourceRecord::AUTHORITY;
-      ret.push_back(dr);
-    }
-    else
-      LOG(prefix<<qname<<": can't find SOA record '"<<authdomain<<"' in our zone!"<<endl);
-    res=RCode::NoError;
-    return true;
+
+  if (!records.empty()) {
+    /* We have found an exact match, we're done */
+    // cerr<<qname<<": exact match in zone '"<<getName()<<"'"<<endl;
+    return result;
   }
 
-  LOG(prefix<<qname<<": nothing found so far in '"<<authdomain<<"', trying wildcards"<<endl);
+  if (somedata) {
+    /* We have records for that name, but not of the wanted qtype */
+    // cerr<<qname<<": found record in '"<<getName()<<"', but nothing of the right type, sending SOA"<<endl;
+    addSOA(records);
+
+    return result;
+  }
+
+  // cerr<<qname<<": nothing found so far in '"<<getName()<<"', trying wildcards"<<endl;
   DNSName wcarddomain(qname);
-  while(wcarddomain != iter->first && wcarddomain.chopOff()) {
-    LOG(prefix<<qname<<": trying '*."<<wcarddomain<<"' in "<<authdomain<<endl);
-    range=iter->second.d_records.equal_range(boost::make_tuple(g_wildcarddnsname+wcarddomain));
-    if(range.first==range.second)
+  while(wcarddomain != getName() && wcarddomain.chopOff()) {
+    // cerr<<qname<<": trying '*."<<wcarddomain<<"' in "<<getName()<<endl;
+    range = d_records.equal_range(boost::make_tuple(g_wildcarddnsname + wcarddomain));
+    if (range.first==range.second)
       continue;
 
-    for(ziter=range.first; ziter!=range.second; ++ziter) {
-      DNSRecord dr=*ziter;
+    for(ziter = range.first; ziter != range.second; ++ziter) {
+      DNSRecord dr = *ziter;
       // if we hit a CNAME, just answer that - rest of recursor will do the needful & follow
-      if(dr.d_type == qtype.getCode() || qtype.getCode() == QType::ANY || dr.d_type == QType::CNAME) {
+      if(dr.d_type == qtype || qtype == QType::ANY || dr.d_type == QType::CNAME) {
         dr.d_name = qname;
-        dr.d_place=DNSResourceRecord::ANSWER;
-        ret.push_back(dr);
+        dr.d_place = DNSResourceRecord::ANSWER;
+        records.push_back(dr);
       }
     }
-    LOG(prefix<<qname<<": in '"<<authdomain<<"', had wildcard match on '*."<<wcarddomain<<"'"<<endl);
-    res=RCode::NoError;
-    return true;
+
+    if (records.empty()) {
+      addSOA(records);
+    }
+
+    // cerr<<qname<<": in '"<<getName()<<"', had wildcard match on '*."<<wcarddomain<<"'"<<endl;
+    return result;
   }
 
+  /* Nothing for this name, no wildcard, let's see if there is some NS */
   DNSName nsdomain(qname);
-
-  while(nsdomain.chopOff() && nsdomain != iter->first) {
-    range=iter->second.d_records.equal_range(boost::make_tuple(nsdomain,QType::NS));
-    if(range.first==range.second)
+  while (nsdomain.chopOff() && nsdomain != getName()) {
+    range = d_records.equal_range(boost::make_tuple(nsdomain,QType::NS));
+    if(range.first == range.second)
       continue;
 
-    for(ziter=range.first; ziter!=range.second; ++ziter) {
-      DNSRecord dr=*ziter;
-      dr.d_place=DNSResourceRecord::AUTHORITY;
-      ret.push_back(dr);
+    for(ziter = range.first; ziter != range.second; ++ziter) {
+      DNSRecord dr = *ziter;
+      dr.d_place = DNSResourceRecord::AUTHORITY;
+      records.push_back(dr);
     }
   }
-  if(ret.empty()) {
-    LOG(prefix<<qname<<": no NS match in zone '"<<authdomain<<"' either, handing out SOA"<<endl);
-    ziter=iter->second.d_records.find(boost::make_tuple(authdomain, QType::SOA));
-    if(ziter!=iter->second.d_records.end()) {
-      DNSRecord dr=*ziter;
-      dr.d_place=DNSResourceRecord::AUTHORITY;
-      ret.push_back(dr);
-    }
-    else {
-      LOG(prefix<<qname<<": can't find SOA record '"<<authdomain<<"' in our zone!"<<endl);
-    }
-    res=RCode::NXDomain;
-  }
-  else
-    res=0;
 
+  if(records.empty()) {
+    // cerr<<qname<<": no NS match in zone '"<<getName()<<"' either, handing out SOA"<<endl;
+    addSOA(records);
+    result = RCode::NXDomain;
+  }
+
+  return result;
+}
+
+//! This is the 'out of band resolver', in other words, the authoritative server
+bool SyncRes::doOOBResolve(const AuthDomain& domain, const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, int& res) const
+{
+  res = domain.getRecords(qname, qtype.getCode(), ret);
   return true;
+}
+
+bool SyncRes::doOOBResolve(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, int& res) const
+{
+  const boost::variant<AuthDomain,ForwardDomain>* authOrForward = nullptr;
+  DNSName authdomain(qname);
+
+  if (getAuthOrForwardDomain(&authdomain, &authOrForward)) {
+    if (authOrForward->type() == typeid(AuthDomain)) {
+      const AuthDomain* domain = boost::get<AuthDomain>(authOrForward);
+      
+      return doOOBResolve(*domain, qname, qtype, ret, res);
+    }
+  }
+
+  return false;
+}
+
+bool SyncRes::getAuthOrForwardDomain(DNSName* qname, const boost::variant<AuthDomain, ForwardDomain>** ptr) const
+{
+  *ptr = t_authAndForwardDomains->lookup(*qname);
+  if (*ptr == nullptr) {
+    return false;
+  }
+  if ((*ptr)->type() == typeid(AuthDomain)) {
+    const AuthDomain* domain = boost::get<AuthDomain>(*ptr);
+    *qname = domain->getName();
+  }
+  else {
+    const ForwardDomain* domain = boost::get<ForwardDomain>(*ptr);
+    *qname = domain->getName();
+  }
+  return true;
+}
+
+bool SyncRes::isAuthOrForwardDomain(DNSName* qname) const
+{
+  const boost::variant<AuthDomain, ForwardDomain>* ptr = nullptr;
+  return getAuthOrForwardDomain(qname, &ptr);
 }
 
 void SyncRes::doEDNSDumpAndClose(int fd)
@@ -486,22 +523,19 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
   // This is a difficult way of expressing "this is a normal query", i.e. not getRootNS.
   if(!(d_nocache && qtype.getCode()==QType::NS && qname.isRoot())) {
     if(d_cacheonly) { // very limited OOB support
-      LWResult lwr;
       LOG(prefix<<qname<<": Recursion not requested for '"<<qname<<"|"<<qtype.getName()<<"', peeking at auth/forward zones"<<endl);
-      DNSName authname(qname);
-      domainmap_t::const_iterator iter=getBestAuthZone(&authname);
-      if(iter != t_sstorage.domainmap->end()) {
-        const vector<ComboAddress>& servers = iter->second.d_servers;
-        if(servers.empty()) {
-          ret.clear();
-          d_wasOutOfBand = doOOBResolve(qname, qtype, ret, depth, res);
-          return res;
-        }
-        else {
-          const ComboAddress remoteIP = servers.front();
-          LOG(prefix<<qname<<": forwarding query to hardcoded nameserver '"<< remoteIP.toStringWithPort()<<"' for zone '"<<authname<<"'"<<endl);
 
+      const boost::variant<AuthDomain, ForwardDomain>* authOrForward = nullptr;
+      DNSName authname(qname);
+      if (getAuthOrForwardDomain(&authname, &authOrForward)) {
+        if (authOrForward->type() == typeid(ForwardDomain)) {
+          const ForwardDomain* fwd = boost::get<ForwardDomain>(authOrForward);
+          const ComboAddress remoteIP = fwd->d_servers.front();
+          LOG(prefix<<qname<<": forwarding query to hardcoded nameserver '"<< remoteIP.toStringWithPort()<<"' for zone '"<<fwd->getName()<<"'"<<endl);
+
+          LWResult lwr;
           boost::optional<Netmask> nm;
+          /* don't forget, this is a cache-only query so no RD here! */
           res=asyncresolveWrapper(remoteIP, d_doDNSSEC, qname, qtype.getCode(), false, false, &d_now, nm, &lwr);
           // filter out the good stuff from lwr.result()
           if (res == 1) {
@@ -509,11 +543,17 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
               if(rec.d_place == DNSResourceRecord::ANSWER)
                 ret.push_back(rec);
             }
-            return 0;
+            return RCode::NoError;
           }
           else {
             return RCode::ServFail;
           }
+        }
+        else if (authOrForward->type() == typeid(AuthDomain)) {
+          const AuthDomain* authZone = boost::get<AuthDomain>(authOrForward);
+          ret.clear();
+          d_wasOutOfBand = doOOBResolve(*authZone, qname, qtype, ret, res);
+          return res;
         }
       }
     }
@@ -538,7 +578,7 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
 
   // the two retries allow getBestNSNamesFromCache&co to reprime the root
   // hints, in case they ever go missing
-  for(int tries=0;tries<2 && nsset.empty();++tries) {
+  for(size_t tries = 0; tries < 2 && nsset.empty(); ++tries) {
     subdomain=getBestNSNamesFromCache(subdomain, qtype, nsset, &flawedNSSet, depth, beenthere); //  pass beenthere to both occasions
   }
 
@@ -715,34 +755,24 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
   }while(subdomain.chopOff());
 }
 
-SyncRes::domainmap_t::const_iterator SyncRes::getBestAuthZone(DNSName* qname) const
-{
-  SyncRes::domainmap_t::const_iterator ret;
-  do {
-    ret=t_sstorage.domainmap->find(*qname);
-    if(ret!=t_sstorage.domainmap->end())
-      break;
-  }while(qname->chopOff());
-  return ret;
-}
-
 /** doesn't actually do the work, leaves that to getBestNSFromCache */
 DNSName SyncRes::getBestNSNamesFromCache(const DNSName &qname, const QType& qtype, NsSet& nsset, bool* flawedNSSet, unsigned int depth, set<GetBestNSAnswer>&beenthere)
 {
   DNSName subdomain(qname);
   DNSName authdomain(qname);
-
-  domainmap_t::const_iterator iter=getBestAuthZone(&authdomain);
-  if(iter!=t_sstorage.domainmap->end()) {
-    if( iter->second.d_servers.empty() )
+  
+  const boost::variant<AuthDomain,ForwardDomain>* authOrForward = nullptr;
+  if (getAuthOrForwardDomain(&authdomain, &authOrForward)) {
+    if (authOrForward->type() == typeid(AuthDomain)) {
       // this gets picked up in doResolveAt, the empty DNSName, combined with the
       // empty vector means 'we are auth for this zone'
-      nsset.insert({DNSName(), {{}, false}});
-    else {
+      nsset.insert({DNSName(), {{}, false }});
+    } else {
+      const ForwardDomain* forward = boost::get<ForwardDomain>(authOrForward);
       // Again, picked up in doResolveAt. An empty DNSName, combined with a
       // non-empty vector of ComboAddresses means 'this is a forwarded domain'
       // This is actually picked up in retrieveAddressesForNS called from doResolveAt.
-      nsset.insert({DNSName(), {iter->second.d_servers, iter->second.d_rdForward}});
+      nsset.insert({DNSName(), {forward->d_servers, forward->d_rd}});
     }
     return authdomain;
   }
@@ -843,8 +873,8 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSR
   //  cout<<"Lookup for '"<<qname<<"|"<<qtype.getName()<<"' -> "<<getLastLabel(qname)<<endl;
 
   DNSName authname(qname);
-  bool wasForwardedOrAuth = (getBestAuthZone(&authname) != t_sstorage.domainmap->end());
   NegCache::NegCacheEntry ne;
+  bool wasForwardedOrAuth = isAuthOrForwardDomain(&authname);
 
   if(s_rootNXTrust &&
      t_negcache.getRootNXTrust(qname, d_now, ne) &&
@@ -1163,25 +1193,22 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(const std::string& prefix, LWResu
       }
       else {
         bool haveLogged = false;
-        if (!t_sstorage.domainmap->empty()) {
-          // Check if we are authoritative for a zone in this answer
-          DNSName tmp_qname(rec.d_name);
-          auto auth_domain_iter=getBestAuthZone(&tmp_qname);
-          if(auth_domain_iter!=t_sstorage.domainmap->end() &&
-             auth.countLabels() <= auth_domain_iter->first.countLabels()) {
-            if (auth_domain_iter->first != auth) {
-              LOG("NO! - we are authoritative for the zone "<<auth_domain_iter->first<<endl);
-              continue;
+        // Check if we are authoritative for a zone in this answer
+        DNSName tmp_qname(rec.d_name);
+        if (isAuthOrForwardDomain(&tmp_qname) &&
+            auth.countLabels() <= tmp_qname.countLabels()) {
+          if (tmp_qname != auth) {
+            LOG("NO! - we are authoritative for the zone "<<tmp_qname<<endl);
+            continue;
+          } else {
+            LOG("YES! - This answer was ");
+            if (!wasForwarded) {
+              LOG("retrieved from the local auth store.");
             } else {
-              LOG("YES! - This answer was ");
-              if (!wasForwarded) {
-                LOG("retrieved from the local auth store.");
-              } else {
-                LOG("received from a server we forward to.");
-              }
-              haveLogged = true;
-              LOG(endl);
+              LOG("received from a server we forward to.");
             }
+            haveLogged = true;
+            LOG(endl);
           }
         }
         if (!haveLogged) {
@@ -1424,7 +1451,7 @@ bool SyncRes::doResolveAtThisIP(const std::string& prefix, const DNSName& qname,
     return false;
   }
 
-  /* this server sent a valid answer, mark it backup up if it was down */
+  /* this server sent a valid answer back, mark it back up if it was marked down */
   if(s_serverdownmaxfails > 0) {
     t_fails.clear(remoteIP);
   }
@@ -1568,7 +1595,7 @@ int SyncRes::doResolveAt(NsSet &nameservers, DNSName auth, bool flawedNSSet, con
   LOG(endl);
 
   for(;;) { // we may get more specific nameservers
-    vector<DNSName > rnameservers = shuffleInSpeedOrder(nameservers, doLog() ? (prefix+qname.toString()+": ") : string() );
+    vector<DNSName > rnameservers = shuffleInSpeedOrder(nameservers, doLog() ? (prefix+qname.toStringNoDot()+": ") : string() );
 
     for(auto tns=rnameservers.cbegin();;++tns) {
       if(tns==rnameservers.cend()) {
@@ -1601,7 +1628,7 @@ int SyncRes::doResolveAt(NsSet &nameservers, DNSName auth, bool flawedNSSet, con
 
       if(tns->empty() && !wasForwarded) {
         LOG(prefix<<qname<<": Domain is out-of-band"<<endl);
-        d_wasOutOfBand = doOOBResolve(qname, qtype, lwr.d_records, depth, lwr.d_rcode);
+        d_wasOutOfBand = doOOBResolve(qname, qtype, lwr.d_records, lwr.d_rcode);
         lwr.d_tcbit=false;
         lwr.d_aabit=true;
 
