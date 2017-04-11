@@ -125,7 +125,8 @@ static void makeNameToIPZone(std::shared_ptr<SyncRes::domainmap_t> newMap, const
   }
   else {
     L<<Logger::Warning<<"Inserting forward zone '"<<dr.d_name<<"' based on hosts file"<<endl;
-    (*newMap)[dr.d_name]=ad;
+    ad.d_name=dr.d_name;
+    (*newMap)[ad.d_name]=ad;
   }
 }
 
@@ -171,7 +172,8 @@ static void makeIPToNamesZone(std::shared_ptr<SyncRes::domainmap_t> newMap, cons
   else {
     if(ipparts.size()==4)
       L<<Logger::Warning<<"Inserting reverse zone '"<<dr.d_name<<"' based on hosts file"<<endl;
-    (*newMap)[dr.d_name]=ad;
+    ad.d_name = dr.d_name;
+    (*newMap)[ad.d_name]=ad;
   }
 }
 
@@ -442,8 +444,9 @@ std::shared_ptr<SyncRes::domainmap_t> parseAuthAndForwards()
           ad.d_rdForward = true;
         }
       }
-      
-      (*newMap)[DNSName(headers.first)]=ad; 
+
+      ad.d_name = DNSName(headers.first);
+      (*newMap)[ad.d_name]=ad;
     }
   }
   
@@ -490,7 +493,8 @@ std::shared_ptr<SyncRes::domainmap_t> parseAuthAndForwards()
         throw PDNSException("Conversion error parsing line "+std::to_string(linenum)+" of " +::arg()["forward-zones-file"]);
       }
 
-      (*newMap)[DNSName(domain)]=ad;
+      ad.d_name = DNSName(domain);
+      (*newMap)[ad.d_name]=ad;
     }
     L<<Logger::Warning<<"Done parsing " << newMap->size() - before<<" forwarding instructions from file '"<<::arg()["forward-zones-file"]<<"'"<<endl;
   }
