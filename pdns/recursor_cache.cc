@@ -34,7 +34,7 @@ unsigned int MemRecursorCache::bytes()
 }
 
 // returns -1 for no hits
-int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, vector<DNSRecord>* res, const ComboAddress& who, vector<std::shared_ptr<RRSIGRecordContent>>* signatures)
+int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, vector<DNSRecord>* res, const ComboAddress& who, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, vState* state)
 {
   time_t ttd=0;
   //  cerr<<"looking up "<< qname<<"|"+qt.getName()<<"\n";
@@ -71,7 +71,7 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
 	    DNSRecord dr;
 	    dr.d_name = qname;
 	    dr.d_type = i->d_qtype;
-	    dr.d_class = 1;
+	    dr.d_class = QClass::IN;
 	    dr.d_content = *k; 
 	    dr.d_ttl = static_cast<uint32_t>(i->d_ttd);
 	    dr.d_place = DNSResourceRecord::ANSWER;
@@ -86,6 +86,9 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
             moveCacheItemToFront(d_cache, i);
           else
             moveCacheItemToBack(d_cache, i);
+        }
+        if(state) {
+          *state = i->d_state;
         }
         if(qt.getCode()!=QType::ANY && qt.getCode()!=QType::ADDR) // normally if we have a hit, we are done
           break;
@@ -127,7 +130,7 @@ bool MemRecursorCache::attemptToRefreshNSTTL(const QType& qt, const vector<DNSRe
   return true;
 }
 
-void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt,  const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, bool auth, boost::optional<Netmask> ednsmask)
+void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt,  const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, bool auth, boost::optional<Netmask> ednsmask, vState state)
 {
   d_cachecachevalid=false;
   cache_t::iterator stored;
@@ -143,6 +146,7 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
   CacheEntry ce=*stored; // this is a COPY
   ce.d_qtype=qt.getCode();
   ce.d_signatures=signatures;
+  ce.d_state=state;
   
   //  cerr<<"asked to store "<< (qname.empty() ? "EMPTY" : qname.toString()) <<"|"+qt.getName()<<" -> '";
   //  cerr<<(content.empty() ? string("EMPTY CONTENT")  : content.begin()->d_content->getZoneRepresentation())<<"', auth="<<auth<<", ce.auth="<<ce.d_auth;

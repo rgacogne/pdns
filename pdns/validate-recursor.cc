@@ -51,7 +51,7 @@ bool warnIfDNSSECDisabled(const string& msg) {
   return false;
 }
 
-inline vState increaseDNSSECStateCounter(const vState& state)
+static vState increaseDNSSECStateCounter(const vState& state)
 {
   g_stats.dnssecResults[state]++;
   return state;
@@ -64,7 +64,7 @@ inline vState increaseDNSSECStateCounter(const vState& state)
  * and this is not the first record, this way, we can never go *back* to Secure
  * from an Insecure vState
  */
-inline void processNewState(vState& currentState, const vState& newState, bool& hadNTA, const bool& mayUpgradeToSecure)
+static void processNewState(vState& currentState, const vState& newState, bool& hadNTA, const bool& mayUpgradeToSecure)
 {
   if (mayUpgradeToSecure && newState == Secure)
     currentState = Secure;
@@ -85,7 +85,7 @@ vState validateRecords(const ResolveContext& ctx, const vector<DNSRecord>& recs)
 
   cspmap_t cspmap=harvestCSPFromRecs(recs);
   LOG("Got "<<cspmap.size()<<" RRSETs: "<<endl);
-  int numsigs=0;
+  size_t numsigs=0;
   for(const auto& csp : cspmap) {
     LOG("Going to validate: "<<csp.first.first<<"/"<<DNSRecordContent::NumberToType(csp.first.second)<<": "<<csp.second.signatures.size()<<" sigs for "<<csp.second.records.size()<<" records"<<endl);
     numsigs+= csp.second.signatures.size();

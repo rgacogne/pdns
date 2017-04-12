@@ -16,11 +16,11 @@ const char *dStates[]={"nodata", "nxdomain", "nxqtype", "empty non-terminal", "i
 const char *vStates[]={"Indeterminate", "Bogus", "Insecure", "Secure", "NTA"};
 
 typedef set<DNSKEYRecordContent> keyset_t;
-vector<DNSKEYRecordContent> getByTag(const keyset_t& keys, uint16_t tag)
+static vector<DNSKEYRecordContent> getByTag(const keyset_t& keys, uint16_t tag, uint8_t algorithm)
 {
   vector<DNSKEYRecordContent> ret;
   for(const auto& key : keys)
-    if(key.getTag() == tag)
+    if(key.getTag() == tag && key.d_algorithm == algorithm)
       ret.push_back(key);
   return ret;
 }
@@ -112,7 +112,7 @@ static dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const
  * Finds all the zone-cuts between begin (longest name) and end (shortest name),
  * returns them all zone cuts, including end, but (possibly) not begin
  */
-vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSRecordOracle& dro)
+const vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSRecordOracle& dro)
 {
   vector<DNSName> ret;
   if(!begin.isPartOf(end))
@@ -143,6 +143,59 @@ vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSRecordO
   return ret;
 }
 
+bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr<DNSRecordContent> >& records, const vector<shared_ptr<RRSIGRecordContent> >& signatures, const keyset_t& keys, bool validateAllSigs)
+{
+  bool isValid = false;
+
+  for(const auto& signature : signatures) {
+    vector<shared_ptr<DNSRecordContent> > toSign = records;
+      
+    auto r = getByTag(keys, signature->d_tag, signature->d_algorithm);
+ 
+    if(r.empty()) {
+      LOG("No key provided for "<<signature->d_tag<<endl;);
+      continue;
+    }
+
+    string msg=getMessageForRRSET(name, *signature, toSign, true);
+    for(const auto& l : r) {
+      bool signIsValid = false;
+      try {
+        if(signature->d_siginception < now && signature->d_sigexpire > now) {
+          std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(l.d_algorithm, l.d_key));
+          signIsValid = dke->verify(msg, signature->d_signature);
+          LOG("signature by key with tag "<<signature->d_tag<<" was " << (signIsValid ? "" : "NOT ")<<"valid"<<endl);
+        }
+        else {
+          LOG("signature is expired/not yet valid"<<endl);
+        }
+      }
+      catch(std::exception& e) {
+        LOG("Error validating with engine: "<<e.what()<<endl);
+      }
+      if(signIsValid) {
+        isValid = true;
+        LOG("Validated "<<name<<"/"<<DNSRecordContent::NumberToType(signature->d_type)<<endl);
+        //	  cerr<<"valid"<<endl;
+        //	  cerr<<"! validated "<<i->first.first<<"/"<<)<<endl;
+      }
+      else {
+        LOG("signature invalid"<<endl);
+      }
+      if(signature->d_type != QType::DNSKEY) {
+        dotEdge(signature->d_signer,
+                "DNSKEY", signature->d_signer, std::to_string(signature->d_tag),
+                DNSRecordContent::NumberToType(signature->d_type), name, "", signIsValid ? "green" : "red");
+      }
+      if (signIsValid && !validateAllSigs) {
+        return true;
+      }
+    }
+  }
+
+  return isValid;
+}
+
 void validateWithKeySet(const cspmap_t& rrsets, cspmap_t& validated, const keyset_t& keys)
 {
   validated.clear();
@@ -151,55 +204,14 @@ void validateWithKeySet(const cspmap_t& rrsets, cspmap_t& validated, const keyse
     cerr<<"\tTag: "<<key.getTag()<<" -> "<<key.getZoneRepresentation()<<endl;
   }
   */
+  time_t now = time(nullptr);
   for(auto i=rrsets.cbegin(); i!=rrsets.cend(); i++) {
     LOG("validating "<<(i->first.first)<<"/"<<DNSRecordContent::NumberToType(i->first.second)<<" with "<<i->second.signatures.size()<<" sigs"<<endl);
-    for(const auto& signature : i->second.signatures) {
-      vector<shared_ptr<DNSRecordContent> > toSign = i->second.records;
-      
-      if(getByTag(keys,signature->d_tag).empty()) {
-	LOG("No key provided for "<<signature->d_tag<<endl;);
-	continue;
-      }
-      
-      string msg=getMessageForRRSET(i->first.first, *signature, toSign, true);
-      auto r = getByTag(keys,signature->d_tag); // FIXME: also take algorithm into account? right now we wrongly validate unknownalgorithm.bad-dnssec.wb.sidnlabs.nl
-      for(const auto& l : r) {
-	bool isValid = false;
-	try {
-	  unsigned int now=time(0);
-	  if(signature->d_siginception < now && signature->d_sigexpire > now) {
-	    std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(l.d_algorithm, l.d_key));
-	    isValid = dke->verify(msg, signature->d_signature);
-            LOG("signature by key with tag "<<signature->d_tag<<" was " << (isValid ? "" : "NOT ")<<"valid"<<endl);
-	  }
-	  else {
-	    LOG("signature is expired/not yet valid"<<endl);
-          }
-	}
-	catch(std::exception& e) {
-	  LOG("Error validating with engine: "<<e.what()<<endl);
-	}
-	if(isValid) {
-	  validated[i->first] = i->second;
-          LOG("Validated "<<i->first.first<<"/"<<DNSRecordContent::NumberToType(signature->d_type)<<endl);
-	  //	  cerr<<"valid"<<endl;
-	  //	  cerr<<"! validated "<<i->first.first<<"/"<<)<<endl;
-	}
-	else {
-          LOG("signature invalid"<<endl);
-        }
-	if(signature->d_type != QType::DNSKEY) {
-	  dotEdge(signature->d_signer,
-		  "DNSKEY", signature->d_signer, std::to_string(signature->d_tag),
-		  DNSRecordContent::NumberToType(signature->d_type), i->first.first, "", isValid ? "green" : "red");
-	  
-	}
-	// FIXME: break out enough levels
-      }
+    if (validateWithKeySet(now, i->first.first, i->second.records, i->second.signatures, keys, true)) {
+      validated[i->first] = i->second;
     }
   }
 }
-
 
 // returns vState
 // should return vState, zone cut and validated keyset
@@ -230,7 +242,7 @@ cspmap_t harvestCSPFromRecs(const vector<DNSRecord>& recs)
 vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
 {
   auto luaLocal = g_luaconfs.getLocal();
-  auto anchors = luaLocal->dsAnchors;
+  const auto anchors = luaLocal->dsAnchors;
   if (anchors.empty()) // Nothing to do here
     return Insecure;
 
@@ -242,7 +254,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
 
   // Before searching for the keys, see if we have a Negative Trust Anchor. If
   // so, test if the NTA is valid and return an NTA state
-  auto negAnchors = luaLocal->negAnchors;
+  const auto negAnchors = luaLocal->negAnchors;
 
   if (!negAnchors.empty()) {
     DNSName lowestNTA;
@@ -252,7 +264,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
         lowestNTA = negAnchor.first;
 
     if(!lowestNTA.empty()) {
-      LOG("Found a Negative Trust Anchor for "<<lowestNTA.toStringRootDot()<<", which was added with reason '"<<negAnchors[lowestNTA]<<"', ");
+      LOG("Found a Negative Trust Anchor for "<<lowestNTA.toStringRootDot()<<", which was added with reason '"<<negAnchors.at(lowestNTA)<<"', ");
 
       /* RFC 7646 section 2.1 tells us that we SHOULD still validate if there
        * is a Trust Anchor below the Negative Trust Anchor for the name we
@@ -270,7 +282,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
   keyset_t validkeys;
   dsmap_t dsmap;
 
-  dsmap_t* tmp = (dsmap_t*) rplookup(luaLocal->dsAnchors, lowestTA);
+  dsmap_t* tmp = (dsmap_t*) rplookup(anchors, lowestTA);
   if (tmp)
     dsmap = *tmp;
 
@@ -328,7 +340,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
      */
     for(auto const& dsrc : dsmap)
     {
-      auto r = getByTag(tkeys, dsrc.d_tag);
+      auto r = getByTag(tkeys, dsrc.d_tag, dsrc.d_algorithm);
       //      cerr<<"looking at DS with tag "<<dsrc.d_tag<<"/"<<i->first<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
 
       for(const auto& drc : r)
@@ -371,7 +383,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
       {
         //        cerr<<"got sig for keytag "<<i->d_tag<<" matching "<<getByTag(tkeys, i->d_tag).size()<<" keys of which "<<getByTag(validkeys, i->d_tag).size()<<" valid"<<endl;
         string msg=getMessageForRRSET(*zoneCutIter, *i, toSign);
-        auto bytag = getByTag(validkeys, i->d_tag);
+        auto bytag = getByTag(validkeys, i->d_tag, i->d_algorithm);
         for(const auto& j : bytag) {
           //          cerr<<"validating : ";
           bool isValid = false;

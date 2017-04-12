@@ -632,6 +632,16 @@ public:
     d_asyncResolve = func;
   }
 
+  vState getValidationState() const
+  {
+    return d_validationState;
+  }
+
+  void setValidationNeeded()
+  {
+    d_needValidation = true;
+  }
+
   static thread_local ThreadLocalStorage t_sstorage;
 
   static std::atomic<uint64_t> s_queries;
@@ -726,11 +736,15 @@ private:
 
   boost::optional<Netmask> getEDNSSubnetMask(const ComboAddress& local, const DNSName&dn, const ComboAddress& rem);
 
+  bool isValidationEnabled() const;
+  uint32_t computeLowestTTL(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const;
+  void updateValidationState(vState);
+  vState validateRecordsWithSigs(const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures);
+
   void setUpdatingRootNS()
   {
     d_updatingRootNS = true;
   }
-
 
   ostringstream d_trace;
   shared_ptr<RecursorLua4> d_pdl;
@@ -739,8 +753,10 @@ private:
   boost::optional<const boost::uuids::uuid&> d_initialRequestId;
 #endif
   asyncresolve_t d_asyncResolve{nullptr};
+  set<DNSKEYRecordContent> d_currentKeys;
   struct timeval d_now;
   string d_prefix;
+  vState d_validationState{Indeterminate};
 
   /* When d_cacheonly is set to true, we will only check the cache.
    * This is set when the RD bit is unset in the incoming query
@@ -749,6 +765,7 @@ private:
   bool d_doDNSSEC;
   bool d_doEDNS0{true};
   bool d_incomingECSFound{false};
+  bool d_needValidation{false};
   bool d_skipCNAMECheck{false};
   bool d_updatingRootNS{false};
   bool d_wantsRPZ{true};
