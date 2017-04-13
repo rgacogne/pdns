@@ -58,7 +58,8 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
 	haveSubnetSpecific=true;
       }
     }
-    for(cache_t::const_iterator i=d_cachecache.first; i != d_cachecache.second; ++i)
+    for(cache_t::const_iterator i=d_cachecache.first; i != d_cachecache.second; ++i) {
+      //cerr<<"TTD is "<<i->d_ttd<<", now is "<<now<<", type is "<<i->d_qtype<<endl;
       if(i->d_ttd > now && ((i->d_qtype == qt.getCode() || qt.getCode()==QType::ANY ||
 			    (qt.getCode()==QType::ADDR && (i->d_qtype == QType::A || i->d_qtype == QType::AAAA) )) 
 			    && (!haveSubnetSpecific || i->d_netmask.match(who)))
@@ -93,8 +94,9 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
         if(qt.getCode()!=QType::ANY && qt.getCode()!=QType::ADDR) // normally if we have a hit, we are done
           break;
       }
+    }
 
-    //    cerr<<"time left : "<<ttd - now<<", "<< (res ? res->size() : 0) <<"\n";
+    // cerr<<"time left : "<<ttd - now<<", "<< (res ? res->size() : 0) <<"\n";
     return static_cast<int32_t>(ttd-now);
   }
   return -1;
@@ -150,7 +152,7 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
   
   //  cerr<<"asked to store "<< (qname.empty() ? "EMPTY" : qname.toString()) <<"|"+qt.getName()<<" -> '";
   //  cerr<<(content.empty() ? string("EMPTY CONTENT")  : content.begin()->d_content->getZoneRepresentation())<<"', auth="<<auth<<", ce.auth="<<ce.d_auth;
-  //   cerr<<", ednsmask: "  <<  (ednsmask ? ednsmask->toString() : "none") <<endl;
+  //  cerr<<", ednsmask: "  <<  (ednsmask ? ednsmask->toString() : "none") <<endl;
 
   if(!auth && ce.d_auth) {  // unauth data came in, we have some auth data, but is it fresh?
     if(ce.d_ttd > now) { // we still have valid data, ignore unauth data
@@ -175,7 +177,7 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
     ce.d_records.clear(); // clear non-auth data
     ce.d_auth = true;
   }
-//  else cerr<<"\tNot nuking"<<endl;
+  //else cerr<<"\tNot nuking"<<endl;
 
 
   for(auto i=content.cbegin(); i != content.cend(); ++i) {

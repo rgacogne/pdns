@@ -737,9 +737,14 @@ private:
   boost::optional<Netmask> getEDNSSubnetMask(const ComboAddress& local, const DNSName&dn, const ComboAddress& rem);
 
   bool isValidationEnabled() const;
-  uint32_t computeLowestTTL(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const;
+  uint32_t computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const;
   void updateValidationState(vState);
   vState validateRecordsWithSigs(const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures);
+  void resetValidationState();
+  void queueValidationState();
+  void popValidationState();
+  void handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsigned int depth);
+  vState getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth);
 
   void setUpdatingRootNS()
   {
@@ -753,7 +758,7 @@ private:
   boost::optional<const boost::uuids::uuid&> d_initialRequestId;
 #endif
   asyncresolve_t d_asyncResolve{nullptr};
-  set<DNSKEYRecordContent> d_currentKeys;
+  skeyset_t d_currentKeys;
   struct timeval d_now;
   string d_prefix;
   vState d_validationState{Indeterminate};

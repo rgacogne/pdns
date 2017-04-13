@@ -91,7 +91,7 @@ vState validateRecords(const ResolveContext& ctx, const vector<DNSRecord>& recs)
     numsigs+= csp.second.signatures.size();
   }
    
-  set<DNSKEYRecordContent> keys;
+  skeyset_t keys;
   cspmap_t validrrsets;
 
   SRRecordOracle sro(ctx);
@@ -113,7 +113,7 @@ vState validateRecords(const ResolveContext& ctx, const vector<DNSRecord>& recs)
 
         LOG("! state = "<<vStates[state]<<", now have "<<keys.size()<<" keys"<<endl);
         for(const auto& k : keys) {
-          LOG("Key: "<<k.getZoneRepresentation()<< " {tag="<<k.getTag()<<"}"<<endl);
+          LOG("Key: "<<k->getZoneRepresentation()<< " {tag="<<k->getTag()<<"}"<<endl);
         }
       }
     }

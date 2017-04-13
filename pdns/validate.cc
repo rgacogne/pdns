@@ -15,12 +15,11 @@ string dotEscape(string name);
 const char *dStates[]={"nodata", "nxdomain", "nxqtype", "empty non-terminal", "insecure", "opt-out"};
 const char *vStates[]={"Indeterminate", "Bogus", "Insecure", "Secure", "NTA"};
 
-typedef set<DNSKEYRecordContent> keyset_t;
-static vector<DNSKEYRecordContent> getByTag(const keyset_t& keys, uint16_t tag, uint8_t algorithm)
+static vector<shared_ptr<DNSKEYRecordContent > > getByTag(const skeyset_t& keys, uint16_t tag, uint8_t algorithm)
 {
-  vector<DNSKEYRecordContent> ret;
+  vector<shared_ptr<DNSKEYRecordContent>> ret;
   for(const auto& key : keys)
-    if(key.getTag() == tag && key.d_algorithm == algorithm)
+    if(key->getTag() == tag && key->d_algorithm == algorithm)
       ret.push_back(key);
   return ret;
 }
@@ -143,7 +142,7 @@ const vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSR
   return ret;
 }
 
-bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr<DNSRecordContent> >& records, const vector<shared_ptr<RRSIGRecordContent> >& signatures, const keyset_t& keys, bool validateAllSigs)
+bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr<DNSRecordContent> >& records, const vector<shared_ptr<RRSIGRecordContent> >& signatures, const skeyset_t& keys, bool validateAllSigs)
 {
   bool isValid = false;
 
@@ -162,7 +161,7 @@ bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr
       bool signIsValid = false;
       try {
         if(signature->d_siginception < now && signature->d_sigexpire > now) {
-          std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(l.d_algorithm, l.d_key));
+          std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(l->d_algorithm, l->d_key));
           signIsValid = dke->verify(msg, signature->d_signature);
           LOG("signature by key with tag "<<signature->d_tag<<" was " << (signIsValid ? "" : "NOT ")<<"valid"<<endl);
         }
@@ -196,12 +195,12 @@ bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr
   return isValid;
 }
 
-void validateWithKeySet(const cspmap_t& rrsets, cspmap_t& validated, const keyset_t& keys)
+void validateWithKeySet(const cspmap_t& rrsets, cspmap_t& validated, const skeyset_t& keys)
 {
   validated.clear();
   /*  cerr<<"Validating an rrset with following keys: "<<endl;
   for(auto& key : keys) {
-    cerr<<"\tTag: "<<key.getTag()<<" -> "<<key.getZoneRepresentation()<<endl;
+    cerr<<"\tTag: "<<key->getTag()<<" -> "<<key->getZoneRepresentation()<<endl;
   }
   */
   time_t now = time(nullptr);
@@ -239,7 +238,72 @@ cspmap_t harvestCSPFromRecs(const vector<DNSRecord>& recs)
   return cspmap;
 }
 
-vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
+bool getTrustAnchor(const map<DNSName,dsmap_t>& anchors, const DNSName& zone, dsmap_t &res)
+{
+  cerr<<"entering "<<__func__<<endl;
+  const auto& it = anchors.find(zone);
+
+  if (it == anchors.cend()) {
+    return false;
+  }
+
+  res = it->second;
+  return true;
+}
+
+bool haveNegativeTrustAnchor(const map<DNSName,std::string>& negAnchors, const DNSName& zone, std::string& reason)
+{
+  cerr<<"entering "<<__func__<<endl;
+  const auto& it = negAnchors.find(zone);
+
+  if (it == negAnchors.cend()) {
+    return false;
+  }
+
+  reason = it->second;
+  return true;
+}
+
+void validateDNSKeysAgainstDS(const DNSName& zone, const dsmap_t& dsmap, skeyset_t& tkeys, skeyset_t& validkeys)
+{
+  /*
+   * Check all DNSKEY records against all DS records and place all DNSKEY records
+   * that have DS records (that we support the algo for) in the tentative key storage
+   */
+  for(auto const& dsrc : dsmap)
+  {
+    auto r = getByTag(tkeys, dsrc.d_tag, dsrc.d_algorithm);
+    //      cerr<<"looking at DS with tag "<<dsrc.d_tag<<"/"<<i->first<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
+    
+    for(const auto& drc : r)
+    {
+      bool isValid = false;
+      DSRecordContent dsrc2;
+      try {
+        dsrc2=makeDSFromDNSKey(zone, *drc, dsrc.d_digesttype);
+        isValid = dsrc == dsrc2;
+      }
+      catch(std::exception &e) {
+        LOG("Unable to make DS from DNSKey: "<<e.what()<<endl);
+      }
+
+      if(isValid) {
+        LOG("got valid DNSKEY (it matches the DS) with tag "<<dsrc.d_tag<<" for "<<zone<<endl);
+
+        validkeys.insert(drc);
+        dotNode("DS", zone, "" /*std::to_string(dsrc.d_tag)*/, (boost::format("tag=%d, digest algo=%d, algo=%d") % dsrc.d_tag % static_cast<int>(dsrc.d_digesttype) % static_cast<int>(dsrc.d_algorithm)).str());
+      }
+      else {
+        LOG("DNSKEY did not match the DS, parent DS: "<<dsrc.getZoneRepresentation() << " ! = "<<dsrc2.getZoneRepresentation()<<endl);
+      }
+      // cout<<"    subgraph "<<dotEscape("cluster "+zone)<<" { "<<dotEscape("DS "+zone)<<" -> "<<dotEscape("DNSKEY "+zone)<<" [ label = \""<<dsrc.d_tag<<"/"<<static_cast<int>(dsrc.d_digesttype)<<"\" ]; label = \"zone: "<<zone<<"\"; }"<<endl;
+      dotEdge(g_rootdnsname, "DS", zone, "" /*std::to_string(dsrc.d_tag)*/, "DNSKEY", zone, std::to_string(drc->getTag()), isValid ? "green" : "red");
+      // dotNode("DNSKEY", zone, (boost::format("tag=%d, algo=%d") % drc->getTag() % static_cast<int>(drc->d_algorithm)).str());
+    }
+  }
+}
+
+vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, skeyset_t& keyset)
 {
   auto luaLocal = g_luaconfs.getLocal();
   const auto anchors = luaLocal->dsAnchors;
@@ -279,7 +343,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
     }
   }
 
-  keyset_t validkeys;
+  skeyset_t validkeys;
   dsmap_t dsmap;
 
   dsmap_t* tmp = (dsmap_t*) rplookup(anchors, lowestTA);
@@ -299,7 +363,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
     vector<shared_ptr<DNSRecordContent> > toSign;
     vector<uint16_t> toSignTags;
 
-    keyset_t tkeys; // tentative keys
+    skeyset_t tkeys; // tentative keys
     validkeys.clear();
 
     //    cerr<<"got DS for ["<<qname<<"], grabbing DNSKEYs"<<endl;
@@ -323,7 +387,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
       {
         auto drc=getRR<DNSKEYRecordContent> (rec);
         if(drc) {
-          tkeys.insert(*drc);
+          tkeys.insert(drc);
           LOG("Inserting key with tag "<<drc->getTag()<<": "<<drc->getZoneRepresentation()<<endl);
           //          dotNode("DNSKEY", *zoneCutIter, std::to_string(drc->getTag()), (boost::format("tag=%d, algo=%d") % drc->getTag() % static_cast<int>(drc->d_algorithm)).str());
 
@@ -338,37 +402,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
      * Check all DNSKEY records against all DS records and place all DNSKEY records
      * that have DS records (that we support the algo for) in the tentative key storage
      */
-    for(auto const& dsrc : dsmap)
-    {
-      auto r = getByTag(tkeys, dsrc.d_tag, dsrc.d_algorithm);
-      //      cerr<<"looking at DS with tag "<<dsrc.d_tag<<"/"<<i->first<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
-
-      for(const auto& drc : r)
-      {
-        bool isValid = false;
-        DSRecordContent dsrc2;
-        try {
-          dsrc2=makeDSFromDNSKey(*zoneCutIter, drc, dsrc.d_digesttype);
-          isValid = dsrc == dsrc2;
-        }
-        catch(std::exception &e) {
-          LOG("Unable to make DS from DNSKey: "<<e.what()<<endl);
-        }
-
-        if(isValid) {
-          LOG("got valid DNSKEY (it matches the DS) with tag "<<dsrc.d_tag<<" for "<<*zoneCutIter<<endl);
-
-          validkeys.insert(drc);
-          dotNode("DS", *zoneCutIter, "" /*std::to_string(dsrc.d_tag)*/, (boost::format("tag=%d, digest algo=%d, algo=%d") % dsrc.d_tag % static_cast<int>(dsrc.d_digesttype) % static_cast<int>(dsrc.d_algorithm)).str());
-        }
-        else {
-          LOG("DNSKEY did not match the DS, parent DS: "<<dsrc.getZoneRepresentation() << " ! = "<<dsrc2.getZoneRepresentation()<<endl);
-        }
-        // cout<<"    subgraph "<<dotEscape("cluster "+*zoneCutIter)<<" { "<<dotEscape("DS "+*zoneCutIter)<<" -> "<<dotEscape("DNSKEY "+*zoneCutIter)<<" [ label = \""<<dsrc.d_tag<<"/"<<static_cast<int>(dsrc.d_digesttype)<<"\" ]; label = \"zone: "<<*zoneCutIter<<"\"; }"<<endl;
-        dotEdge(g_rootdnsname, "DS", *zoneCutIter, "" /*std::to_string(dsrc.d_tag)*/, "DNSKEY", *zoneCutIter, std::to_string(drc.getTag()), isValid ? "green" : "red");
-        // dotNode("DNSKEY", *zoneCutIter, (boost::format("tag=%d, algo=%d") % drc.getTag() % static_cast<int>(drc.d_algorithm)).str());
-      }
-    }
+    validateDNSKeysAgainstDS(*zoneCutIter, dsmap, tkeys, validkeys);
 
     //    cerr<<"got "<<validkeys.size()<<"/"<<tkeys.size()<<" valid/tentative keys"<<endl;
     // these counts could be off if we somehow ended up with 
@@ -390,7 +424,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, keyset_t &keyset)
           try {
             unsigned int now = time(0);
             if(i->d_siginception < now && i->d_sigexpire > now) {
-              std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(j.d_algorithm, j.d_key));
+              std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(j->d_algorithm, j->d_key));
               isValid = dke->verify(msg, i->d_signature);
             }
             else {

@@ -499,6 +499,8 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
 
   int res=0;
 
+  resetValidationState();
+
   // This is a difficult way of expressing "this is a normal query", i.e. not getRootNS.
   if(!(d_updatingRootNS && qtype.getCode()==QType::NS && qname.isRoot())) {
     if(d_cacheonly) { // very limited OOB support
@@ -558,11 +560,14 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
     subdomain=getBestNSNamesFromCache(subdomain, qtype, nsset, &flawedNSSet, depth, beenthere); //  pass beenthere to both occasions
   }
 
+  if (subdomain != qname) {
+    handleZoneCut(subdomain, nsset, depth);
+  }
+
   if(!(res=doResolveAt(nsset, subdomain, flawedNSSet, qname, qtype, ret, depth, beenthere)))
     return 0;
 
   LOG(prefix<<qname<<": failed (res="<<res<<")"<<endl);
-  ;
 
   if (res == -2)
     return res;
@@ -589,6 +594,8 @@ vector<ComboAddress> SyncRes::getAddrs(const DNSName &qname, unsigned int depth,
   ret_t ret;
 
   QType type;
+
+  queueValidationState();
 
   for(int j=1; j<2+s_doIPv6; j++)
   {
@@ -634,6 +641,8 @@ vector<ComboAddress> SyncRes::getAddrs(const DNSName &qname, unsigned int depth,
     }
   }
 
+  popValidationState();
+
   if(ret.size() > 1) {
     random_shuffle(ret.begin(), ret.end(), dns_random);
 
@@ -671,6 +680,7 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
     vector<DNSRecord> ns;
     vState cachedState;
     *flawedNSSet = false;
+    cerr<<"in "<<__func__<<", looking for "<<subdomain<<" / "<<QType(QType::NS).getName()<<endl;
     if(t_RC->get(d_now.tv_sec, subdomain, QType(QType::NS), &ns, d_requestor, nullptr, &cachedState) > 0) {
       for(auto k=ns.cbegin();k!=ns.cend(); ++k) {
         if(k->d_ttl > (unsigned int)d_now.tv_sec ) {
@@ -735,7 +745,7 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
         getRootNS(d_now, d_asyncResolve);
       }
     }
-  }while(subdomain.chopOff());
+  } while(subdomain.chopOff());
 }
 
 SyncRes::domainmap_t::const_iterator SyncRes::getBestAuthZone(DNSName* qname) const
@@ -803,33 +813,36 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
   if(t_RC->get(d_now.tv_sec, qname, QType(QType::CNAME), &cset, d_requestor, &signatures, &cachedState) > 0) {
 
     for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
-      /* the TTL is already checked by the cache */
-      LOG(prefix<<qname<<": Found cache CNAME hit for '"<< qname << "|CNAME" <<"' to '"<<j->d_content->getZoneRepresentation()<<"'"<<endl);
-      DNSRecord dr=*j;
-      dr.d_ttl-=d_now.tv_sec;
-      ret.push_back(dr);
+      if(j->d_ttl>(unsigned int) d_now.tv_sec) {
+        LOG(prefix<<qname<<": Found cache CNAME hit for '"<< qname << "|CNAME" <<"' to '"<<j->d_content->getZoneRepresentation()<<"'"<<endl);
+        DNSRecord dr=*j;
+        dr.d_ttl-=d_now.tv_sec;
+        ret.push_back(dr);
 
-      for(const auto& signature : signatures) {
-        DNSRecord sigdr;
-        sigdr.d_type=QType::RRSIG;
-        sigdr.d_name=qname;
-        sigdr.d_ttl=j->d_ttl - d_now.tv_sec;
-        sigdr.d_content=signature;
-        sigdr.d_place=DNSResourceRecord::ANSWER;
-        sigdr.d_class=QClass::IN;
-        ret.push_back(sigdr);
+        for(const auto& signature : signatures) {
+          DNSRecord sigdr;
+          sigdr.d_type=QType::RRSIG;
+          sigdr.d_name=qname;
+          sigdr.d_ttl=j->d_ttl - d_now.tv_sec;
+          sigdr.d_content=signature;
+          sigdr.d_place=DNSResourceRecord::ANSWER;
+          sigdr.d_class=QClass::IN;
+          ret.push_back(sigdr);
+        }
+
+        updateValidationState(cachedState);
+
+        if(qtype != QType::CNAME) { // perhaps they really wanted a CNAME!
+          set<GetBestNSAnswer>beenthere;
+          queueValidationState();
+          res=doResolve(std::dynamic_pointer_cast<CNAMERecordContent>(j->d_content)->getTarget(), qtype, ret, depth+1, beenthere);
+          popValidationState();
+        }
+        else
+          res=0;
+
+        return true;
       }
-
-      updateValidationState(cachedState);
-
-      if(qtype != QType::CNAME) { // perhaps they really wanted a CNAME!
-        set<GetBestNSAnswer>beenthere;
-        res=doResolve(std::dynamic_pointer_cast<CNAMERecordContent>(j->d_content)->getTarget(), qtype, ret, depth+1, beenthere);
-      }
-      else
-        res=0;
-
-      return true;
     }
   }
   LOG(prefix<<qname<<": No CNAME cache hit of '"<< qname << "|CNAME" <<"' found"<<endl);
@@ -917,6 +930,7 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSR
   bool found=false, expired=false;
   vector<std::shared_ptr<RRSIGRecordContent>> signatures;
   uint32_t ttl=0;
+  cerr<<"in "<<__func__<<", looking for "<<sqname<<" / "<<sqt.getName()<<endl;
   if(t_RC->get(d_now.tv_sec, sqname, sqt, &cset, d_requestor, d_doDNSSEC ? &signatures : nullptr, &cachedState) > 0) {
     LOG(prefix<<sqname<<": Found cache hit for "<<sqt.getName()<<": ");
     for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
@@ -947,6 +961,8 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSR
   
     LOG(endl);
     if(found && !expired) {
+      if (!giveNegative)
+        res=0;
       updateValidationState(cachedState);
       return true;
     }
@@ -1146,48 +1162,143 @@ bool SyncRes::isValidationEnabled() const
   return g_dnssecmode != DNSSECMode::Off && g_dnssecmode != DNSSECMode::ProcessNoValidate;
 }
 
-uint32_t SyncRes::computeLowestTTL(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const
+uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const
 {
-  uint32_t lowestTTL = std::numeric_limits<uint32_t>::max();
+  uint32_t lowestTTD = std::numeric_limits<uint32_t>::max();
   for(const auto& record : records)
-    lowestTTL = min(lowestTTL, record.d_ttl);
+    lowestTTD = min(lowestTTD, record.d_ttl);
 
   if (isValidationEnabled() && !signatures.empty()) {
     /* if we are validating, we don't want to cache records after their signatures
        expires. */
-    lowestTTL = min(lowestTTL, signaturesTTL);
+    /* records TTL are now TTD, let's add 'now' to the signatures lowest TTL */
+    lowestTTD = min(lowestTTD, static_cast<uint32_t>(signaturesTTL + d_now.tv_sec));
 
     for(const auto& sig : signatures) {
       if (sig->d_siginception <= d_now.tv_sec && sig->d_sigexpire > d_now.tv_sec) {
-        lowestTTL = min(lowestTTL, static_cast<uint32_t>(sig->d_sigexpire - d_now.tv_sec));
+        // we don't decerement d_sigexpire by 'now' because we actually want a TTD, not a TTL */
+        lowestTTD = min(lowestTTD, static_cast<uint32_t>(sig->d_sigexpire));
       }
     }
   }
 
-  return lowestTTL;
+  return lowestTTD;
+}
+
+void SyncRes::updateValidationState(vState)
+{
+  #warning TODO
+}
+
+void SyncRes::resetValidationState()
+{
+  #warning TODO
+}
+
+void SyncRes::queueValidationState()
+{
+  #warning TODO
+}
+
+void SyncRes::popValidationState()
+{
+  #warning TODO
+}
+
+vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth)
+{
+  auto luaLocal = g_luaconfs.getLocal();
+
+  if (getTrustAnchor(luaLocal->dsAnchors, zone, ds)) {
+    cerr<<"Got TA for "<<zone<<endl;
+    return Secure;
+  }
+
+  string reason;
+  if (haveNegativeTrustAnchor(luaLocal->negAnchors, zone, reason)) {
+    cerr<<"Got NTA for "<<zone<<endl;
+    return NTA;
+  }
+
+  set<GetBestNSAnswer> beenthere;
+  vector<DNSRecord> dsrecords;
+  int rcode = doResolve(zone, QType(QType::DS), dsrecords, depth, beenthere);
+
+  if (rcode == RCode::NoError) {
+    for (const auto& record : dsrecords) {
+      if (record.d_type == QType::DS) {
+        const auto dscontent = getRR<DSRecordContent>(record);
+        if (dscontent) {
+          ds.insert(*dscontent);
+        }
+      }
+    }
+  }
+
+  return getValidationState();
+}
+
+void SyncRes::handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsigned int depth)
+{
+  cerr<<"entering "<<__func__<<endl;
+  #warning TODO
+  if (!isValidationEnabled()) {
+    return;
+  }
+  
+  set<GetBestNSAnswer> beenthere;
+  vector<DNSRecord> dnskeys;
+  dsmap_t ds;
+  queueValidationState();
+
+  bool oldSkipCNAME = d_skipCNAMECheck;
+  bool oldNeedValidation = d_needValidation;
+  d_skipCNAMECheck = true;
+  d_needValidation = false;
+
+  // fetch the DSs for the new zone, it's likely already in cache
+  vState state = getDSRecords(auth, ds, depth + 1);
+
+  // fetch the DNSKEYs for the new zone
+  int rcode = doResolve(auth, QType(QType::DNSKEY), dnskeys, depth + 1, beenthere);
+
+  if (rcode == RCode::NoError) {
+    // XXX : check the validation status of this response !
+    if (dnskeys.empty()) {
+      updateValidationState(Bogus);
+    }
+
+    // validate the DNSKEYs with the DSs
+  // put them in d_currentKeys
+    
+  }
+
+  d_skipCNAMECheck = oldSkipCNAME;
+  d_needValidation = oldNeedValidation;
+  popValidationState();
 }
 
 vState SyncRes::validateRecordsWithSigs(const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures)
 {
-  if (d_validationState != Secure) {
-    return d_validationState;
-  }
-
-  if (records.empty()) {
+  cerr<<"entering "<<__func__<<endl;
+  if (!isValidationEnabled() || !d_needValidation || d_validationState != Secure || records.empty()) {
+    cerr<<"exiting "<<__func__<<" because we have no validation to do"<<endl;
     return d_validationState;
   }
 
   /* already collected during the last zone cut change */
-  const set<DNSKEYRecordContent>& keys = d_currentKeys;
+  const skeyset_t& keys = d_currentKeys;
   std::vector<std::shared_ptr<DNSRecordContent> > recordcontents;
   for (const auto& record : records) {
     recordcontents.push_back(record.d_content);
   }
   
   if (validateWithKeySet(d_now.tv_sec, name, recordcontents, signatures, keys, false)) {
+    cerr<<"Secure!"<<endl;
     return Secure;
   }
 
+  cerr<<"Bogus!"<<endl;
   return Bogus;
 }
 
@@ -1286,12 +1397,13 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(const std::string& prefix, LWResu
   // supplant
   for(tcache_t::iterator i = tcache.begin(); i != tcache.end(); ++i) {
     if((i->second.records.size() + i->second.signatures.size()) > 1) {  // need to group the ttl to be the minimum of the RRSET (RFC 2181, 5.2)
-      uint32_t lowestTTL=computeLowestTTL(i->second.records, i->second.signatures, i->second.signaturesTTL);
+      uint32_t lowestTTD=computeLowestTTD(i->second.records, i->second.signatures, i->second.signaturesTTL);
+      cerr<<"lowest TTD is "<<lowestTTD<<endl;
 
       for(auto& record : i->second.records)
-        record.d_ttl = lowestTTL; // boom
+        record.d_ttl = lowestTTD; // boom
     }
-
+    
 //		cout<<"Have "<<i->second.records.size()<<" records and "<<i->second.signatures.size()<<" signatures for "<<i->first.name;
 //		cout<<'|'<<DNSRecordContent::NumberToType(i->first.type)<<endl;
     if(i->second.records.empty()) // this happens when we did store signatures, but passed on the records themselves
@@ -1300,7 +1412,7 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(const std::string& prefix, LWResu
     vState validationState = validateRecordsWithSigs(i->first.name, i->second.records, i->second.signatures);
     updateValidationState(validationState);
 
-    t_RC->replace(d_now.tv_sec, i->first.name, QType(i->first.type), i->second.records, i->second.signatures, lwr.d_aabit, i->first.place == DNSResourceRecord::ANSWER ? ednsmask : boost::optional<Netmask>(), validationState);
+    t_RC->replace(d_now.tv_sec, i->first.name, QType(i->first.type), i->second.records, i->second.signatures, lwr.d_aabit, i->first.place == DNSResourceRecord::ANSWER ? ednsmask : boost::none, validationState);
 
     if(i->first.place == DNSResourceRecord::ANSWER && ednsmask)
       d_wasVariable=true;
@@ -1581,7 +1693,9 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
     LOG(prefix<<qname<<": status=got a CNAME referral, starting over with "<<newtarget<<endl);
 
     set<GetBestNSAnswer> beenthere2;
+    queueValidationState();
     *rcode = doResolve(newtarget, qtype, ret, depth + 1, beenthere2);
+    popValidationState();
     return true;
   }
 
@@ -1623,6 +1737,8 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
     }
     LOG("looping to them"<<endl);
     *gotNewServers = true;
+    handleZoneCut(auth, nameservers, depth);
+
     return false;
   }
 
