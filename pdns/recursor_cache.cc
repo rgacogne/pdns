@@ -34,7 +34,7 @@ unsigned int MemRecursorCache::bytes()
 }
 
 // returns -1 for no hits
-int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, vector<DNSRecord>* res, const ComboAddress& who, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, vState* state)
+int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, vState* state)
 {
   time_t ttd=0;
   //  cerr<<"looking up "<< qname<<"|"+qt.getName()<<"\n";
@@ -59,6 +59,9 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
       }
     }
     for(cache_t::const_iterator i=d_cachecache.first; i != d_cachecache.second; ++i) {
+      if (requireAuth && !i->d_auth)
+        continue;
+
       //cerr<<"TTD is "<<i->d_ttd<<", now is "<<now<<", type is "<<i->d_qtype<<endl;
       if(i->d_ttd > now && ((i->d_qtype == qt.getCode() || qt.getCode()==QType::ANY ||
 			    (qt.getCode()==QType::ADDR && (i->d_qtype == QType::A || i->d_qtype == QType::AAAA) )) 

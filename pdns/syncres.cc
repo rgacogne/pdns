@@ -594,7 +594,8 @@ vector<ComboAddress> SyncRes::getAddrs(const DNSName &qname, unsigned int depth,
   ret_t ret;
 
   QType type;
-
+  bool oldRequireAuthData = d_requireAuthData;
+  d_requireAuthData = false;
   queueValidationState();
 
   for(int j=1; j<2+s_doIPv6; j++)
@@ -626,7 +627,7 @@ vector<ComboAddress> SyncRes::getAddrs(const DNSName &qname, unsigned int depth,
     if(done) {
       if(j==1 && s_doIPv6) { // we got an A record, see if we have some AAAA lying around
 	vector<DNSRecord> cset;
-	if(t_RC->get(d_now.tv_sec, qname, QType(QType::AAAA), &cset, d_requestor) > 0) {
+	if(t_RC->get(d_now.tv_sec, qname, QType(QType::AAAA), false, &cset, d_requestor) > 0) {
 	  for(auto k=cset.cbegin();k!=cset.cend();++k) {
 	    if(k->d_ttl > (unsigned int)d_now.tv_sec ) {
 	      if (auto drc = std::dynamic_pointer_cast<AAAARecordContent>(k->d_content)) {
@@ -641,6 +642,7 @@ vector<ComboAddress> SyncRes::getAddrs(const DNSName &qname, unsigned int depth,
     }
   }
 
+  d_requireAuthData = oldRequireAuthData;
   popValidationState();
 
   if(ret.size() > 1) {
@@ -681,7 +683,7 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
     vState cachedState;
     *flawedNSSet = false;
     cerr<<"in "<<__func__<<", looking for "<<subdomain<<" / "<<QType(QType::NS).getName()<<endl;
-    if(t_RC->get(d_now.tv_sec, subdomain, QType(QType::NS), &ns, d_requestor, nullptr, &cachedState) > 0) {
+    if(t_RC->get(d_now.tv_sec, subdomain, QType(QType::NS), false, &ns, d_requestor, nullptr, &cachedState) > 0) {
       for(auto k=ns.cbegin();k!=ns.cend(); ++k) {
         if(k->d_ttl > (unsigned int)d_now.tv_sec ) {
           vector<DNSRecord> aset;
@@ -689,7 +691,7 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
           const DNSRecord& dr=*k;
 	  auto nrr = getRR<NSRecordContent>(dr);
           if(nrr && (!nrr->getNS().isPartOf(subdomain) || t_RC->get(d_now.tv_sec, nrr->getNS(), s_doIPv6 ? QType(QType::ADDR) : QType(QType::A),
-                                                                    doLog() ? &aset : nullptr, d_requestor) > 5)) {
+                                                                    false, doLog() ? &aset : nullptr, d_requestor) > 5)) {
             bestns.push_back(dr);
             LOG(prefix<<qname<<": NS (with ip, or non-glue) in cache for '"<<subdomain<<"' -> '"<<nrr->getNS()<<"'"<<endl);
             LOG(prefix<<qname<<": within bailiwick: "<< nrr->getNS().isPartOf(subdomain));
@@ -810,7 +812,7 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
   vState cachedState;
   vector<DNSRecord> cset;
   vector<shared_ptr<RRSIGRecordContent> > signatures;
-  if(t_RC->get(d_now.tv_sec, qname, QType(QType::CNAME), &cset, d_requestor, &signatures, &cachedState) > 0) {
+  if(t_RC->get(d_now.tv_sec, qname, QType(QType::CNAME), d_requireAuthData, &cset, d_requestor, &signatures, &cachedState) > 0) {
 
     for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
       if(j->d_ttl>(unsigned int) d_now.tv_sec) {
@@ -931,7 +933,7 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSR
   vector<std::shared_ptr<RRSIGRecordContent>> signatures;
   uint32_t ttl=0;
   cerr<<"in "<<__func__<<", looking for "<<sqname<<" / "<<sqt.getName()<<endl;
-  if(t_RC->get(d_now.tv_sec, sqname, sqt, &cset, d_requestor, d_doDNSSEC ? &signatures : nullptr, &cachedState) > 0) {
+  if(t_RC->get(d_now.tv_sec, sqname, sqt, d_requireAuthData, &cset, d_requestor, d_doDNSSEC ? &signatures : nullptr, &cachedState) > 0) {
     LOG(prefix<<sqname<<": Found cache hit for "<<sqt.getName()<<": ");
     for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
       LOG(j->d_content->getZoneRepresentation());
@@ -1253,8 +1255,10 @@ void SyncRes::handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsig
 
   bool oldSkipCNAME = d_skipCNAMECheck;
   bool oldNeedValidation = d_needValidation;
+  bool oldRequireAuthData = d_requireAuthData;
   d_skipCNAMECheck = true;
   d_needValidation = false;
+  d_requireAuthData = false;
 
   // fetch the DSs for the new zone, it's likely already in cache
   vState state = getDSRecords(auth, ds, depth + 1);
@@ -1292,7 +1296,7 @@ vState SyncRes::validateRecordsWithSigs(const DNSName& name, const std::vector<D
   for (const auto& record : records) {
     recordcontents.push_back(record.d_content);
   }
-  
+
   if (validateWithKeySet(d_now.tv_sec, name, recordcontents, signatures, keys, false)) {
     cerr<<"Secure!"<<endl;
     return Secure;
