@@ -637,9 +637,9 @@ public:
     return d_validationState;
   }
 
-  void setValidationNeeded()
+  void setValidationRequested()
   {
-    d_needValidation = true;
+    d_validationRequested = true;
   }
 
   static thread_local ThreadLocalStorage t_sstorage;
@@ -736,7 +736,8 @@ private:
 
   boost::optional<Netmask> getEDNSSubnetMask(const ComboAddress& local, const DNSName&dn, const ComboAddress& rem);
 
-  bool isValidationEnabled() const;
+  bool validationEnabled() const;
+  bool validationRequested() const;
   uint32_t computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const;
   void updateValidationState(vState);
   vState validateRecordsWithSigs(const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures);
@@ -770,10 +771,10 @@ private:
   bool d_doDNSSEC;
   bool d_doEDNS0{true};
   bool d_incomingECSFound{false};
-  bool d_needValidation{false};
   bool d_requireAuthData{true};
   bool d_skipCNAMECheck{false};
   bool d_updatingRootNS{false};
+  bool d_validationRequested{false};
   bool d_wantsRPZ{true};
   bool d_wasOutOfBand{false};
   bool d_wasVariable{false};

@@ -1159,9 +1159,14 @@ bool SyncRes::throttledOrBlocked(const std::string& prefix, const ComboAddress& 
   return false;
 }
 
-bool SyncRes::isValidationEnabled() const
+bool SyncRes::validationEnabled() const
 {
   return g_dnssecmode != DNSSECMode::Off && g_dnssecmode != DNSSECMode::ProcessNoValidate;
+}
+
+bool SyncRes::validationRequested() const
+{
+  return d_validationRequested;
 }
 
 uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const
@@ -1170,7 +1175,7 @@ uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const 
   for(const auto& record : records)
     lowestTTD = min(lowestTTD, record.d_ttl);
 
-  if (isValidationEnabled() && !signatures.empty()) {
+  if (validationEnabled() && !signatures.empty()) {
     /* if we are validating, we don't want to cache records after their signatures
        expires. */
     /* records TTL are now TTD, let's add 'now' to the signatures lowest TTL */
@@ -1200,11 +1205,13 @@ void SyncRes::resetValidationState()
 void SyncRes::queueValidationState()
 {
   #warning TODO
+  cerr<<"Queuing validation state"<<endl;
 }
 
 void SyncRes::popValidationState()
 {
   #warning TODO
+  cerr<<"Poping validation state"<<endl;
 }
 
 vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth)
@@ -1216,24 +1223,49 @@ vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth
     return Secure;
   }
 
-  string reason;
+  std::string reason;
   if (haveNegativeTrustAnchor(luaLocal->negAnchors, zone, reason)) {
     cerr<<"Got NTA for "<<zone<<endl;
     return NTA;
   }
 
-  set<GetBestNSAnswer> beenthere;
-  vector<DNSRecord> dsrecords;
+  std::set<GetBestNSAnswer> beenthere;
+  std::vector<DNSRecord> dsrecords;
   int rcode = doResolve(zone, QType(QType::DS), dsrecords, depth, beenthere);
 
   if (rcode == RCode::NoError) {
+    std::vector<std::shared_ptr<DNSRecordContent>> contents;
+    std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+
     for (const auto& record : dsrecords) {
       if (record.d_type == QType::DS) {
         const auto dscontent = getRR<DSRecordContent>(record);
         if (dscontent) {
           ds.insert(*dscontent);
         }
+        contents.push_back(record.d_content);
       }
+      else if (record.d_type == QType::RRSIG) {
+        const auto content = getRR<RRSIGRecordContent>(record);
+        if (content) {
+          signatures.push_back(content);
+        }
+      }
+    }
+
+    if (!ds.empty()) {
+      cerr<<"Going to validate "<<ds.size()<< " record contents with "<<signatures.size()<<" sigs and "<<d_currentKeys.size()<<" keys for "<<zone<<endl;
+      if (validateWithKeySet(d_now.tv_sec, zone, contents, signatures, d_currentKeys, false)) {
+        cerr<<"Secure!"<<endl;
+        // XXX set new state
+        return Secure;
+      }
+      // XXX set new state
+      return Bogus;
+    }
+    else {
+      // XXX set new state
+      // NO DS, we hope for a secure denial
     }
   }
 
@@ -1244,7 +1276,7 @@ void SyncRes::handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsig
 {
   cerr<<"entering "<<__func__<<endl;
   #warning TODO
-  if (!isValidationEnabled()) {
+  if (!validationEnabled()) {
     return;
   }
   
@@ -1254,10 +1286,10 @@ void SyncRes::handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsig
   queueValidationState();
 
   bool oldSkipCNAME = d_skipCNAMECheck;
-  bool oldNeedValidation = d_needValidation;
+  bool oldValidationRequested = d_validationRequested;
   bool oldRequireAuthData = d_requireAuthData;
   d_skipCNAMECheck = true;
-  d_needValidation = false;
+  d_validationRequested = true;
   d_requireAuthData = false;
 
   // fetch the DSs for the new zone, it's likely already in cache
@@ -1272,20 +1304,37 @@ void SyncRes::handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsig
       updateValidationState(Bogus);
     }
 
-    // validate the DNSKEYs with the DSs
-  // put them in d_currentKeys
-    
+    d_currentKeys.clear();
+
+    // XXX : validate the DNSKEYs with the DSs
+    for (const auto& dnskey : dnskeys) {
+      if (dnskey.d_type == QType::DNSKEY) {
+        auto content = getRR<DNSKEYRecordContent>(dnskey);
+        if (content) {
+          d_currentKeys.insert(content);
+        }
+      }
+    }
+
+    cerr<<"We now have "<<std::to_string(d_currentKeys.size())<<" DNSKEYs"<<endl;
   }
 
   d_skipCNAMECheck = oldSkipCNAME;
-  d_needValidation = oldNeedValidation;
+  d_validationRequested = oldValidationRequested;
+  d_requireAuthData = oldRequireAuthData;
   popValidationState();
 }
 
 vState SyncRes::validateRecordsWithSigs(const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures)
 {
   cerr<<"entering "<<__func__<<endl;
-  if (!isValidationEnabled() || !d_needValidation || d_validationState != Secure || records.empty()) {
+  cerr<<"validation enabled: "<<validationEnabled()<<endl;
+  cerr<<"need validation: "<<validationRequested()<<endl;
+  cerr<<"validation state: "<<d_validationState<<endl;
+  cerr<<"records count: "<<records.size()<<endl;
+
+  if (!validationEnabled() || (d_validationState != Secure && d_validationState != Indeterminate) || records.empty()) {
+//  if (!validationEnabled() || !validationRequested() || (d_validationState != Secure && d_validationState != Indeterminate) || records.empty()) {
     cerr<<"exiting "<<__func__<<" because we have no validation to do"<<endl;
     return d_validationState;
   }
@@ -1297,6 +1346,7 @@ vState SyncRes::validateRecordsWithSigs(const DNSName& name, const std::vector<D
     recordcontents.push_back(record.d_content);
   }
 
+  cerr<<"Going to validate "<<recordcontents.size()<< " record contents with "<<signatures.size()<<" sigs and "<<keys.size()<<" keys for "<<name<<endl;
   if (validateWithKeySet(d_now.tv_sec, name, recordcontents, signatures, keys, false)) {
     cerr<<"Secure!"<<endl;
     return Secure;
@@ -1413,6 +1463,7 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(const std::string& prefix, LWResu
     if(i->second.records.empty()) // this happens when we did store signatures, but passed on the records themselves
       continue;
 
+//    vState validationState = Secure;
     vState validationState = validateRecordsWithSigs(i->first.name, i->second.records, i->second.signatures);
     updateValidationState(validationState);
 
