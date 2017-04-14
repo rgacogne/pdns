@@ -273,14 +273,16 @@ void validateDNSKeysAgainstDS(const DNSName& zone, const dsmap_t& dsmap, skeyset
   for(auto const& dsrc : dsmap)
   {
     auto r = getByTag(tkeys, dsrc.d_tag, dsrc.d_algorithm);
-    //      cerr<<"looking at DS with tag "<<dsrc.d_tag<<"/"<<i->first<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
+    // cerr<<"looking at DS with tag "<<dsrc.d_tag<<", algo "<<std::to_string(dsrc.d_algorithm)<<", digest "<<std::to_string(dsrc.d_digesttype)<<" for "<<zone<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
     
     for(const auto& drc : r)
     {
       bool isValid = false;
+      bool dsCreated = false;
       DSRecordContent dsrc2;
       try {
         dsrc2=makeDSFromDNSKey(zone, *drc, dsrc.d_digesttype);
+        dsCreated = true;
         isValid = dsrc == dsrc2;
       }
       catch(std::exception &e) {
@@ -294,7 +296,9 @@ void validateDNSKeysAgainstDS(const DNSName& zone, const dsmap_t& dsmap, skeyset
         dotNode("DS", zone, "" /*std::to_string(dsrc.d_tag)*/, (boost::format("tag=%d, digest algo=%d, algo=%d") % dsrc.d_tag % static_cast<int>(dsrc.d_digesttype) % static_cast<int>(dsrc.d_algorithm)).str());
       }
       else {
-        LOG("DNSKEY did not match the DS, parent DS: "<<dsrc.getZoneRepresentation() << " ! = "<<dsrc2.getZoneRepresentation()<<endl);
+        if (dsCreated) {
+          LOG("DNSKEY did not match the DS, parent DS: "<<dsrc.getZoneRepresentation() << " ! = "<<dsrc2.getZoneRepresentation()<<endl);
+        }
       }
       // cout<<"    subgraph "<<dotEscape("cluster "+zone)<<" { "<<dotEscape("DS "+zone)<<" -> "<<dotEscape("DNSKEY "+zone)<<" [ label = \""<<dsrc.d_tag<<"/"<<static_cast<int>(dsrc.d_digesttype)<<"\" ]; label = \"zone: "<<zone<<"\"; }"<<endl;
       dotEdge(g_rootdnsname, "DS", zone, "" /*std::to_string(dsrc.d_tag)*/, "DNSKEY", zone, std::to_string(drc->getTag()), isValid ? "green" : "red");
