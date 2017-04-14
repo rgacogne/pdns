@@ -133,6 +133,11 @@ vState validateRecords(const ResolveContext& ctx, const vector<DNSRecord>& recs)
       first = false;
 
       LOG("! state = "<<vStates[state]<<", now have "<<keys.size()<<" keys "<<endl);
+
+      if (state != Insecure && state != NTA) {
+        /* we had no sigs, remember? */
+        return increaseDNSSECStateCounter(Bogus);
+      }
     }
     return increaseDNSSECStateCounter(state);
   }
