@@ -741,12 +741,13 @@ private:
   uint32_t computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const;
   void updateValidationState(vState);
   vState validateRecordsWithSigs(const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures);
+  vState validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures);
   void resetValidationState();
   void queueValidationState();
   void popValidationState();
-  void handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsigned int depth);
-  vState getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth);
-
+  void handleZoneCut(const DNSName& auth, unsigned int depth);
+  vState getDSRecords(const DNSName& zone, dsmap_t& ds, unsigned int depth);  
+  
   void setUpdatingRootNS()
   {
     d_updatingRootNS = true;
@@ -760,6 +761,7 @@ private:
 #endif
   asyncresolve_t d_asyncResolve{nullptr};
   skeyset_t d_currentKeys;
+  dsmap_t d_currentDS;
   struct timeval d_now;
   string d_prefix;
   vState d_validationState{Indeterminate};

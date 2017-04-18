@@ -128,6 +128,7 @@ int SyncRes::beginResolve(const DNSName &qname, const QType &qtype, uint16_t qcl
     return -1;
 
   set<GetBestNSAnswer> beenthere;
+  handleZoneCut(qname, 0);
   int res=doResolve(qname, qtype, ret, 0, beenthere);
   return res;
 }
@@ -561,7 +562,7 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
   }
 
   if (subdomain != qname) {
-    handleZoneCut(subdomain, nsset, depth);
+    handleZoneCut(subdomain, depth);
   }
 
   if(!(res=doResolveAt(nsset, subdomain, flawedNSSet, qname, qtype, ret, depth, beenthere)))
@@ -680,10 +681,9 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
     brokeloop=false;
     LOG(prefix<<qname<<": Checking if we have NS in cache for '"<<subdomain<<"'"<<endl);
     vector<DNSRecord> ns;
-    vState cachedState;
     *flawedNSSet = false;
     cerr<<"in "<<__func__<<", looking for "<<subdomain<<" / "<<QType(QType::NS).getName()<<endl;
-    if(t_RC->get(d_now.tv_sec, subdomain, QType(QType::NS), false, &ns, d_requestor, nullptr, &cachedState) > 0) {
+    if(t_RC->get(d_now.tv_sec, subdomain, QType(QType::NS), false, &ns, d_requestor, nullptr) > 0) {
       for(auto k=ns.cbegin();k!=ns.cend(); ++k) {
         if(k->d_ttl > (unsigned int)d_now.tv_sec ) {
           vector<DNSRecord> aset;
@@ -708,8 +708,6 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
           }
         }
       }
-
-      updateValidationState(cachedState);
 
       if(!bestns.empty()) {
         GetBestNSAnswer answer;
@@ -1192,9 +1190,19 @@ uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const 
   return lowestTTD;
 }
 
-void SyncRes::updateValidationState(vState)
+void SyncRes::updateValidationState(vState newState)
 {
-  #warning TODO
+  cerr<<"Validation state was "<<std::string(vStates[d_validationState])<<", state update is "<<std::string(vStates[newState])<<endl;
+
+  if (d_validationState == Indeterminate) {
+    d_validationState = newState;
+  }
+  else if (newState == Insecure || newState == NTA) {
+    d_validationState = Insecure;
+  }
+  else if (newState == Bogus) {
+    d_validationState = Bogus;
+  }
 }
 
 void SyncRes::resetValidationState()
@@ -1214,7 +1222,7 @@ void SyncRes::popValidationState()
   cerr<<"Poping validation state"<<endl;
 }
 
-vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth)
+vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t& ds, unsigned int depth)
 {
   auto luaLocal = g_luaconfs.getLocal();
 
@@ -1253,7 +1261,9 @@ vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth
       }
     }
 
+#if 0
     if (!ds.empty()) {
+      // pretty sure it's redundant, it has already been validated before doResolve() returned
       cerr<<"Going to validate "<<ds.size()<< " record contents with "<<signatures.size()<<" sigs and "<<d_currentKeys.size()<<" keys for "<<zone<<endl;
       if (validateWithKeySet(d_now.tv_sec, zone, contents, signatures, d_currentKeys, false)) {
         cerr<<"Secure!"<<endl;
@@ -1267,12 +1277,13 @@ vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t ds, unsigned int depth
       // XXX set new state
       // NO DS, we hope for a secure denial
     }
+#endif /* 0 */
   }
 
   return getValidationState();
 }
 
-void SyncRes::handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsigned int depth)
+void SyncRes::handleZoneCut(const DNSName& auth, unsigned int depth)
 {
   cerr<<"entering "<<__func__<<endl;
   #warning TODO
@@ -1293,36 +1304,72 @@ void SyncRes::handleZoneCut(const DNSName& auth, const NsSet &nameservers, unsig
   d_requireAuthData = false;
 
   // fetch the DSs for the new zone, it's likely already in cache
-  vState state = getDSRecords(auth, ds, depth + 1);
+  LOG("fetching DS for "<<auth<<endl);
+  vState state = getDSRecords(auth, d_currentDS, depth + 1);
 
-  // fetch the DNSKEYs for the new zone
-  int rcode = doResolve(auth, QType(QType::DNSKEY), dnskeys, depth + 1, beenthere);
+  updateValidationState(state);
 
-  if (rcode == RCode::NoError) {
-    // XXX : check the validation status of this response !
-    if (dnskeys.empty()) {
-      updateValidationState(Bogus);
-    }
+  if (state == Secure ||
+      state == NTA) {
+    // fetch the DNSKEYs for the new zone
+    LOG("fetching DNSKEYs for "<<auth<<endl);
+    int rcode = doResolve(auth, QType(QType::DNSKEY), dnskeys, depth + 1, beenthere);
 
     d_currentKeys.clear();
 
-    // XXX : validate the DNSKEYs with the DSs
-    for (const auto& dnskey : dnskeys) {
-      if (dnskey.d_type == QType::DNSKEY) {
-        auto content = getRR<DNSKEYRecordContent>(dnskey);
-        if (content) {
-          d_currentKeys.insert(content);
+    if (rcode == RCode::NoError) {
+      // XXX : check the validation status of this response !
+
+      if (getValidationState() == Secure) {
+        for (const auto& key : dnskeys) {
+          if (key.d_type == QType::DNSKEY) {
+            auto content = getRR<DNSKEYRecordContent>(key);
+            if (content) {
+              d_currentKeys.insert(content);
+            }
+          }
         }
       }
     }
-
-    cerr<<"We now have "<<std::to_string(d_currentKeys.size())<<" DNSKEYs"<<endl;
+  }
+  else {
+    cerr<<"zone "<<auth<<" is now in state "<<std::string(vStates[state])<<endl;
   }
 
   d_skipCNAMECheck = oldSkipCNAME;
   d_validationRequested = oldValidationRequested;
   d_requireAuthData = oldRequireAuthData;
   popValidationState();
+}
+
+vState SyncRes::validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures)
+{
+  skeyset_t tentativeKeys;
+  std::vector<shared_ptr<DNSRecordContent> > toSign;
+  
+  for (const auto& dnskey : dnskeys) {
+    if (dnskey.d_type == QType::DNSKEY) {
+      auto content = getRR<DNSKEYRecordContent>(dnskey);
+      if (content) {
+        tentativeKeys.insert(content);
+        toSign.push_back(content);
+      }
+    }
+  }
+
+  cerr<<"Trying to validate "<<std::to_string(tentativeKeys.size())<<" DNSKEYs with "<<std::to_string(d_currentDS.size())<<" DS"<<endl;
+  skeyset_t validatedKeys;
+  validateDNSKeysAgainstDS(d_now.tv_sec, zone, d_currentDS, tentativeKeys, toSign, signatures, validatedKeys);
+
+  cerr<<"We now have "<<std::to_string(validatedKeys.size())<<" DNSKEYs"<<endl;
+  
+  if (validatedKeys.size() != tentativeKeys.size()) {
+    cerr<<"DNSKey : Bogus"<<endl;
+    return Bogus;
+  }
+
+  cerr<<"DNSKey : Secure"<<endl;
+  return Secure;
 }
 
 vState SyncRes::validateRecordsWithSigs(const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures)
@@ -1336,7 +1383,7 @@ vState SyncRes::validateRecordsWithSigs(const DNSName& name, const std::vector<D
   if (!validationEnabled() || (d_validationState != Secure && d_validationState != Indeterminate) || records.empty()) {
 //  if (!validationEnabled() || !validationRequested() || (d_validationState != Secure && d_validationState != Indeterminate) || records.empty()) {
     cerr<<"exiting "<<__func__<<" because we have no validation to do"<<endl;
-    return d_validationState;
+    return Indeterminate;
   }
 
   /* already collected during the last zone cut change */
@@ -1463,9 +1510,32 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(const std::string& prefix, LWResu
     if(i->second.records.empty()) // this happens when we did store signatures, but passed on the records themselves
       continue;
 
-//    vState validationState = Secure;
-    vState validationState = validateRecordsWithSigs(i->first.name, i->second.records, i->second.signatures);
-    updateValidationState(validationState);
+    vState validationState = Indeterminate;
+    if (lwr.d_aabit) {
+      if (i->first.place == DNSResourceRecord::ADDITIONAL) {
+        /* the additional entries can be insecure,
+           like glue:
+           "Glue address RRsets associated with delegations MUST NOT be signed"
+        */
+        continue;
+      }
+
+      if (i->first.type == QType::DNSKEY && i->first.place == DNSResourceRecord::ANSWER) {
+        validationState = validateDNSKeys(auth, i->second.records, i->second.signatures);
+        updateValidationState(validationState);
+      }
+      else {
+        validationState = validateRecordsWithSigs(auth, i->second.records, i->second.signatures);
+        updateValidationState(validationState);
+      }
+    }
+    else {
+      if (i->first.type == QType::DS && i->first.place == DNSResourceRecord::AUTHORITY) {
+        /* for non authoritative answer, we only care about the DS record */
+        validationState = validateRecordsWithSigs(auth, i->second.records, i->second.signatures);
+        updateValidationState(validationState);
+      }
+    }
 
     t_RC->replace(d_now.tv_sec, i->first.name, QType(i->first.type), i->second.records, i->second.signatures, lwr.d_aabit, i->first.place == DNSResourceRecord::ANSWER ? ednsmask : boost::none, validationState);
 
@@ -1792,7 +1862,7 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
     }
     LOG("looping to them"<<endl);
     *gotNewServers = true;
-    handleZoneCut(auth, nameservers, depth);
+    handleZoneCut(auth, depth);
 
     return false;
   }
@@ -2021,8 +2091,9 @@ int SyncRes::getRootNS(struct timeval now, asyncresolve_t asyncCallback) {
   try {
     res=sr.beginResolve(g_rootdnsname, QType(QType::NS), 1, ret);
     if (g_dnssecmode != DNSSECMode::Off && g_dnssecmode != DNSSECMode::ProcessNoValidate) {
-      ResolveContext ctx;
-      auto state = validateRecords(ctx, ret);
+/*      ResolveContext ctx;
+        auto state = validateRecords(ctx, ret);*/
+      auto state = sr.getValidationState();
       if (state == Bogus)
         throw PDNSException("Got Bogus validation result for .|NS");
     }

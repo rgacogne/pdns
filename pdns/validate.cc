@@ -142,6 +142,25 @@ const vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSR
   return ret;
 }
 
+static bool checkSignatureWithKey(time_t now, const shared_ptr<RRSIGRecordContent> sig, const shared_ptr<DNSKEYRecordContent> key, const std::string& msg)
+{
+  bool result = false;
+  try {
+    if(sig->d_siginception < now && sig->d_sigexpire > now) {
+      std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(key->d_algorithm, key->d_key));
+      result = dke->verify(msg, sig->d_signature);
+      LOG("signature by key with tag "<<sig->d_tag<<" was " << (result ? "" : "NOT ")<<"valid"<<endl);
+    }
+    else {
+      LOG("Signature is expired/not yet valid"<<endl);
+    }
+  }
+  catch(std::exception& e) {
+    LOG("Could not make a validator for signature: "<<e.what()<<endl);
+  }
+  return result;
+}
+
 bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr<DNSRecordContent> >& records, const vector<shared_ptr<RRSIGRecordContent> >& signatures, const skeyset_t& keys, bool validateAllSigs)
 {
   bool isValid = false;
@@ -158,20 +177,7 @@ bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr
 
     string msg=getMessageForRRSET(name, *signature, toSign, true);
     for(const auto& l : r) {
-      bool signIsValid = false;
-      try {
-        if(signature->d_siginception < now && signature->d_sigexpire > now) {
-          std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(l->d_algorithm, l->d_key));
-          signIsValid = dke->verify(msg, signature->d_signature);
-          LOG("signature by key with tag "<<signature->d_tag<<" was " << (signIsValid ? "" : "NOT ")<<"valid"<<endl);
-        }
-        else {
-          LOG("signature is expired/not yet valid"<<endl);
-        }
-      }
-      catch(std::exception& e) {
-        LOG("Error validating with engine: "<<e.what()<<endl);
-      }
+      bool signIsValid = checkSignatureWithKey(now, signature, l, msg);
       if(signIsValid) {
         isValid = true;
         LOG("Validated "<<name<<"/"<<DNSRecordContent::NumberToType(signature->d_type)<<endl);
@@ -264,7 +270,7 @@ bool haveNegativeTrustAnchor(const map<DNSName,std::string>& negAnchors, const D
   return true;
 }
 
-void validateDNSKeysAgainstDS(const DNSName& zone, const dsmap_t& dsmap, skeyset_t& tkeys, skeyset_t& validkeys)
+void validateDNSKeysAgainstDS(time_t now, const DNSName& zone, const dsmap_t& dsmap, const skeyset_t& tkeys, vector<shared_ptr<DNSRecordContent> >& toSign, const vector<shared_ptr<RRSIGRecordContent> >& sigs, skeyset_t& validkeys)
 {
   /*
    * Check all DNSKEY records against all DS records and place all DNSKEY records
@@ -303,6 +309,55 @@ void validateDNSKeysAgainstDS(const DNSName& zone, const dsmap_t& dsmap, skeyset
       // cout<<"    subgraph "<<dotEscape("cluster "+zone)<<" { "<<dotEscape("DS "+zone)<<" -> "<<dotEscape("DNSKEY "+zone)<<" [ label = \""<<dsrc.d_tag<<"/"<<static_cast<int>(dsrc.d_digesttype)<<"\" ]; label = \"zone: "<<zone<<"\"; }"<<endl;
       dotEdge(g_rootdnsname, "DS", zone, "" /*std::to_string(dsrc.d_tag)*/, "DNSKEY", zone, std::to_string(drc->getTag()), isValid ? "green" : "red");
       // dotNode("DNSKEY", zone, (boost::format("tag=%d, algo=%d") % drc->getTag() % static_cast<int>(drc->d_algorithm)).str());
+    }
+  }
+
+  vector<uint16_t> toSignTags;
+  for (const auto& key : tkeys) {
+    toSignTags.push_back(key->getTag());
+  }
+
+  //    cerr<<"got "<<validkeys.size()<<"/"<<tkeys.size()<<" valid/tentative keys"<<endl;
+  // these counts could be off if we somehow ended up with 
+  // duplicate keys. Should switch to a type that prevents that.
+  if(validkeys.size() < tkeys.size())
+  {
+    // this should mean that we have one or more DS-validated DNSKEYs
+    // but not a fully validated DNSKEY set, yet
+    // one of these valid DNSKEYs should be able to validate the
+    // whole set
+    for(const auto& sig : sigs)
+    {
+      //        cerr<<"got sig for keytag "<<i->d_tag<<" matching "<<getByTag(tkeys, i->d_tag).size()<<" keys of which "<<getByTag(validkeys, i->d_tag).size()<<" valid"<<endl;
+      auto bytag = getByTag(validkeys, sig->d_tag, sig->d_algorithm);
+
+      if (bytag.empty()) {
+        continue;
+      }
+
+      string msg=getMessageForRRSET(zone, *sig, toSign);
+      for(const auto& key : bytag) {
+        //          cerr<<"validating : ";
+        bool signIsValid = checkSignatureWithKey(now, sig, key, msg);
+
+        for(uint16_t tag : toSignTags) {
+          dotEdge(zone,
+                  "DNSKEY", zone, std::to_string(sig->d_tag),
+                  "DNSKEY", zone, std::to_string(tag), signIsValid ? "green" : "red");
+        }
+
+        if(signIsValid)
+        {
+          LOG("validation succeeded - whole DNSKEY set is valid"<<endl);
+          // cout<<"    "<<dotEscape("DNSKEY "+stripDot(i->d_signer))<<" -> "<<dotEscape("DNSKEY "+zone)<<";"<<endl;
+          validkeys=tkeys;
+          break;
+        }
+        else {
+          LOG("Validation did not succeed!"<<endl);
+        }
+      }
+      //        if(validkeys.empty()) cerr<<"did not manage to validate DNSKEY set based on DS-validated KSK, only passing KSK on"<<endl;
     }
   }
 }
@@ -363,9 +418,8 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, skeyset_t& keyset)
 
   for(auto zoneCutIter = zoneCuts.cbegin(); zoneCutIter != zoneCuts.cend(); ++zoneCutIter)
   {
-    vector<RRSIGRecordContent> sigs;
+    vector<shared_ptr<RRSIGRecordContent> > sigs;
     vector<shared_ptr<DNSRecordContent> > toSign;
-    vector<uint16_t> toSignTags;
 
     skeyset_t tkeys; // tentative keys
     validkeys.clear();
@@ -384,7 +438,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, skeyset_t& keyset)
           LOG("Got signature: "<<rrc->getZoneRepresentation()<<" with tag "<<rrc->d_tag<<", for type "<<DNSRecordContent::NumberToType(rrc->d_type)<<endl);
           if(rrc->d_type != QType::DNSKEY)
             continue;
-          sigs.push_back(*rrc);
+          sigs.push_back(rrc);
         }
       }
       else if(rec.d_type == QType::DNSKEY)
@@ -396,7 +450,6 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, skeyset_t& keyset)
           //          dotNode("DNSKEY", *zoneCutIter, std::to_string(drc->getTag()), (boost::format("tag=%d, algo=%d") % drc->getTag() % static_cast<int>(drc->d_algorithm)).str());
 
           toSign.push_back(rec.d_content);
-          toSignTags.push_back(drc->getTag());
         }
       }
     }
@@ -406,58 +459,7 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, skeyset_t& keyset)
      * Check all DNSKEY records against all DS records and place all DNSKEY records
      * that have DS records (that we support the algo for) in the tentative key storage
      */
-    validateDNSKeysAgainstDS(*zoneCutIter, dsmap, tkeys, validkeys);
-
-    //    cerr<<"got "<<validkeys.size()<<"/"<<tkeys.size()<<" valid/tentative keys"<<endl;
-    // these counts could be off if we somehow ended up with 
-    // duplicate keys. Should switch to a type that prevents that.
-    if(validkeys.size() < tkeys.size())
-    {
-      // this should mean that we have one or more DS-validated DNSKEYs
-      // but not a fully validated DNSKEY set, yet
-      // one of these valid DNSKEYs should be able to validate the
-      // whole set
-      for(auto i=sigs.cbegin(); i!=sigs.cend(); i++)
-      {
-        //        cerr<<"got sig for keytag "<<i->d_tag<<" matching "<<getByTag(tkeys, i->d_tag).size()<<" keys of which "<<getByTag(validkeys, i->d_tag).size()<<" valid"<<endl;
-        string msg=getMessageForRRSET(*zoneCutIter, *i, toSign);
-        auto bytag = getByTag(validkeys, i->d_tag, i->d_algorithm);
-        for(const auto& j : bytag) {
-          //          cerr<<"validating : ";
-          bool isValid = false;
-          try {
-            unsigned int now = time(0);
-            if(i->d_siginception < now && i->d_sigexpire > now) {
-              std::shared_ptr<DNSCryptoKeyEngine> dke = shared_ptr<DNSCryptoKeyEngine>(DNSCryptoKeyEngine::makeFromPublicKeyString(j->d_algorithm, j->d_key));
-              isValid = dke->verify(msg, i->d_signature);
-            }
-            else {
-              LOG("Signature on DNSKEY expired"<<endl);
-            }
-          }
-          catch(std::exception& e) {
-            LOG("Could not make a validator for signature: "<<e.what()<<endl);
-          }
-          for(uint16_t tag : toSignTags) {
-            dotEdge(*zoneCutIter,
-                "DNSKEY", *zoneCutIter, std::to_string(i->d_tag),
-                "DNSKEY", *zoneCutIter, std::to_string(tag), isValid ? "green" : "red");
-          }
-
-          if(isValid)
-          {
-            LOG("validation succeeded - whole DNSKEY set is valid"<<endl);
-            // cout<<"    "<<dotEscape("DNSKEY "+stripDot(i->d_signer))<<" -> "<<dotEscape("DNSKEY "+*zoneCutIter)<<";"<<endl;
-            validkeys=tkeys;
-            break;
-          }
-          else {
-            LOG("Validation did not succeed!"<<endl);
-          }
-        }
-        //        if(validkeys.empty()) cerr<<"did not manage to validate DNSKEY set based on DS-validated KSK, only passing KSK on"<<endl;
-      }
-    }
+    validateDNSKeysAgainstDS(time(nullptr), *zoneCutIter, dsmap, tkeys, toSign, sigs, validkeys);
 
     if(validkeys.empty())
     {
@@ -478,7 +480,6 @@ vState getKeysFor(DNSRecordOracle& dro, const DNSName& zone, skeyset_t& keyset)
     dsmap_t tdsmap; // tentative DSes
     dsmap.clear();
     toSign.clear();
-    toSignTags.clear();
 
     auto recs=dro.get(*(zoneCutIter+1), QType::DS);
 
