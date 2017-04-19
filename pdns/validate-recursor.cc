@@ -35,7 +35,7 @@ public:
     return ret;
   }
   const ResolveContext& d_ctx;
-  int d_queries{0};
+  unsigned int d_queries{0};
 };
 
 bool checkDNSSECDisabled() {

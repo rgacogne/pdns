@@ -27,7 +27,7 @@ static vector<shared_ptr<DNSKEYRecordContent > > getByTag(const skeyset_t& keys,
 // FIXME: needs a zone argument, to avoid things like 6840 4.1
 // FIXME: Add ENT support
 // FIXME: Make usable for non-DS records and hook up to validateRecords (or another place)
-static dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const uint16_t& qtype)
+dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const uint16_t& qtype)
 {
   for(const auto& v : validrrsets) {
     LOG("Do have: "<<v.first.first<<"/"<<DNSRecordContent::NumberToType(v.first.second)<<endl);
@@ -111,7 +111,7 @@ static dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const
  * Finds all the zone-cuts between begin (longest name) and end (shortest name),
  * returns them all zone cuts, including end, but (possibly) not begin
  */
-const vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSRecordOracle& dro)
+static const vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSRecordOracle& dro)
 {
   vector<DNSName> ret;
   if(!begin.isPartOf(end))
@@ -131,7 +131,7 @@ const vector<DNSName> getZoneCuts(const DNSName& begin, const DNSName& end, DNSR
     labelsToAdd.pop_back();
     auto records = dro.get(qname, (uint16_t)QType::NS);
     for (const auto record : records) {
-      if(record.d_name != qname || record.d_type != QType::NS)
+      if(record.d_type != QType::NS || record.d_name != qname)
         continue;
       foundCut = true;
       break;
@@ -279,7 +279,7 @@ void validateDNSKeysAgainstDS(time_t now, const DNSName& zone, const dsmap_t& ds
   for(auto const& dsrc : dsmap)
   {
     auto r = getByTag(tkeys, dsrc.d_tag, dsrc.d_algorithm);
-    // cerr<<"looking at DS with tag "<<dsrc.d_tag<<", algo "<<std::to_string(dsrc.d_algorithm)<<", digest "<<std::to_string(dsrc.d_digesttype)<<" for "<<zone<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
+     cerr<<"looking at DS with tag "<<dsrc.d_tag<<", algo "<<std::to_string(dsrc.d_algorithm)<<", digest "<<std::to_string(dsrc.d_digesttype)<<" for "<<zone<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
     
     for(const auto& drc : r)
     {
