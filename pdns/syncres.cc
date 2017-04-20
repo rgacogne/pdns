@@ -561,6 +561,7 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
     subdomain=getBestNSNamesFromCache(subdomain, qtype, nsset, &flawedNSSet, depth, beenthere); //  pass beenthere to both occasions
   }
 
+  cerr<<__func__<<" calling handleZoneCut("<<subdomain<<")"<<endl;
   handleZoneCut(subdomain, depth);
 
   if(!(res=doResolveAt(nsset, subdomain, flawedNSSet, qname, qtype, ret, depth, beenthere)))
@@ -1235,7 +1236,6 @@ void SyncRes::resetValidationState()
 
 void SyncRes::saveValidationState()
 {
-  cerr<<"Zone "<<d_currentZoneCut<<" has saved state "<<std::string(vStates[d_validationState])<<" with "<<d_currentKeys.size()<<" DNSKEYs and "<<d_currentDS.size()<<" DS"<<endl;
 /*
   ValidationStateObject obj;
   obj.keys = d_currentKeys;
@@ -1245,6 +1245,13 @@ void SyncRes::saveValidationState()
   d_validationStack.push(obj);
 */
   if (!d_currentZoneCut.empty()) {
+    cerr<<"Zone "<<d_currentZoneCut<<" has saved state "<<std::string(vStates[d_validationState])<<" with "<<d_currentKeys.size()<<" DNSKEYs and "<<d_currentDS.size()<<" DS"<<endl;
+    for (const auto& ds : d_currentDS) {
+      cerr<<"DS "<<ds.d_tag<<", algo "<<ds.d_algorithm<<endl;
+    }
+    for (const auto& key : d_currentKeys) {
+      cerr<<"DNSKEY "<<key->getTag()<<", algo "<<key->d_algorithm<<endl;
+    }
     ValidationStateObject obj;
     obj.keys = d_currentKeys;
     obj.ds = d_currentDS;
@@ -1262,6 +1269,12 @@ void SyncRes::restoreValidationState(const DNSName& zone)
     d_currentDS = iter->second.ds;
     d_validationState = iter->second.state;
     cerr<<"Zone "<<d_currentZoneCut<<" has restored state "<<std::string(vStates[d_validationState])<<" with "<<d_currentKeys.size()<<" DNSKEYs and "<<d_currentDS.size()<<" DS"<<endl;
+    for (const auto& ds : d_currentDS) {
+      cerr<<"DS "<<ds.d_tag<<", algo "<<ds.d_algorithm<<endl;
+    }
+    for (const auto& key : d_currentKeys) {
+      cerr<<"DNSKEY "<<key->getTag()<<", algo "<<key->d_algorithm<<endl;
+    }
   }
   else {
     cerr<<"nothing to restore for zone "<<zone<<endl;
@@ -1357,6 +1370,7 @@ void SyncRes::handleZoneCut(const DNSName& auth, unsigned int depth)
   dsmap_t newDS;
   vState state = getDSRecords(auth, newDS, depth + 1);
 
+  restoreValidationState(auth);
   updateValidationState(state);
   d_currentDS = newDS;
 
@@ -1479,6 +1493,7 @@ void SyncRes::handleMissedZoneCut(const DNSName& target, unsigned int depth)
     if (cut == d_currentZoneCut)
       continue;
 
+    cerr<<__func__<<" calling handleZoneCut("<<cut<<")"<<endl;
     handleZoneCut(cut, depth);
   }
 }
@@ -1494,7 +1509,7 @@ vState SyncRes::validateRecordsWithSigs(unsigned int depth, const DNSName& name,
   if (!validationEnabled() || (d_validationState != Secure && d_validationState != Indeterminate) || records.empty()) {
 //  if (!validationEnabled() || !validationRequested() || (d_validationState != Secure && d_validationState != Indeterminate) || records.empty()) {
     cerr<<"exiting "<<__func__<<" because we have no validation to do"<<endl;
-    return Indeterminate;
+    return d_validationState;
   }
 
   if (!signatures.empty()) {
@@ -2006,6 +2021,7 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
     }
     LOG("looping to them"<<endl);
     *gotNewServers = true;
+    cerr<<__func__<<" calling handleZoneCut("<<auth<<")"<<endl;
     handleZoneCut(auth, depth);
 
     return false;
