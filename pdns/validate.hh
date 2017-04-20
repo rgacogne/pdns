@@ -53,9 +53,9 @@ struct ContentSigPair
 typedef map<pair<DNSName,uint16_t>, ContentSigPair> cspmap_t;
 typedef std::set<DSRecordContent> dsmap_t;
 
-struct sharedDNSKeyRecordContentCompare 
+struct sharedDNSKeyRecordContentCompare
 {
-  bool operator() (const shared_ptr<DNSKEYRecordContent>& a, const shared_ptr<DNSKEYRecordContent>& b) const 
+  bool operator() (const shared_ptr<DNSKEYRecordContent>& a, const shared_ptr<DNSKEYRecordContent>& b) const
   {
     return *a < *b;
   }

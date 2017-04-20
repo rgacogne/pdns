@@ -167,9 +167,9 @@ bool validateWithKeySet(time_t now, const DNSName& name, const vector<shared_ptr
 
   for(const auto& signature : signatures) {
     vector<shared_ptr<DNSRecordContent> > toSign = records;
-      
+
     auto r = getByTag(keys, signature->d_tag, signature->d_algorithm);
- 
+
     if(r.empty()) {
       LOG("No key provided for "<<signature->d_tag<<endl;);
       continue;
@@ -246,7 +246,6 @@ cspmap_t harvestCSPFromRecs(const vector<DNSRecord>& recs)
 
 bool getTrustAnchor(const map<DNSName,dsmap_t>& anchors, const DNSName& zone, dsmap_t &res)
 {
-  cerr<<"entering "<<__func__<<endl;
   const auto& it = anchors.find(zone);
 
   if (it == anchors.cend()) {
@@ -259,7 +258,6 @@ bool getTrustAnchor(const map<DNSName,dsmap_t>& anchors, const DNSName& zone, ds
 
 bool haveNegativeTrustAnchor(const map<DNSName,std::string>& negAnchors, const DNSName& zone, std::string& reason)
 {
-  cerr<<"entering "<<__func__<<endl;
   const auto& it = negAnchors.find(zone);
 
   if (it == negAnchors.cend()) {
@@ -279,8 +277,8 @@ void validateDNSKeysAgainstDS(time_t now, const DNSName& zone, const dsmap_t& ds
   for(auto const& dsrc : dsmap)
   {
     auto r = getByTag(tkeys, dsrc.d_tag, dsrc.d_algorithm);
-     cerr<<"looking at DS with tag "<<dsrc.d_tag<<", algo "<<std::to_string(dsrc.d_algorithm)<<", digest "<<std::to_string(dsrc.d_digesttype)<<" for "<<zone<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
-    
+    //cerr<<"looking at DS with tag "<<dsrc.d_tag<<", algo "<<std::to_string(dsrc.d_algorithm)<<", digest "<<std::to_string(dsrc.d_digesttype)<<" for "<<zone<<", got "<<r.size()<<" DNSKEYs for tag"<<endl;
+
     for(const auto& drc : r)
     {
       bool isValid = false;
@@ -318,7 +316,7 @@ void validateDNSKeysAgainstDS(time_t now, const DNSName& zone, const dsmap_t& ds
   }
 
   //    cerr<<"got "<<validkeys.size()<<"/"<<tkeys.size()<<" valid/tentative keys"<<endl;
-  // these counts could be off if we somehow ended up with 
+  // these counts could be off if we somehow ended up with
   // duplicate keys. Should switch to a type that prevents that.
   if(validkeys.size() < tkeys.size())
   {

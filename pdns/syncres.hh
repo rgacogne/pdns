@@ -749,10 +749,11 @@ private:
   void saveValidationState();
   void restoreValidationState(const DNSName& zone);
   void handleZoneCut(const DNSName& auth, unsigned int depth);
-  vState getDSRecords(const DNSName& zone, dsmap_t& ds, unsigned int depth);  
+  void handleZoneSwitch(const DNSName& auth, unsigned int depth, bool inherit=false);
+  vState getDSRecords(const DNSName& zone, dsmap_t& ds, unsigned int depth);
   void handleMissedZoneCut(const DNSName& target, unsigned int depth);
   void getDenialValidationState(NegCache::NegCacheEntry& ne, dState expectedState);
-  
+
   void setUpdatingRootNS()
   {
     d_updatingRootNS = true;

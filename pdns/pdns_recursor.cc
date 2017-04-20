@@ -1038,13 +1038,6 @@ static void startDoResolve(void *p)
             L<<Logger::Warning<<"Starting validation of answer to "<<dc->d_mdp.d_qname<<"|"<<QType(dc->d_mdp.d_qtype).getName()<<" for "<<dc->d_remote.toStringWithPort()<<endl;
           }
 
-#if 0          
-          ResolveContext ctx;
-#ifdef HAVE_PROTOBUF
-          ctx.d_initialRequestId = dc->d_uuid;
-#endif
-          auto state=validateRecords(ctx, ret);
-#endif /* 0 */
           auto state = sr.getValidationState();
 
           if(state == Secure) {

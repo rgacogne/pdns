@@ -258,7 +258,7 @@ BOOST_AUTO_TEST_CASE(test_root_primed) {
   BOOST_REQUIRE_EQUAL(ret.size(), 1);
   BOOST_CHECK(ret[0].d_type == QType::AAAA);
   BOOST_CHECK_EQUAL(ret[0].d_name, target);
-  
+
 }
 
 BOOST_AUTO_TEST_CASE(test_root_primed_ns) {
