@@ -1202,7 +1202,7 @@ uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const 
 
 void SyncRes::updateValidationState(vState newState)
 {
-  //LOG("Validation state was "<<std::string(vStates[d_validationState])<<", state update is "<<std::string(vStates[newState])<<endl);
+  LOG(d_prefix<<"validation state was "<<std::string(vStates[d_validationState])<<", state update is "<<std::string(vStates[newState])<<endl);
 
   if (d_validationState == Indeterminate) {
     d_validationState = newState;
@@ -1268,15 +1268,15 @@ vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t& ds, unsigned int dept
 {
   auto luaLocal = g_luaconfs.getLocal();
 
-  if (getTrustAnchor(luaLocal->dsAnchors, zone, ds)) {
-    LOG("Got TA for "<<zone<<endl);
-    return Secure;
-  }
-
   std::string reason;
   if (haveNegativeTrustAnchor(luaLocal->negAnchors, zone, reason)) {
     LOG("Got NTA for "<<zone<<endl);
     return NTA;
+  }
+
+  if (getTrustAnchor(luaLocal->dsAnchors, zone, ds)) {
+    LOG("Got TA for "<<zone<<endl);
+    return Secure;
   }
 
   if (d_validationState != Indeterminate &&
@@ -1363,8 +1363,7 @@ void SyncRes::handleZoneSwitch(const DNSName& auth, unsigned int depth, bool inh
   updateValidationState(state);
   d_currentDS = newDS;
 
-  if (state == Secure ||
-      state == NTA) {
+  if (state == Secure) {
     // fetch the DNSKEYs for the new zone
 
     LOG("fetching DNSKEYs for "<<auth<<endl);
