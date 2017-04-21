@@ -1302,7 +1302,7 @@ vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t& ds, unsigned int dept
       }
     }
     if (ds.empty()) {
-      updateValidationState(Insecure);
+      return Insecure;
     }
   }
 
