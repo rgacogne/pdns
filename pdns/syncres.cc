@@ -1202,12 +1202,15 @@ uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const 
 
 void SyncRes::updateValidationState(vState newState)
 {
-  LOG(d_prefix<<"validation state was "<<std::string(vStates[d_validationState])<<", state update is "<<std::string(vStates[newState])<<endl);
+  LOG(d_prefix<<"validation state of "<<d_currentZoneCut<<" was "<<std::string(vStates[d_validationState])<<", state update is "<<std::string(vStates[newState])<<endl);
 
   if (d_validationState == Indeterminate) {
     d_validationState = newState;
   }
-  else if (newState == Insecure || newState == NTA) {
+  else if (newState == NTA) {
+    d_validationState = Insecure;
+  }
+  else if (newState == Insecure) {
     if (d_validationState != Bogus) {
       d_validationState = Insecure;
     }
@@ -1215,6 +1218,7 @@ void SyncRes::updateValidationState(vState newState)
   else if (newState == Bogus) {
     d_validationState = Bogus;
   }
+  LOG(d_prefix<<" validation state of "<<d_currentZoneCut<<" is now "<<std::string(vStates[d_validationState])<<endl);
 }
 
 void SyncRes::saveValidationState()
