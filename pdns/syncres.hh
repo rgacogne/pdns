@@ -635,7 +635,7 @@ public:
 
   vState getValidationState() const
   {
-    return d_validationState;
+    return d_queryValidationState;
   }
 
   void setValidationRequested()
@@ -706,16 +706,16 @@ private:
   };
 
   int doResolveAt(NsSet &nameservers, DNSName auth, bool flawedNSSet, const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret,
-                  unsigned int depth, set<GetBestNSAnswer>&beenthere);
+                  unsigned int depth, set<GetBestNSAnswer>&beenthere, vState& state);
   bool doResolveAtThisIP(const std::string& prefix, const DNSName& qname, const QType& qtype, LWResult& lwr, boost::optional<Netmask>& ednsmask, const DNSName& auth, bool const sendRDQuery, const DNSName& nsName, const ComboAddress& remoteIP, bool doTCP, bool* truncated);
-  bool processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qname, const QType& qtype, DNSName& auth, bool wasForwarded, const boost::optional<Netmask> ednsmask, bool sendRDQuery, NsSet &nameservers, std::vector<DNSRecord>& ret, const DNSFilterEngine& dfe, bool* gotNewServers, int* rcode);
+  bool processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qname, const QType& qtype, DNSName& auth, bool wasForwarded, const boost::optional<Netmask> ednsmask, bool sendRDQuery, NsSet &nameservers, std::vector<DNSRecord>& ret, const DNSFilterEngine& dfe, bool* gotNewServers, int* rcode, vState& state);
 
-  int doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, set<GetBestNSAnswer>& beenthere);
+  int doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, set<GetBestNSAnswer>& beenthere, vState& state);
   bool doOOBResolve(const AuthDomain& domain, const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, int& res) const;
   bool doOOBResolve(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, int &res);
   domainmap_t::const_iterator getBestAuthZone(DNSName* qname) const;
-  bool doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, int &res);
-  bool doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, int &res);
+  bool doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, int &res, vState& state);
+  bool doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, int &res, vState& state);
   void getBestNSFromCache(const DNSName &qname, const QType &qtype, vector<DNSRecord>&bestns, bool* flawedNSSet, unsigned int depth, set<GetBestNSAnswer>& beenthere);
   DNSName getBestNSNamesFromCache(const DNSName &qname, const QType &qtype, NsSet& nsset, bool* flawedNSSet, unsigned int depth, set<GetBestNSAnswer>&beenthere);
 
@@ -728,8 +728,8 @@ private:
   bool throttledOrBlocked(const std::string& prefix, const ComboAddress& remoteIP, const DNSName& qname, const QType& qtype, bool pierceDontQuery);
 
   vector<ComboAddress> retrieveAddressesForNS(const std::string& prefix, const DNSName& qname, vector<DNSName >::const_iterator& tns, const unsigned int depth, set<GetBestNSAnswer>& beenthere, const vector<DNSName >& rnameservers, NsSet& nameservers, bool& sendRDQuery, bool& pierceDontQuery, bool& flawedNSSet);
-  RCode::rcodes_ updateCacheFromRecords(unsigned int depth, LWResult& lwr, const DNSName& qname, const DNSName& auth, bool wasForwarded, const boost::optional<Netmask>);
-  bool processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic);
+  RCode::rcodes_ updateCacheFromRecords(unsigned int depth, LWResult& lwr, const DNSName& qname, const DNSName& auth, bool wasForwarded, const boost::optional<Netmask>, vState& state);
+  bool processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic, vState& state);
 
   bool doSpecialNamesResolve(const DNSName &qname, const QType &qtype, const uint16_t qclass, vector<DNSRecord> &ret);
 
@@ -740,19 +740,15 @@ private:
   bool validationEnabled() const;
   bool validationRequested() const;
   uint32_t computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const;
-  void updateValidationState(vState);
+  void updateValidationState(vState& state, const vState stateUpdate);
+  void updateValidationStatusAfterReferral(const DNSName& newauth, vState& state, unsigned int depth);
   vState validateRecordsWithSigs(unsigned int depth, const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures);
-  vState validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures);
-//  void resetValidationState();
-//  void queueValidationState();
-//  void popValidationState();
-  void saveValidationState();
-  void restoreValidationState(const DNSName& zone);
-  void handleZoneCut(const DNSName& auth, unsigned int depth);
-  void handleZoneSwitch(const DNSName& auth, unsigned int depth, bool inherit=false);
-  vState getDSRecords(const DNSName& zone, dsmap_t& ds, unsigned int depth);
-  void handleMissedZoneCut(const DNSName& target, unsigned int depth);
-  void getDenialValidationState(NegCache::NegCacheEntry& ne, dState expectedState);
+  vState validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, unsigned int depth);
+  vState getDSRecords(const DNSName& zone, dsmap_t& ds, bool onlyTA, unsigned int depth);
+  vState getDNSKeys(const DNSName& signer, skeyset_t& keys, unsigned int depth);
+  void getDenialValidationState(NegCache::NegCacheEntry& ne, vState& state, dState expectedState);
+  vState getTA(const DNSName& zone, dsmap_t& ds);
+  vState getValidationStatus(const DNSName& subdomain, unsigned int depth);
 
   void setUpdatingRootNS()
   {
@@ -766,21 +762,9 @@ private:
   boost::optional<const boost::uuids::uuid&> d_initialRequestId;
 #endif
   asyncresolve_t d_asyncResolve{nullptr};
-  skeyset_t d_currentKeys;
-  dsmap_t d_currentDS;
-  DNSName d_currentZoneCut;
   struct timeval d_now;
   string d_prefix;
-  vState d_validationState{Indeterminate};
-
-  struct ValidationStateObject
-  {
-    skeyset_t keys;
-    dsmap_t ds;
-    vState state;
-  };
-//  std::stack<ValidationStateObject> d_validationStack;
-  std::map<DNSName, ValidationStateObject> d_validationStates;
+  vState d_queryValidationState{Indeterminate};
 
   /* When d_cacheonly is set to true, we will only check the cache.
    * This is set when the RD bit is unset in the incoming query

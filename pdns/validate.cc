@@ -27,7 +27,7 @@ static vector<shared_ptr<DNSKEYRecordContent > > getByTag(const skeyset_t& keys,
 // FIXME: needs a zone argument, to avoid things like 6840 4.1
 // FIXME: Add ENT support
 // FIXME: Make usable for non-DS records and hook up to validateRecords (or another place)
-dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const uint16_t& qtype)
+dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const uint16_t qtype)
 {
   for(const auto& v : validrrsets) {
     LOG("Do have: "<<v.first.first<<"/"<<DNSRecordContent::NumberToType(v.first.second)<<endl);
