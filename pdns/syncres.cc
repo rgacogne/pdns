@@ -1290,6 +1290,10 @@ vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t& ds, bool taOnly, unsi
 
 vState SyncRes::getValidationStatus(const DNSName& subdomain, unsigned int depth)
 {
+  if (!validationEnabled()) {
+    return Indeterminate;
+  }
+
   dsmap_t ds;
   vState result = getTA(subdomain, ds);
   if (result != Indeterminate) {
