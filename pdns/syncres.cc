@@ -1229,6 +1229,11 @@ vState SyncRes::getTA(const DNSName& zone, dsmap_t& ds)
 {
   auto luaLocal = g_luaconfs.getLocal();
 
+  if (luaLocal->dsAnchors.empty()) {
+    /* We have no TA, everything is insecure */
+    return Insecure;
+  }
+
   std::string reason;
   if (haveNegativeTrustAnchor(luaLocal->negAnchors, zone, reason)) {
     LOG("Got NTA for "<<zone<<endl);
@@ -1238,6 +1243,11 @@ vState SyncRes::getTA(const DNSName& zone, dsmap_t& ds)
   if (getTrustAnchor(luaLocal->dsAnchors, zone, ds)) {
     LOG("Got TA for "<<zone<<endl);
     return Secure;
+  }
+
+  if (zone.isRoot()) {
+    /* No TA for the root */
+    return Insecure;
   }
 
   return Indeterminate;
