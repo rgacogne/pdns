@@ -565,6 +565,7 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
   }
 
   state = getValidationStatus(subdomain, depth);
+  LOG("Initial validation status for "<<qname<<" inherited from "<<subdomain<<" is "<<vStates[state]<<endl);
 
   if(!(res=doResolveAt(nsset, subdomain, flawedNSSet, qname, qtype, ret, depth, beenthere, state)))
     return 0;
@@ -813,7 +814,7 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
 
     for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
       if(j->d_ttl>(unsigned int) d_now.tv_sec) {
-        LOG(prefix<<qname<<": Found cache CNAME hit for '"<< qname << "|CNAME" <<"' to '"<<j->d_content->getZoneRepresentation()<<"'"<<endl);
+        LOG(prefix<<qname<<": Found cache CNAME hit for '"<< qname << "|CNAME" <<"' to '"<<j->d_content->getZoneRepresentation()<<"', validation state is "<<vStates[state]<<endl);
         DNSRecord dr=*j;
         dr.d_ttl-=d_now.tv_sec;
         ret.push_back(dr);
@@ -834,6 +835,7 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
 
           vState cnameState = Indeterminate;
           res=doResolve(std::dynamic_pointer_cast<CNAMERecordContent>(j->d_content)->getTarget(), qtype, ret, depth+1, beenthere, cnameState);
+          LOG("Updating validation state for response to "<<qname<<" from "<<vStates[state]<<" with the state from the CNAME quest: "<<vStates[cnameState]<<endl);
           updateValidationState(state, cnameState);
         }
         else
@@ -920,6 +922,7 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSR
     if(d_doDNSSEC)
       addTTLModifiedRecords(ne.authoritySOA.signatures, sttl, ret);
 
+    LOG("Updating validation state with negative cache content for "<<qname<<" to "<<vStates[cachedState]<<endl);
     state = cachedState;
     return true;
   }
@@ -960,6 +963,7 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSR
     if(found && !expired) {
       if (!giveNegative)
         res=0;
+      LOG("Updating validation state with cache content for "<<qname<<" to "<<vStates[cachedState]<<endl);
       state = cachedState;
       return true;
     }
@@ -1295,6 +1299,7 @@ vState SyncRes::getDSRecords(const DNSName& zone, dsmap_t& ds, bool taOnly, unsi
     return state;
   }
 
+  LOG("Returning Bogus state from "<<__func__<<"("<<zone<<")"<<endl);
   return Bogus;
 }
 
@@ -1419,6 +1424,7 @@ vState SyncRes::validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord
   LOG("We now have "<<std::to_string(validatedKeys.size())<<" DNSKEYs"<<endl);
 
   if (validatedKeys.size() != tentativeKeys.size()) {
+    LOG("Returning Bogus state from "<<__func__<<"("<<zone<<")"<<endl);
     return Bogus;
   }
 
@@ -1449,6 +1455,7 @@ vState SyncRes::getDNSKeys(const DNSName& signer, skeyset_t& keys, unsigned int 
     return state;
   }
 
+  LOG("Returning Bogus state from "<<__func__<<"("<<signer<<")"<<endl);
   return Bogus;
 }
 
@@ -1624,8 +1631,6 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
       updateValidationState(state, recordState);
     }
     else {
-      recordState = Indeterminate;
-
       if (validationEnabled()) {
         LOG("Skipping validation because the current state is "<<vStates[state]<<endl);
       }
@@ -1649,9 +1654,11 @@ void SyncRes::getDenialValidationState(NegCache::NegCacheEntry& ne, vState& stat
     dState res = getDenial(csp, ne.d_name, ne.d_qtype.getCode());
     if (res != expectedState) {
       if (ne.d_qtype.getCode() == QType::DS && res == OPTOUT) {
+        LOG("Invalid denial found for "<<ne.d_name<<", retuning Insecure"<<endl);
         ne.d_validationState = Insecure;
       }
       else {
+        LOG("Invalid denial found for "<<ne.d_name<<", retuning Bogus"<<endl);
         ne.d_validationState = Bogus;
       }
       updateValidationState(state, ne.d_validationState);
@@ -1954,6 +1961,7 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
     set<GetBestNSAnswer> beenthere2;
     vState cnameState = Indeterminate;
     *rcode = doResolve(newtarget, qtype, ret, depth + 1, beenthere2, cnameState);
+    LOG("Updating validation state for response to "<<qname<<" from "<<vStates[state]<<" with the state from the CNAME quest: "<<vStates[cnameState]<<endl);
     updateValidationState(state, cnameState);
 
     return true;
