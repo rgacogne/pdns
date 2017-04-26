@@ -2085,7 +2085,7 @@ BOOST_AUTO_TEST_CASE(test_nameserver_ipv4_rpz) {
   zone->setName("Unit test policy 0");
   zone->addNSIPTrigger(Netmask(ns, 32), pol);
   auto luaconfsCopy = g_luaconfs.getCopy();
-  luaconfsCopy.dfe.addZone(zone);
+  luaconfsCopy.dfe.addZone(*(zone->getName()), zone);
   g_luaconfs.setState(luaconfsCopy);
 
   vector<DNSRecord> ret;
@@ -2127,7 +2127,7 @@ BOOST_AUTO_TEST_CASE(test_nameserver_ipv6_rpz) {
   zone->setName("Unit test policy 0");
   zone->addNSIPTrigger(Netmask(ns, 128), pol);
   auto luaconfsCopy = g_luaconfs.getCopy();
-  luaconfsCopy.dfe.addZone(zone);
+  luaconfsCopy.dfe.addZone(*(zone->getName()), zone);
   g_luaconfs.setState(luaconfsCopy);
 
   vector<DNSRecord> ret;
@@ -2170,7 +2170,7 @@ BOOST_AUTO_TEST_CASE(test_nameserver_name_rpz) {
   zone->setName("Unit test policy 0");
   zone->addNSTrigger(nsName, pol);
   auto luaconfsCopy = g_luaconfs.getCopy();
-  luaconfsCopy.dfe.addZone(zone);
+  luaconfsCopy.dfe.addZone(*(zone->getName()), zone);
   g_luaconfs.setState(luaconfsCopy);
 
   vector<DNSRecord> ret;
@@ -2214,7 +2214,7 @@ BOOST_AUTO_TEST_CASE(test_nameserver_name_rpz_disabled) {
   zone->addNSIPTrigger(Netmask(ns, 128), pol);
   zone->addNSTrigger(nsName, pol);
   auto luaconfsCopy = g_luaconfs.getCopy();
-  luaconfsCopy.dfe.addZone(zone);
+  luaconfsCopy.dfe.addZone(*(zone->getName()), zone);
   g_luaconfs.setState(luaconfsCopy);
 
   /* RPZ is disabled for this query, we should not be blocked */

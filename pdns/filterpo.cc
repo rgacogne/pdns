@@ -61,12 +61,12 @@ DNSFilterEngine::Policy DNSFilterEngine::getProcessingPolicy(const DNSName& qnam
   //  cout<<"Got question for nameserver name "<<qname<<endl;
   Policy pol;
   for(const auto& z : d_zones) {
-    const auto zoneName = z->getName();
+    const auto zoneName = z.second->getName();
     if(zoneName && discardedPolicies.find(*zoneName) != discardedPolicies.end()) {
       continue;
     }
 
-    if(findNamedPolicy(z->d_propolName, qname, pol)) {
+    if(findNamedPolicy(z.second->d_propolName, qname, pol)) {
       //      cerr<<"Had a hit on the nameserver ("<<qname<<") used to process the query"<<endl;
       return pol;
     }
@@ -78,12 +78,12 @@ DNSFilterEngine::Policy DNSFilterEngine::getProcessingPolicy(const ComboAddress&
 {
   //  cout<<"Got question for nameserver IP "<<address.toString()<<endl;
   for(const auto& z : d_zones) {
-    const auto zoneName = z->getName();
+    const auto zoneName = z.second->getName();
     if(zoneName && discardedPolicies.find(*zoneName) != discardedPolicies.end()) {
       continue;
     }
 
-    if(auto fnd=z->d_propolNSAddr.lookup(address)) {
+    if(auto fnd=z.second->d_propolNSAddr.lookup(address)) {
       //      cerr<<"Had a hit on the nameserver ("<<address.toString()<<") used to process the query"<<endl;
       return fnd->second;;
     }
@@ -96,17 +96,17 @@ DNSFilterEngine::Policy DNSFilterEngine::getQueryPolicy(const DNSName& qname, co
   //  cout<<"Got question for "<<qname<<" from "<<ca.toString()<<endl;
   Policy pol;
   for(const auto& z : d_zones) {
-    const auto zoneName = z->getName();
+    const auto zoneName = z.second->getName();
     if(zoneName && discardedPolicies.find(*zoneName) != discardedPolicies.end()) {
       continue;
     }
 
-    if(findNamedPolicy(z->d_qpolName, qname, pol)) {
+    if(findNamedPolicy(z.second->d_qpolName, qname, pol)) {
       //      cerr<<"Had a hit on the name of the query"<<endl;
       return pol;
     }
     
-    if(auto fnd=z->d_qpolAddr.lookup(ca)) {
+    if(auto fnd=z.second->d_qpolAddr.lookup(ca)) {
       //	cerr<<"Had a hit on the IP address ("<<ca.toString()<<") of the client"<<endl;
       return fnd->second;
     }
@@ -135,22 +135,16 @@ DNSFilterEngine::Policy DNSFilterEngine::getPostPolicy(const vector<DNSRecord>& 
       continue;
 
     for(const auto& z : d_zones) {
-      const auto zoneName = z->getName();
+      const auto zoneName = z.second->getName();
       if(zoneName && discardedPolicies.find(*zoneName) != discardedPolicies.end()) {
         continue;
       }
 
-      if(auto fnd=z->d_postpolAddr.lookup(ca))
+      if(auto fnd=z.second->d_postpolAddr.lookup(ca))
 	return fnd->second;
     }
   }
   return Policy();
-}
-
-void DNSFilterEngine::assureZones(size_t zone)
-{
-  if(d_zones.size() <= zone)
-    d_zones.resize(zone+1);
 }
 
 void DNSFilterEngine::Zone::addClientTrigger(const Netmask& nm, Policy pol)

@@ -125,28 +125,29 @@ public:
   DNSFilterEngine();
   void clear()
   {
-    for(auto& z : d_zones) {
-      z->clear();
-    }
+    d_zones.clear();
   }
-  const std::shared_ptr<Zone> getZone(size_t zoneIdx) const
+  const std::shared_ptr<Zone> getZone(const std::string& zoneName) const
   {
-    std::shared_ptr<Zone> result{nullptr};
-    if (zoneIdx < d_zones.size()) {
-      result = d_zones[zoneIdx];
+    const auto& iter = d_zones.find(zoneName);
+    if (iter == d_zones.end()) {
+      throw std::runtime_error("No DNS Filter engine zone named " + zoneName);
     }
-    return result;
+    return iter->second;
   }
-  size_t addZone(std::shared_ptr<Zone> newZone)
-  {
-    d_zones.push_back(newZone);
-    return (d_zones.size() - 1);
-  }
-  void setZone(size_t zoneIdx, std::shared_ptr<Zone> newZone)
+  void addZone(const std::string& name, std::shared_ptr<Zone> newZone)
   {
     if (newZone) {
-      assureZones(zoneIdx);
-      d_zones[zoneIdx] = newZone;
+      if (d_zones.count(name) != 0) {
+        throw std::runtime_error("There is already a DNS Filter zone named " + name);
+      }
+      d_zones[name] = newZone;
+    }
+   }
+  void setZone(const std::string& name, std::shared_ptr<Zone> newZone)
+  {
+    if (newZone) {
+      d_zones[name] = newZone;
     }
   }
 
@@ -159,6 +160,5 @@ public:
     return d_zones.size();
   }
 private:
-  void assureZones(size_t zone);
-  vector<std::shared_ptr<Zone>> d_zones;
+  std::unordered_map<std::string,std::shared_ptr<Zone> > d_zones;
 };

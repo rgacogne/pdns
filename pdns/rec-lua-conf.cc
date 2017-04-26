@@ -127,7 +127,7 @@ void loadRecursorLuaConfig(const std::string& fname, bool checkOnly)
         theL()<<Logger::Warning<<"Loading RPZ from file '"<<filename<<"'"<<endl;
         zone->setName(polName);
         loadRPZFromFile(filename, zone, defpol, maxTTL);
-        lci.dfe.addZone(zone);
+        lci.dfe.addZone(polName, zone);
         theL()<<Logger::Warning<<"Done loading RPZ from file '"<<filename<<"'"<<endl;
       }
       catch(std::exception& e) {
@@ -173,14 +173,14 @@ void loadRecursorLuaConfig(const std::string& fname, bool checkOnly)
           // We were passed a localAddress, check if its AF matches the master's
           throw PDNSException("Master address("+master.toString()+") is not of the same Address Family as the local address ("+localAddress.toString()+").");
         zone->setName(polName);
-        size_t zoneIdx = lci.dfe.addZone(zone);
+        lci.dfe.addZone(polName, zone);
 
         if (!checkOnly) {
           auto sr=loadRPZFromServer(master, DNSName(zoneName), zone, defpol, maxTTL, tt, maxReceivedXFRMBytes * 1024 * 1024, localAddress);
           if(refresh)
             sr->d_st.refresh=refresh;
 
-          std::thread t(RPZIXFRTracker, master, DNSName(zoneName), defpol, maxTTL, zoneIdx, tt, sr, maxReceivedXFRMBytes * 1024 * 1024, localAddress);
+          std::thread t(RPZIXFRTracker, master, DNSName(zoneName), defpol, maxTTL, polName, tt, sr, maxReceivedXFRMBytes * 1024 * 1024, localAddress);
           t.detach();
         }
       }

@@ -310,7 +310,7 @@ string reloadAuthAndForwards()
 }
 
 
-void RPZIXFRTracker(const ComboAddress& master, const DNSName& zoneName, boost::optional<DNSFilterEngine::Policy> defpol, uint32_t maxTTL, size_t zoneIdx, const TSIGTriplet& tt, shared_ptr<SOARecordContent> oursr, size_t maxReceivedBytes, const ComboAddress& localAddress)
+void RPZIXFRTracker(const ComboAddress& master, const DNSName& zoneName, boost::optional<DNSFilterEngine::Policy> defpol, uint32_t maxTTL, const std::string polName, const TSIGTriplet& tt, shared_ptr<SOARecordContent> oursr, size_t maxReceivedBytes, const ComboAddress& localAddress)
 {
   uint32_t refresh = oursr->d_st.refresh;
   for(;;) {
@@ -337,7 +337,7 @@ void RPZIXFRTracker(const ComboAddress& master, const DNSName& zoneName, boost::
     L<<Logger::Info<<"Processing "<<deltas.size()<<" delta"<<addS(deltas)<<" for RPZ "<<zoneName<<endl;
 
     auto luaconfsLocal = g_luaconfs.getLocal();
-    const std::shared_ptr<DNSFilterEngine::Zone> oldZone = luaconfsLocal->dfe.getZone(zoneIdx);
+    const std::shared_ptr<DNSFilterEngine::Zone> oldZone = luaconfsLocal->dfe.getZone(polName);
     /* we need to make a _full copy_ of the zone we are going to work on */
     std::shared_ptr<DNSFilterEngine::Zone> newZone = std::make_shared<DNSFilterEngine::Zone>(*oldZone);
 
@@ -390,8 +390,8 @@ void RPZIXFRTracker(const ComboAddress& master, const DNSName& zoneName, boost::
        but we don't want to touch anything else, especially other zones,
        since they might have been updated by another RPZ IXFR tracker thread.
     */
-    g_luaconfs.modify([zoneIdx, &newZone](LuaConfigItems& lci) {
-                        lci.dfe.setZone(zoneIdx, newZone);
+    g_luaconfs.modify([polName, &newZone](LuaConfigItems& lci) {
+                        lci.dfe.setZone(polName, newZone);
                       });
   }
 }
