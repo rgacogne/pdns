@@ -583,11 +583,19 @@ int checkZone(DNSSECKeeper &dk, UeberBackend &B, const DNSName& zone, const vect
       if (rr.qtype.getCode() == QType::SRV) {
         vector<string> parts;
         stringtok(parts, rr.getZoneRepresentation());
-        toCheck = DNSName(parts[3]);
+        if (parts.size() >= 4) {
+          toCheck = DNSName(parts[3]);
+        } else {
+          cout<<"[Error] Invalid SRV content ("<<parts.size()<<" parts) found at '"<<rr.qname<<"'"<<endl;
+        }
       } else if (rr.qtype.getCode() == QType::MX) {
         vector<string> parts;
         stringtok(parts, rr.getZoneRepresentation());
-        toCheck = DNSName(parts[1]);
+        if (parts.size() >= 2) {
+          toCheck = DNSName(parts.at(1));
+        } else {
+          cout<<"[Error] Invalid MX content ("<<parts.size()<<" parts) found at '"<<rr.qname<<"'"<<endl;
+        }
       } else {
         toCheck = DNSName(rr.content);
       }
