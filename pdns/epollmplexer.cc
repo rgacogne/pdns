@@ -27,12 +27,10 @@
 #include <iostream>
 #include <unistd.h>
 #include "misc.hh"
-#include "syncres.hh"
 #ifdef __linux__
 #include <sys/epoll.h>
 #endif
 
-#include "namespaces.hh"
 #include "namespaces.hh"
 
 class EpollFDMultiplexer : public FDMultiplexer
@@ -44,7 +42,7 @@ public:
     close(d_epollfd);
   }
 
-  virtual int run(struct timeval* tv);
+  virtual int run(struct timeval* tv, int timeout=500);
 
   virtual void addFD(callbackmap_t& cbmap, int fd, callbackfunc_t toDo, const funcparam_t& parameter);
   virtual void removeFD(callbackmap_t& cbmap, int fd);
@@ -125,13 +123,13 @@ void EpollFDMultiplexer::removeFD(callbackmap_t& cbmap, int fd)
     throw FDMultiplexerException("Removing fd from epoll set: "+stringerror());
 }
 
-int EpollFDMultiplexer::run(struct timeval* now)
+int EpollFDMultiplexer::run(struct timeval* now, int timeout)
 {
   if(d_inrun) {
     throw FDMultiplexerException("FDMultiplexer::run() is not reentrant!\n");
   }
   
-  int ret=epoll_wait(d_epollfd, d_eevents.get(), s_maxevents, 500);
+  int ret=epoll_wait(d_epollfd, d_eevents.get(), s_maxevents, timeout);
   gettimeofday(now,0); // MANDATORY
   
   if(ret < 0 && errno!=EINTR)
@@ -155,7 +153,7 @@ int EpollFDMultiplexer::run(struct timeval* now)
     }
   }
   d_inrun=false;
-  return 0;
+  return ret;
 }
 
 #if 0
