@@ -337,11 +337,13 @@ install_recursor() {
   run "sudo apt-get -qq --no-install-recommends install \
     authbind \
     daemontools \
+    jq \
     libbotan-1.10-0 \
     libfaketime \
     liblua5.2-0 \
     moreutils \
-    jq"
+    snmpd \
+    libsnmp-dev"
   run "cd .."
   run "wget https://s3.amazonaws.com/alexa-static/top-1m.csv.zip"
   run "unzip top-1m.csv.zip -d ${TRAVIS_BUILD_DIR}/regression-tests"
