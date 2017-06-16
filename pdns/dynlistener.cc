@@ -60,6 +60,14 @@ DynListener::g_funk_t* DynListener::s_restfunc;
 
 DynListener::~DynListener()
 {
+  if(d_client != -1) {
+    close(d_client);
+  }
+
+  if (d_s != -1) {
+    close(d_s);
+  }
+
   if(!d_socketname.empty())
     unlink(d_socketname.c_str());
 }
