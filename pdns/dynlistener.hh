@@ -66,8 +66,8 @@ private:
   void createSocketAndBind(int family, struct sockaddr*local, size_t len);
 
   NetmaskGroup d_tcprange;
-  int d_s;
-  int d_client;
+  int d_s{-1};
+  int d_client{-1};
   pthread_t d_tid;
   bool d_nonlocal;
   bool d_tcp;

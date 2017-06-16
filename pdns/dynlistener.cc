@@ -164,22 +164,13 @@ void DynListener::listenOnTCP(const ComboAddress& local)
 }
 
 
-DynListener::DynListener(const ComboAddress& local)
+DynListener::DynListener(const ComboAddress& local): d_tcp(true), d_tid(0), d_ppid(0)
 {
   listenOnTCP(local);
-  d_tcp=true;
-  d_client=-1;
-  d_tid=0;
-  d_ppid=0;
 }
 
-DynListener::DynListener(const string &progname)
+DynListener::DynListener(const string &progname): d_tcp(false), d_tid(0), d_ppid(0)
 {
-  d_client=-1;
-  d_tid=0;
-  d_ppid=0;
-  d_s=-1;
-
   if(!progname.empty()) {
     string socketname = ::arg()["socket-dir"];
     if (::arg()["socket-dir"].empty()) {
@@ -205,7 +196,6 @@ DynListener::DynListener(const string &progname)
   }
   else
     d_nonlocal=false; // we listen on stdin!
-  d_tcp=false;
 }
 
 void DynListener::go()
