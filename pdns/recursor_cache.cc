@@ -265,7 +265,8 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
     stored = d_cache.insert(CacheEntry(key, CacheEntry::records_t(), auth)).first;
     isNew = true;
 
-    if (ednsmask) {
+    /* don't bother building an index if we don't have any netmask-specific entries */
+    if (ednsmask && !ednsmask->empty()) {
       auto indexKey = boost::make_tuple(qname, qt.getCode());
       auto index = d_index.find(indexKey);
       if (index == d_index.end()) {
