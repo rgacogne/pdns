@@ -825,7 +825,10 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
              most likely because we hadn't computed the zone cuts yet. */
           LOG(prefix<<qname<<": got Indeterminate state from the CNAME cache, validating.."<<endl);
           state = SyncRes::validateRecordsWithSigs(depth, qname, QType(QType::CNAME), qname, cset, signatures);
-          LOG(prefix<<qname<<": got Indeterminate state from the CNAME cache, validation result is "<<vStates[state]<<endl);
+          if (state != Indeterminate) {
+            LOG(prefix<<qname<<": got Indeterminate state from the CNAME cache, new validation result is "<<vStates[state]<<endl);
+            t_RC->updateValidationStatus(qname, QType(QType::CNAME), d_requestor, d_requireAuthData, state);
+          }
         }
 
         LOG(prefix<<qname<<": Found cache CNAME hit for '"<< qname << "|CNAME" <<"' to '"<<j->d_content->getZoneRepresentation()<<"', validation state is "<<vStates[state]<<endl);
@@ -973,7 +976,11 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const QType &qtype, vector<DNSR
          most likely because we hadn't computed the zone cuts yet. */
       LOG(prefix<<sqname<<": got Indeterminate state from the cache, validating.."<<endl);
       cachedState = SyncRes::validateRecordsWithSigs(depth, sqname, sqt, sqname, cset, signatures);
-      LOG(prefix<<qname<<": got Indeterminate state from the cache, validation result is "<<vStates[cachedState]<<endl);
+
+      if (cachedState != Indeterminate) {
+        LOG(prefix<<qname<<": got Indeterminate state from the cache, validation result is "<<vStates[cachedState]<<endl);
+        t_RC->updateValidationStatus(sqname, sqt, d_requestor, d_requireAuthData, cachedState);
+      }
     }
 
     for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
