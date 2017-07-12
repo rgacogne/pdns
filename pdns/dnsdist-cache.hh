@@ -44,7 +44,6 @@ public:
   uint64_t getHits() const { return d_hits; }
   uint64_t getMisses() const { return d_misses; }
   uint64_t getDeferredLookups() const { return d_deferredLookups; }
-  uint64_t getDeferredInserts() const { return d_deferredInserts; }
   uint64_t getLookupCollisions() const { return d_lookupCollisions; }
   uint64_t getInsertCollisions() const { return d_insertCollisions; }
   uint64_t getMaxEntries() const { return d_maxEntries; }
@@ -96,7 +95,6 @@ private:
 
   std::vector<CacheShard> d_shards;
   std::atomic<uint64_t> d_deferredLookups{0};
-  std::atomic<uint64_t> d_deferredInserts{0};
   std::atomic<uint64_t> d_hits{0};
   std::atomic<uint64_t> d_misses{0};
   std::atomic<uint64_t> d_insertCollisions{0};

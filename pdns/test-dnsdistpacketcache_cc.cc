@@ -190,7 +190,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheThreaded) {
     for(int i=0; i < 4 ; ++i)
       pthread_join(tid[i], &res);
 
-    BOOST_CHECK_EQUAL(PC.getSize() + PC.getDeferredInserts() + PC.getInsertCollisions(), 400000);
+    BOOST_CHECK_EQUAL(PC.getSize() + PC.getInsertCollisions(), 400000);
     BOOST_CHECK_SMALL(1.0*PC.getInsertCollisions(), 10000.0);
 
     for(int i=0; i < 4; ++i)
@@ -198,7 +198,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheThreaded) {
     for(int i=0; i < 4 ; ++i)
       pthread_join(tid[i], &res);
 
-    BOOST_CHECK((PC.getDeferredInserts() + PC.getDeferredLookups() + PC.getInsertCollisions()) >= g_missing);
+    BOOST_CHECK((PC.getDeferredLookups() + PC.getInsertCollisions()) >= g_missing);
   }
   catch(PDNSException& e) {
     cerr<<"Had error: "<<e.reason<<endl;
