@@ -783,7 +783,6 @@ void moreLua(bool client)
           g_outputBuffer="Entries: " + std::to_string(cache->getEntriesCount()) + "/" + std::to_string(cache->getMaxEntries()) + "\n";
           g_outputBuffer+="Hits: " + std::to_string(cache->getHits()) + "\n";
           g_outputBuffer+="Misses: " + std::to_string(cache->getMisses()) + "\n";
-          g_outputBuffer+="Deferred inserts: " + std::to_string(cache->getDeferredInserts()) + "\n";
           g_outputBuffer+="Deferred lookups: " + std::to_string(cache->getDeferredLookups()) + "\n";
           g_outputBuffer+="Lookup Collisions: " + std::to_string(cache->getLookupCollisions()) + "\n";
           g_outputBuffer+="Insert Collisions: " + std::to_string(cache->getInsertCollisions()) + "\n";

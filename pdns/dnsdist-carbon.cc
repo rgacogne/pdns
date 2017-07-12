@@ -118,7 +118,6 @@ try
             str<<base<<"cache-entries" << " " << cache->getEntriesCount() << " " << now << "\r\n";
             str<<base<<"cache-hits" << " " << cache->getHits() << " " << now << "\r\n";
             str<<base<<"cache-misses" << " " << cache->getMisses() << " " << now << "\r\n";
-            str<<base<<"cache-deferred-inserts" << " " << cache->getDeferredInserts() << " " << now << "\r\n";
             str<<base<<"cache-deferred-lookups" << " " << cache->getDeferredLookups() << " " << now << "\r\n";
             str<<base<<"cache-lookup-collisions" << " " << cache->getLookupCollisions() << " " << now << "\r\n";
             str<<base<<"cache-insert-collisions" << " " << cache->getInsertCollisions() << " " << now << "\r\n";

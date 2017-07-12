@@ -105,17 +105,12 @@ void DNSDistPacketCache::insert(uint32_t key, const DNSName& qname, uint16_t qty
   newValue.tcp = tcp;
   newValue.value = std::string(response, responseLen);
 
+  auto& shard = d_shards.at(shardIndex);
+  auto& map = shard.d_map;
   {
-    TryWriteLock w(&d_shards.at(shardIndex).d_lock);
+    WriteLock w(&shard.d_lock);
 
-    if (!w.gotIt()) {
-      d_deferredInserts++;
-      return;
-    }
-
-    auto& map = d_shards[shardIndex].d_map;
-
-    /* check again onw that we hold the lock to prevent a race */
+    /* check again now that we hold the lock to prevent a race */
     if (map.size() >= (d_maxEntries / d_shardCount)) {
       return;
     }
@@ -123,7 +118,7 @@ void DNSDistPacketCache::insert(uint32_t key, const DNSName& qname, uint16_t qty
     tie(it, result) = map.insert({key, newValue});
 
     if (result) {
-      d_shards[shardIndex].d_entriesCount++;
+      shard.d_entriesCount++;
       return;
     }
 
@@ -156,14 +151,15 @@ bool DNSDistPacketCache::get(const DNSQuestion& dq, uint16_t consumed, uint16_t 
   time_t now = time(NULL);
   time_t age;
   bool stale = false;
+  auto& shard = d_shards.at(shardIndex);
+  auto& map = shard.d_map;
   {
-    TryReadLock r(&d_shards.at(shardIndex).d_lock);
+    TryReadLock r(&shard.d_lock);
     if (!r.gotIt()) {
       d_deferredLookups++;
       return false;
     }
 
-    auto& map = d_shards[shardIndex].d_map;
     std::unordered_map<uint32_t,CacheValue>::const_iterator it = map.find(key);
     if (it == map.end()) {
       d_misses++;
