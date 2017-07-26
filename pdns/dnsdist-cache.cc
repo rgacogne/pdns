@@ -108,7 +108,15 @@ void DNSDistPacketCache::insert(uint32_t key, const DNSName& qname, uint16_t qty
   auto& shard = d_shards.at(shardIndex);
   auto& map = shard.d_map;
   {
+#if 1
+    TryWriteLock w(&shard.d_lock);
+    if (!w.gotIt()) {
+      d_deferredInserts++;
+      return;
+    }
+#else
     WriteLock w(&shard.d_lock);
+#endif
 
     /* check again now that we hold the lock to prevent a race */
     if (map.size() >= (d_maxEntries / d_shardCount)) {
