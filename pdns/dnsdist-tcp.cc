@@ -222,14 +222,7 @@ void* tcpClientThread(int pipefd)
   bool outstanding = false;
   time_t lastTCPCleanup = time(nullptr);
   
-     
-  auto localPolicy = g_policy.getLocal();
-  auto localRulactions = g_rulactions.getLocal();
-  auto localRespRulactions = g_resprulactions.getLocal();
-  auto localCacheHitRespRulactions = g_cachehitresprulactions.getLocal();
-  auto localDynBlockNMG = g_dynblockNMG.getLocal();
-  auto localDynBlockSMT = g_dynblockSMT.getLocal();
-  auto localPools = g_pools.getLocal();
+  LocalHolders holders;
 #ifdef HAVE_PROTOBUF
   boost::uuids::random_generator uuidGenerator;
 #endif
@@ -276,10 +269,15 @@ void* tcpClientThread(int pipefd)
         if(!getNonBlockingMsgLen(ci.fd, &qlen, g_tcpRecvTimeout))
           break;
 
+        queriesCount++;
+
+        if (qlen < sizeof(dnsheader)) {
+          g_stats.nonCompliantQueries++;
+          break;
+        }
+
         ci.cs->queries++;
         g_stats.queries++;
-
-        queriesCount++;
 
         if (g_maxTCPQueriesPerConn && queriesCount > g_maxTCPQueriesPerConn) {
           vinfolog("Terminating TCP connection from %s because it reached the maximum number of queries per conn (%d / %d)", ci.remote.toStringWithPort(), queriesCount, g_maxTCPQueriesPerConn);
@@ -288,11 +286,6 @@ void* tcpClientThread(int pipefd)
 
         if (maxConnectionDurationReached(g_maxTCPConnectionDuration, connectionStartTime, remainingTime)) {
           vinfolog("Terminating TCP connection from %s because it reached the maximum TCP connection duration", ci.remote.toStringWithPort());
-          break;
-        }
-
-        if (qlen < sizeof(dnsheader)) {
-          g_stats.nonCompliantQueries++;
           break;
         }
 
@@ -307,7 +300,7 @@ void* tcpClientThread(int pipefd)
         readn2WithTimeout(ci.fd, queryBuffer, qlen, g_tcpRecvTimeout, remainingTime);
 
 #ifdef HAVE_DNSCRYPT
-        std::shared_ptr<DnsCryptQuery> dnsCryptQuery = 0;
+        std::shared_ptr<DnsCryptQuery> dnsCryptQuery = nullptr;
 
         if (ci.cs->dnscryptCtx) {
           dnsCryptQuery = std::make_shared<DnsCryptQuery>();
@@ -326,18 +319,8 @@ void* tcpClientThread(int pipefd)
 #endif
         struct dnsheader* dh = (struct dnsheader*) query;
 
-        if(dh->qr) {   // don't respond to responses
-          g_stats.nonCompliantQueries++;
+        if (!checkQueryHeaders(dh)) {
           goto drop;
-        }
-
-        if(dh->qdcount == 0) {
-          g_stats.emptyQueries++;
-          goto drop;
-        }
-
-        if (dh->rd) {
-          g_stats.rdQueries++;
         }
 
 	const uint16_t* flags = getFlagsFromDNSHeader(dh);
@@ -358,7 +341,7 @@ void* tcpClientThread(int pipefd)
 	gettime(&now);
 	gettime(&queryRealTime, true);
 
-	if (!processQuery(localDynBlockNMG, localDynBlockSMT, localRulactions, dq, poolname, &delayMsec, now)) {
+	if (!processQuery(holders, dq, poolname, &delayMsec, now)) {
 	  goto drop;
 	}
 
@@ -408,7 +391,7 @@ void* tcpClientThread(int pipefd)
 #ifdef HAVE_PROTOBUF
             dr.uniqueId = dq.uniqueId;
 #endif
-            if (!processResponse(localCacheHitRespRulactions, dr, &delayMsec)) {
+            if (!processResponse(holders.cacheHitRespRulactions, dr, &delayMsec)) {
               goto drop;
             }
 
