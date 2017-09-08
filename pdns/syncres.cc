@@ -577,9 +577,9 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
     subdomain=getBestNSNamesFromCache(subdomain, qtype, nsset, &flawedNSSet, depth, beenthere); //  pass beenthere to both occasions
   }
 
-  state = getValidationStatus(subdomain);
+  state = getValidationStatus(qname, false);
 
-  LOG(prefix<<qname<<": initial validation status for "<<qname<<" inherited from "<<subdomain<<" is "<<vStates[state]<<endl);
+  LOG(prefix<<qname<<": initial validation status for "<<qname<<" is "<<vStates[state]<<endl);
 
   if(!(res=doResolveAt(nsset, subdomain, flawedNSSet, qname, qtype, ret, depth, beenthere, state)))
     return 0;
@@ -1412,7 +1412,7 @@ bool SyncRes::haveExactValidationStatus(const DNSName& domain)
   return false;
 }
 
-vState SyncRes::getValidationStatus(const DNSName& subdomain)
+vState SyncRes::getValidationStatus(const DNSName& subdomain, bool allowIndeterminate)
 {
   vState result = Indeterminate;
 
@@ -1423,8 +1423,10 @@ vState SyncRes::getValidationStatus(const DNSName& subdomain)
   do {
     const auto& it = d_cutStates.find(name);
     if (it != d_cutStates.cend()) {
-      LOG(d_prefix<<": got status "<<vStates[it->second]<<" for name "<<subdomain<<" (from "<<name<<")"<<endl);
-      return it->second;
+      if (allowIndeterminate || it->second != Indeterminate) {
+        LOG(d_prefix<<": got status "<<vStates[it->second]<<" for name "<<subdomain<<" (from "<<name<<")"<<endl);
+        return it->second;
+      }
     }
   }
   while (name.chopOff());
@@ -1481,6 +1483,30 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
         LOG(d_prefix<<": - Cut already known at "<<qname<<endl);
         continue;
       }
+    }
+
+    /* no need to look for NS and DS if we are already insecure or bogus,
+       just look for (N)TA
+    */
+    if (cutState == Insecure || cutState == Bogus) {
+      dsmap_t ds;
+      vState newState = getDSRecords(qname, ds, true, depth);
+      if (newState == Indeterminate) {
+        continue;
+      }
+
+      LOG(d_prefix<<": New state for "<<qname<<" is "<<vStates[newState]<<endl);
+      if (newState == TA) {
+        newState = Secure;
+      }
+      else if (newState == NTA) {
+        newState = Insecure;
+      }
+      cutState = newState;
+
+      d_cutStates[qname] = cutState;
+
+      continue;
     }
 
     std::set<GetBestNSAnswer> beenthere;
@@ -1815,10 +1841,10 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
       isAA = false;
     }
 
-    vState recordState = getValidationStatus(auth);
+    vState recordState = getValidationStatus(i->first.name, false);
     LOG(d_prefix<<": got initial zone status "<<vStates[recordState]<<" for record "<<i->first.name<<endl);
 
-    if (d_DNSSECValidationRequested && recordState == Secure) {
+    if (d_DNSSECValidationRequested && (recordState == Secure || !isAA)) {
       if (isAA) {
         if (i->first.place != DNSResourceRecord::ADDITIONAL) {
           /* the additional entries can be insecure,

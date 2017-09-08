@@ -5563,7 +5563,7 @@ BOOST_AUTO_TEST_CASE(test_dnssec_insecure_to_ta_skipped_cut) {
             addRecordToLW(res, DNSName("com."), QType::NS, "a.gtld-servers.com.");
             addRecordToLW(res, "a.gtld-servers.com.", QType::A, "192.0.2.1", DNSResourceRecord::ADDITIONAL, 3600);
           }
-          else if (domain == DNSName("powerdns.com.")) {
+          else if (domain.isPartOf(DNSName("powerdns.com."))) {
             setLWResult(res, 0, false, false, true);
             addRecordToLW(res, DNSName("powerdns.com."), QType::NS, "ns1.powerdns.com.", DNSResourceRecord::AUTHORITY, 3600);
             addRecordToLW(res, "ns1.powerdns.com.", QType::A, "192.0.2.2", DNSResourceRecord::ADDITIONAL, 3600);

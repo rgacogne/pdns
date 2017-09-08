@@ -758,7 +758,7 @@ private:
   void getDenialValidationState(NegCache::NegCacheEntry& ne, vState& state, const dState expectedState, bool allowOptOut);
   vState getTA(const DNSName& zone, dsmap_t& ds);
   bool haveExactValidationStatus(const DNSName& domain);
-  vState getValidationStatus(const DNSName& subdomain);
+  vState getValidationStatus(const DNSName& subdomain, bool allowIndeterminate=true);
 
   void computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned int depth);
 
