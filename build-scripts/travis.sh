@@ -278,7 +278,7 @@ install_auth() {
   #  mysql-server"
 
   # godbc-backend test setup
-  run 'echo -e "[pdns-sqlite3-1]\nDriver = SQLite3\nDatabase = ${PWD}/regression-tests/pdns.sqlite3\n\n[pdns-sqlite3-2]\nDriver = SQLite3\nDatabase = ${PWD}/regression-tests/pdns.sqlite32\n" > ${HOME}/.odbc.ini'
+  run 'echo -e "[pdns-sqlite3-1]\nDriver = SQLite3\nDatabase = ${PWD}/regression-tests/pdns.sqlite3\nThreading = 2\n\n[pdns-sqlite3-2]\nDriver = SQLite3\nDatabase = ${PWD}/regression-tests/pdns.sqlite32\nThreading = 2\n" > ${HOME}/.odbc.ini'
   run 'echo ${HOME}/.odbc.ini'
   run 'cat ${HOME}/.odbc.ini'
 
