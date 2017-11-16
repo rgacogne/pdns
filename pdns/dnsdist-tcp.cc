@@ -224,7 +224,8 @@ void* tcpClientThread(int pipefd)
 {
   /* we get launched with a pipe on which we receive file descriptors from clients that we own
      from that point on */
-     
+
+  size_t listenerId = g_listenerId++;
   bool outstanding = false;
   time_t lastTCPCleanup = time(nullptr);
   
@@ -343,7 +344,7 @@ void* tcpClientThread(int pipefd)
 	gettime(&now);
 	gettime(&queryRealTime, true);
 
-	if (!processQuery(holders, dq, poolname, &delayMsec, now)) {
+	if (!processQuery(holders, dq, poolname, &delayMsec, now, listenerId)) {
 	  goto drop;
 	}
 
@@ -581,10 +582,7 @@ void* tcpClientThread(int pipefd)
         struct timespec answertime;
         gettime(&answertime);
         unsigned int udiff = 1000000.0*DiffTime(now,answertime);
-        {
-          std::lock_guard<std::mutex> lock(g_rings.respMutex);
-          g_rings.respRing.push_back({answertime, ci.remote, qname, dq.qtype, (unsigned int)udiff, (unsigned int)responseLen, *dh, ds->remote});
-        }
+        g_rings.insertResponse(answertime, ci.remote, qname, dq.qtype, (unsigned int)udiff, (unsigned int)responseLen, *dh, ds->remote, listenerId);
 
         rewrittenResponse.clear();
       }

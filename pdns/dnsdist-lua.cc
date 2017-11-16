@@ -131,10 +131,10 @@ std::unordered_map<int, vector<boost::variant<string,double>>> getGenResponses(u
   setLuaNoSideEffect();
   map<DNSName, int> counts;
   unsigned int total=0;
-  {
-    std::lock_guard<std::mutex> lock(g_rings.respMutex);
+  for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+    ReadLock rl(&g_rings.respLocks[idx]);
     if(!labels) {
-      for(const auto& a : g_rings.respRing) {
+      for(const auto& a : g_rings.respRings[idx]) {
         if(!pred(a))
           continue;
         counts[a.name]++;
@@ -143,7 +143,7 @@ std::unordered_map<int, vector<boost::variant<string,double>>> getGenResponses(u
     }
     else {
       unsigned int lab = *labels;
-      for(auto a : g_rings.respRing) {
+      for(auto a : g_rings.respRings[idx]) {
         if(!pred(a))
           continue;
         
@@ -316,11 +316,11 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
 			  if (ret->connected) {
 			    if(g_launchWork) {
 			      g_launchWork->push_back([ret]() {
-			        ret->tid = thread(responderThread, ret);
+                                  ret->tid = thread(responderThread, ret, g_responseHandlerId++);
 			      });
 			    }
 			    else {
-			      ret->tid = thread(responderThread, ret);
+			      ret->tid = thread(responderThread, ret, g_responseHandlerId++);
 			    }
 			  }
 
@@ -494,14 +494,14 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
 			if (ret->connected) {
 			  if(g_launchWork) {
 			    g_launchWork->push_back([ret,cpus]() {
-			      ret->tid = thread(responderThread, ret);
+                              ret->tid = thread(responderThread, ret, g_responseHandlerId++);
                               if (!cpus.empty()) {
                                 mapThreadToCPUList(ret->tid.native_handle(), cpus);
                               }
 			    });
 			  }
 			  else {
-			    ret->tid = thread(responderThread, ret);
+			    ret->tid = thread(responderThread, ret, g_responseHandlerId++);
                             if (!cpus.empty()) {
                               mapThreadToCPUList(ret->tid.native_handle(), cpus);
                             }
@@ -1370,9 +1370,9 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
       auto top = top_.get_value_or(10);
       map<ComboAddress, int,ComboAddress::addressOnlyLessThan > counts;
       unsigned int total=0;
-      {
-        ReadLock rl(&g_rings.queryLock);
-        for(const auto& c : g_rings.queryRing) {
+      for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+        ReadLock rl(&g_rings.queryLocks[idx]);
+        for(const auto& c : g_rings.queryRings[idx]) {
           counts[c.requestor]++;
           total++;
         }
@@ -1402,20 +1402,24 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
       map<DNSName, int> counts;
       unsigned int total=0;
       if(!labels) {
-	ReadLock rl(&g_rings.queryLock);
-	for(const auto& a : g_rings.queryRing) {
-	  counts[a.name]++;
-	  total++;
-	}
+        for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+          ReadLock rl(&g_rings.queryLocks[idx]);
+          for(const auto& a : g_rings.queryRings[idx]) {
+            counts[a.name]++;
+            total++;
+          }
+        }
       }
       else {
 	unsigned int lab = *labels;
-	ReadLock rl(&g_rings.queryLock);
-	for(auto a : g_rings.queryRing) {
-	  a.name.trimToLabels(lab);
-	  counts[a.name]++;
-	  total++;
-	}
+        for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+          ReadLock rl(&g_rings.queryLocks[idx]);
+          for(auto a : g_rings.queryRings[idx]) {
+            a.name.trimToLabels(lab);
+            counts[a.name]++;
+            total++;
+          }
+        }
       }
       // cout<<"Looked at "<<total<<" queries, "<<counts.size()<<" different ones"<<endl;
       vector<pair<int, DNSName>> rcounts;
@@ -1478,20 +1482,24 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
 
   g_lua.writeFunction("getResponseRing", []() {
       setLuaNoSideEffect();
-      decltype(g_rings.respRing) ring;
-      {
-	std::lock_guard<std::mutex> lock(g_rings.respMutex);
-	ring = g_rings.respRing;
+      size_t totalEntries = 0;
+      decltype(g_rings.respRings) rings;
+      for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+        ReadLock rl(&g_rings.respLocks[idx]);
+	rings[idx] = g_rings.respRings[idx];
+        totalEntries += rings[idx].size();
       }
       vector<std::unordered_map<string, boost::variant<string, unsigned int> > > ret;
-      ret.reserve(ring.size());
+      ret.reserve(totalEntries);
       decltype(ret)::value_type item;
-      for(const auto& r : ring) {
-	item["name"]=r.name.toString();
-	item["qtype"]=r.qtype;
-	item["rcode"]=r.dh.rcode;
-	item["usec"]=r.usec;
-	ret.push_back(item);
+      for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+        for(const auto& r : rings[idx]) {
+          item["name"]=r.name.toString();
+          item["qtype"]=r.qtype;
+          item["rcode"]=r.dh.rcode;
+          item["usec"]=r.usec;
+          ret.push_back(item);
+        }
       }
       return ret;
     });
@@ -1522,9 +1530,9 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
 
       double totlat=0;
       unsigned int size=0;
-      {
-	std::lock_guard<std::mutex> lock(g_rings.respMutex);
-	for(const auto& r : g_rings.respRing) {
+      for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+        ReadLock rl(&g_rings.respLocks[idx]);
+	for(const auto& r : g_rings.respRings[idx]) {
           /* skip actively discovered timeouts */
           if (r.usec == std::numeric_limits<unsigned int>::max())
             continue;

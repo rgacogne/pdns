@@ -95,18 +95,20 @@ static void statNodeRespRing(statvisitor_t visitor, unsigned int seconds)
     cutoff.tv_sec -= seconds;
   }
 
-  std::lock_guard<std::mutex> lock(g_rings.respMutex);
-  
   StatNode root;
-  for(const auto& c : g_rings.respRing) {
-    if (now < c.when)
-      continue;
+  for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+    ReadLock rl(&g_rings.respLocks[idx]);
+    for(const auto& c : g_rings.respRings[idx]) {
+      if (now < c.when)
+        continue;
 
-    if (seconds && c.when < cutoff)
-      continue;
+      if (seconds && c.when < cutoff)
+        continue;
 
-    root.submit(c.name, c.dh.rcode, c.requestor);
+      root.submit(c.name, c.dh.rcode, c.requestor);
+    }
   }
+
   StatNode::Stat node;
 
   root.visit([&visitor](const StatNode* node_, const StatNode::Stat& self, const StatNode::Stat& children) {
@@ -118,17 +120,19 @@ vector<pair<unsigned int, std::unordered_map<string,string> > > getRespRing(boos
 {
   typedef std::unordered_map<string,string>  entry_t;
   vector<pair<unsigned int, entry_t > > ret;
-  std::lock_guard<std::mutex> lock(g_rings.respMutex);
+  for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+    ReadLock rl(&g_rings.respLocks[idx]);
   
-  entry_t e;
-  unsigned int count=1;
-  for(const auto& c : g_rings.respRing) {
-    if(rcode && (rcode.get() != c.dh.rcode))
-      continue;
-    e["qname"]=c.name.toString();
-    e["rcode"]=std::to_string(c.dh.rcode);
-    ret.push_back(std::make_pair(count,e));
-    count++;
+    entry_t e;
+    unsigned int count=1;
+    for(const auto& c : g_rings.respRings[idx]) {
+      if(rcode && (rcode.get() != c.dh.rcode))
+        continue;
+      e["qname"]=c.name.toString();
+      e["rcode"]=std::to_string(c.dh.rcode);
+      ret.push_back(std::make_pair(count,e));
+      count++;
+    }
   }
   return ret;
 }
@@ -142,17 +146,20 @@ map<ComboAddress,int> exceedRespGen(int rate, int seconds, std::function<void(co
   cutoff = mintime = now;
   cutoff.tv_sec -= seconds;
 
-  std::lock_guard<std::mutex> lock(g_rings.respMutex);
-  for(const auto& c : g_rings.respRing) {
-    if(seconds && c.when < cutoff)
-      continue;
-    if(now < c.when)
-      continue;
+  for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+    ReadLock rl(&g_rings.respLocks[idx]);
+    for(const auto& c : g_rings.respRings[idx]) {
+      if(seconds && c.when < cutoff)
+        continue;
+      if(now < c.when)
+        continue;
 
-    T(counts, c);
-    if(c.when < mintime)
-      mintime = c.when;
+      T(counts, c);
+      if(c.when < mintime)
+        mintime = c.when;
+    }
   }
+
   double delta = seconds ? seconds : DiffTime(now, mintime);
   return filterScore(counts, delta, rate);
 }
@@ -165,16 +172,19 @@ map<ComboAddress,int> exceedQueryGen(int rate, int seconds, std::function<void(c
   cutoff = mintime = now;
   cutoff.tv_sec -= seconds;
 
-  ReadLock rl(&g_rings.queryLock);
-  for(const auto& c : g_rings.queryRing) {
-    if(seconds && c.when < cutoff)
-      continue;
-    if(now < c.when)
-      continue;
-    T(counts, c);
-    if(c.when < mintime)
-      mintime = c.when;
+  for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+    ReadLock rl(&g_rings.queryLocks[idx]);
+    for(const auto& c : g_rings.queryRings[idx]) {
+      if(seconds && c.when < cutoff)
+        continue;
+      if(now < c.when)
+        continue;
+      T(counts, c);
+      if(c.when < mintime)
+        mintime = c.when;
+    }
   }
+
   double delta = seconds ? seconds : DiffTime(now, mintime);
   return filterScore(counts, delta, rate);
 }
@@ -463,19 +473,29 @@ void moreLua(bool client)
         }
       }
 
-      decltype(g_rings.queryRing) qr;
-      decltype(g_rings.respRing) rr;
-      {
-        ReadLock rl(&g_rings.queryLock);
-        qr=g_rings.queryRing;
+      std::vector<decltype(g_rings.queryRings)::value_type::value_type> qr;
+      std::vector<decltype(g_rings.respRings)::value_type::value_type> rr;
+      for (size_t idx = 0; idx < g_rings.d_numberOfShards; idx++) {
+        {
+          ReadLock rl(&g_rings.queryLocks[idx]);
+          qr.resize(qr.size() + g_rings.queryRings[idx].size());
+          cerr<<g_rings.queryRings[idx].size()<<" entries in query rings "<<idx<<endl;
+          for (const auto& entry : g_rings.queryRings[idx]) {
+            qr.push_back(entry);
+          }
+        }
+        {
+          ReadLock rl(&g_rings.respLocks[idx]);
+          cerr<<g_rings.respRings[idx].size()<<" entries in resp ring "<<idx<<endl;
+          rr.resize(rr.size() + g_rings.respRings[idx].size());
+          for (const auto& entry : g_rings.respRings[idx]) {
+            rr.push_back(entry);
+          }
+        }
       }
       sort(qr.begin(), qr.end(), [](const decltype(qr)::value_type& a, const decltype(qr)::value_type& b) {
         return b.when < a.when;
       });
-      {
-	std::lock_guard<std::mutex> lock(g_rings.respMutex);
-        rr=g_rings.respRing;
-      }
 
       sort(rr.begin(), rr.end(), [](const decltype(rr)::value_type& a, const decltype(rr)::value_type& b) {
         return b.when < a.when;
@@ -1338,14 +1358,14 @@ void moreLua(bool client)
         g_servFailOnNoPolicy = servfail;
       });
 
-    g_lua.writeFunction("setRingBuffersSize", [](size_t capacity) {
+    g_lua.writeFunction("setRingBuffersSize", [](size_t capacity, boost::optional<size_t> numberOfShards) {
         setLuaSideEffect();
         if (g_configurationDone) {
           errlog("setRingBuffersSize() cannot be used at runtime!");
           g_outputBuffer="setRingBuffersSize() cannot be used at runtime!\n";
           return;
         }
-        g_rings.setCapacity(capacity);
+        g_rings.setCapacity(capacity, numberOfShards ? *numberOfShards : 1);
       });
 
     g_lua.writeFunction("RDRule", []() {
