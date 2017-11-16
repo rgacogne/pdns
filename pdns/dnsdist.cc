@@ -593,9 +593,10 @@ shared_ptr<DownstreamState> leastOutstanding(const NumberedServerVector& servers
     return servers[0].second;
   }
 
-  vector<pair<tuple<int,int,double>, shared_ptr<DownstreamState>>> poss;
+  static thread_local vector<pair<tuple<int,int,double>, shared_ptr<DownstreamState>>> poss;
   /* so you might wonder, why do we go through this trouble? The data on which we sort could change during the sort,
      which would suck royally and could even lead to crashes. So first we snapshot on what we sort, and then we sort */
+  poss.resize(0);
   poss.reserve(servers.size());
   for(auto& d : servers) {
     if(d.second->isUp()) {
@@ -610,7 +611,9 @@ shared_ptr<DownstreamState> leastOutstanding(const NumberedServerVector& servers
 
 shared_ptr<DownstreamState> valrandom(unsigned int val, const NumberedServerVector& servers, const DNSQuestion* dq)
 {
-  vector<pair<int, shared_ptr<DownstreamState>>> poss;
+  static thread_local vector<pair<int, shared_ptr<DownstreamState>>> poss;
+  poss.resize(0);
+
   int sum=0;
   for(auto& d : servers) {      // w=1, w=10 -> 1, 11
     if(d.second->isUp()) {
@@ -644,7 +647,8 @@ shared_ptr<DownstreamState> whashed(const NumberedServerVector& servers, const D
 
 shared_ptr<DownstreamState> roundrobin(const NumberedServerVector& servers, const DNSQuestion* dq)
 {
-  NumberedServerVector poss;
+  static thread_local NumberedServerVector poss;
+  poss.resize(0);
 
   for(auto& d : servers) {
     if(d.second->isUp()) {
