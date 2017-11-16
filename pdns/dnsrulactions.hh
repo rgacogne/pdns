@@ -1260,7 +1260,7 @@ public:
     DNSDistProtoBufMessage message(*dq);
     {
       if (d_alterFunc) {
-        std::lock_guard<std::mutex> lock(g_luamutex);
+        WriteLock wl(&g_lualock);
         (*d_alterFunc)(*dq, &message);
       }
     }
@@ -1317,7 +1317,7 @@ public:
     DNSDistProtoBufMessage message(*dr, d_includeCNAME);
     {
       if (d_alterFunc) {
-        std::lock_guard<std::mutex> lock(g_luamutex);
+        WriteLock wl(&g_lualock);
         (*d_alterFunc)(*dr, &message);
       }
     }

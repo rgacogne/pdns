@@ -204,7 +204,7 @@ void doConsole()
       bool withReturn=true;
     retry:;
       try {
-        std::lock_guard<std::mutex> lock(g_luamutex);
+        WriteLock wl(&g_lualock);
         g_outputBuffer.clear();
         resetLuaSideEffect();
         auto ret=g_lua.executeCode<
@@ -515,7 +515,7 @@ try
       bool withReturn=true;
     retry:;
       try {
-        std::lock_guard<std::mutex> lock(g_luamutex);
+        WriteLock wl(&g_lualock);
         
         g_outputBuffer.clear();
         resetLuaSideEffect();
