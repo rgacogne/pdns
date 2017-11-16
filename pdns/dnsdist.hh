@@ -736,6 +736,9 @@ typedef std::function<shared_ptr<DownstreamState>(const NumberedServerVector& se
 
 struct ServerPolicy
 {
+  ServerPolicy(const string& name_, policyfunc_t policy_, bool ro): name(name_), policy(policy_), isReadOnly(ro)
+  {
+  }
   string name;
   policyfunc_t policy;
   bool isReadOnly;
@@ -770,7 +773,7 @@ extern GlobalStateHolder<SuffixMatchTree<DynBlock>> g_dynblockSMT;
 extern DNSAction::Action g_dynBlockAction;
 
 extern GlobalStateHolder<vector<CarbonConfig> > g_carbon;
-extern GlobalStateHolder<ServerPolicy> g_policy;
+extern GlobalStateHolder<std::shared_ptr<ServerPolicy> > g_policy;
 extern GlobalStateHolder<servers_t> g_dstates;
 extern GlobalStateHolder<pools_t> g_pools;
 extern GlobalStateHolder<vector<pair<std::shared_ptr<DNSRule>, std::shared_ptr<DNSAction> > > > g_rulactions;
@@ -840,7 +843,7 @@ struct LocalHolders
   }
 
   LocalStateHolder<NetmaskGroup> acl;
-  LocalStateHolder<ServerPolicy> policy;
+  LocalStateHolder<std::shared_ptr<ServerPolicy> > policy;
   LocalStateHolder<vector<pair<std::shared_ptr<DNSRule>, std::shared_ptr<DNSAction> > > > rulactions;
   LocalStateHolder<vector<pair<std::shared_ptr<DNSRule>, std::shared_ptr<DNSResponseAction> > > > cacheHitRespRulactions;
   LocalStateHolder<servers_t> servers;
@@ -856,7 +859,7 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
 std::shared_ptr<ServerPool> getPool(const pools_t& pools, const std::string& poolName);
 std::shared_ptr<ServerPool> createPoolIfNotExists(pools_t& pools, const string& poolName);
 const NumberedServerVector& getDownstreamCandidates(const pools_t& pools, const std::string& poolName);
-std::shared_ptr<DownstreamState> getBackendFromPolicy(const ServerPolicy& policy, const NumberedServerVector& servers, const DNSQuestion& dq);
+std::shared_ptr<DownstreamState> getBackendFromPolicy(const std::shared_ptr<ServerPolicy> policy, const NumberedServerVector& servers, const DNSQuestion& dq);
 
 std::shared_ptr<DownstreamState> firstAvailable(const NumberedServerVector& servers, const DNSQuestion* dq);
 

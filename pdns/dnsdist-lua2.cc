@@ -748,7 +748,7 @@ void moreLua(bool client)
           const string& name = entry.first;
           const std::shared_ptr<ServerPool> pool = entry.second;
           string cache = pool->packetCache != nullptr ? pool->packetCache->toString() : "";
-          string policy = g_policy.getLocal()->name;
+          string policy = (*g_policy.getLocal())->name;
           if (pool->policy != nullptr) {
             policy = pool->policy->name;
           }
@@ -1472,7 +1472,7 @@ void moreLua(bool client)
         auto localPools = g_pools.getCopy();
         auto poolObj = getPool(localPools, pool);
         if (poolObj->policy == nullptr) {
-          g_outputBuffer=g_policy.getLocal()->name+"\n";
+          g_outputBuffer=(*g_policy.getLocal())->name+"\n";
         } else {
           g_outputBuffer=poolObj->policy->name+"\n";
         }

@@ -575,7 +575,7 @@ DownstreamState::DownstreamState(const ComboAddress& remote_, const ComboAddress
 pthread_rwlock_t g_lualock;
 LuaContext g_lua;
 
-GlobalStateHolder<ServerPolicy> g_policy;
+GlobalStateHolder<shared_ptr<ServerPolicy> > g_policy;
 
 shared_ptr<DownstreamState> firstAvailable(const NumberedServerVector& servers, const DNSQuestion* dq)
 {
@@ -790,17 +790,17 @@ std::shared_ptr<ServerPool> getPool(const pools_t& pools, const std::string& poo
   return it->second;
 }
 
-std::shared_ptr<DownstreamState> getBackendFromPolicy(const ServerPolicy& policy, const NumberedServerVector& servers, const DNSQuestion& dq)
+std::shared_ptr<DownstreamState> getBackendFromPolicy(const std::shared_ptr<ServerPolicy> policy, const NumberedServerVector& servers, const DNSQuestion& dq)
 {
   std::shared_ptr<DownstreamState> backend = nullptr;
 
-  if (policy.isReadOnly) {
+  if (policy->isReadOnly) {
     ReadLock rl(&g_lualock);
-    backend = policy.policy(servers, &dq);
+    backend = policy->policy(servers, &dq);
   }
   else {
     WriteLock wl(&g_lualock);
-    backend = policy.policy(servers, &dq);
+    backend = policy->policy(servers, &dq);
   }
 
   return backend;
@@ -1258,9 +1258,9 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
 
     std::shared_ptr<ServerPool> serverPool = getPool(*holders.pools, poolname);
     std::shared_ptr<DNSDistPacketCache> packetCache = serverPool->packetCache;
-    auto policy = *(holders.policy);
+    std::shared_ptr<ServerPolicy> policy = *(holders.policy);
     if (serverPool->policy != nullptr) {
-      policy = *(serverPool->policy);
+      policy = serverPool->policy;
     }
 
     std::shared_ptr<DownstreamState> ss = getBackendFromPolicy(policy, serverPool->servers, dq);
@@ -2110,7 +2110,7 @@ try
     }
   }
 
-  ServerPolicy leastOutstandingPol{"leastOutstanding", leastOutstanding, true};
+  auto leastOutstandingPol = std::make_shared<ServerPolicy>("leastOutstanding", leastOutstanding, true);
 
   g_policy.setState(leastOutstandingPol);
   if(g_cmdLine.beClient || !g_cmdLine.command.empty()) {
