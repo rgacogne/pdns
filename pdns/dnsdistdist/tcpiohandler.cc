@@ -17,7 +17,7 @@
 
 #if (OPENSSL_VERSION_NUMBER < 0x1010000fL || defined LIBRESSL_VERSION_NUMBER)
 /* OpenSSL < 1.1.0 needs support for threading/locking in the calling application. */
-static pthread_mutex_t *openssllocks;
+static pthread_mutex_t *openssllocks{nullptr};
 
 extern "C" {
 static void openssl_pthreads_locking_callback(int mode, int type, const char *file, int line)
@@ -259,9 +259,14 @@ public:
     }
   }
 
-  std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout) override
+  std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout, time_t now) override
   {
     return std::unique_ptr<OpenSSLTLSConnection>(new OpenSSLTLSConnection(socket, timeout, d_tlsCtx));
+  }
+
+  void rotateTicketsKey(time_t now) override
+  {
+    // XXX TODO
   }
 private:
   SSL_CTX* d_tlsCtx{nullptr};
@@ -277,11 +282,45 @@ std::atomic<uint64_t> OpenSSLTLSIOCtx::s_users(0);
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
 
+class GnuTLSTicketsKey
+{
+public:
+  GnuTLSTicketsKey()
+  {
+    if (gnutls_session_ticket_key_generate(&d_key) != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error generating tickets key for TLS context");
+    }
+
+#ifdef HAVE_LIBSODIUM
+    sodium_mlock(d_key.data, d_key.size);
+#endif /* HAVE_LIBSODIUM */
+  }
+
+  ~GnuTLSTicketsKey()
+  {
+    if (d_key.data != nullptr && d_key.size > 0) {
+#ifdef HAVE_LIBSODIUM
+      sodium_munlock(d_key.data, d_key.size);
+#else
+      gnutls_memset(d_key.data, 0, d_key.size);
+#endif /* HAVE_LIBSODIUM */
+    }
+    gnutls_free(d_key.data);
+  }
+  const gnutls_datum_t& getKey() const
+  {
+    return d_key;
+  }
+
+private:
+  gnutls_datum_t d_key{nullptr, 0};
+};
+
 class GnuTLSConnection: public TLSConnection
 {
 public:
 
-  GnuTLSConnection(int socket, unsigned int timeout, const gnutls_certificate_credentials_t creds, const gnutls_priority_t priorityCache, const gnutls_datum_t& ticketsKey)
+  GnuTLSConnection(int socket, unsigned int timeout, const gnutls_certificate_credentials_t creds, const gnutls_priority_t priorityCache, std::shared_ptr<GnuTLSTicketsKey> ticketsKey): d_ticketsKey(ticketsKey)
   {
     d_socket = socket;
 
@@ -299,8 +338,9 @@ public:
       throw std::runtime_error("Error setting ciphers to TLS connection");
     }
 
-    if (ticketsKey.data != nullptr && ticketsKey.size > 0) {
-      if (gnutls_session_ticket_enable_server(d_conn, &ticketsKey) != GNUTLS_E_SUCCESS) {
+    if (d_ticketsKey) {
+      const gnutls_datum_t& key = d_ticketsKey->getKey();
+      if (gnutls_session_ticket_enable_server(d_conn, &key) != GNUTLS_E_SUCCESS) {
         gnutls_deinit(d_conn);
         throw std::runtime_error("Error setting the tickets key to TLS connection");
       }
@@ -382,12 +422,13 @@ public:
 
 private:
   gnutls_session_t d_conn{nullptr};
+  std::shared_ptr<GnuTLSTicketsKey> d_ticketsKey;
 };
 
 class GnuTLSIOCtx: public TLSCtx
 {
 public:
-  GnuTLSIOCtx(const TLSFrontend& fe)
+  GnuTLSIOCtx(const TLSFrontend& fe): d_ticketsKeyRotationDelay(fe.d_ticketsKeyRotationDelay)
   {
     if (gnutls_certificate_allocate_credentials(&d_creds) != GNUTLS_E_SUCCESS) {
       throw std::runtime_error("Error allocating credentials for TLS context on " + fe.d_addr.toStringWithPort());
@@ -407,28 +448,17 @@ public:
       warnlog("Error setting up TLS cipher preferences to %s, skipping.", fe.d_ciphers.c_str());
     }
 
-    /* XXX: We need to handle regular rotation of the key */
-    if (gnutls_session_ticket_key_generate(&d_ticketsKey) != GNUTLS_E_SUCCESS) {
+    try {
+      rotateTicketsKey(time(nullptr));
+    }
+    catch(const std::runtime_error& e) {
       gnutls_certificate_free_credentials(d_creds);
       throw std::runtime_error("Error generating tickets key for TLS context on " + fe.d_addr.toStringWithPort());
     }
-
-#ifdef HAVE_LIBSODIUM
-    sodium_mlock(d_ticketsKey.data, d_ticketsKey.size);
-#endif /* HAVE_LIBSODIUM */
   }
 
   virtual ~GnuTLSIOCtx() override
   {
-    if (d_ticketsKey.data != nullptr && d_ticketsKey.size > 0) {
-#ifdef HAVE_LIBSODIUM
-      sodium_munlock(d_ticketsKey.data, d_ticketsKey.size);
-#else
-      gnutls_memset(d_ticketsKey.data, 0, d_ticketsKey.size);
-#endif /* HAVE_LIBSODIUM */
-    }
-    gnutls_free(d_ticketsKey.data);
-
     if (d_creds) {
       gnutls_certificate_free_credentials(d_creds);
     }
@@ -437,15 +467,45 @@ public:
     }
   }
 
-  std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout) override
+  std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout, time_t now) override
   {
+    handleTicketsKeyRotation(now);
+
     return std::unique_ptr<GnuTLSConnection>(new GnuTLSConnection(socket, timeout, d_creds, d_priorityCache, d_ticketsKey));
+  }
+
+  void handleTicketsKeyRotation(time_t now)
+  {
+    if (d_ticketsKeyRotationDelay != 0 && now > d_ticketsKeyNextRotation) {
+      rotateTicketsKey(now);
+    }
+  }
+
+  void rotateTicketsKey(time_t now) override
+  {
+    if (d_rotatingTicketsKey.test_and_set()) {
+      /* someone is already rotating */
+      return;
+    }
+    try {
+      auto newKey = std::make_shared<GnuTLSTicketsKey>();
+      d_ticketsKey = newKey;
+      d_ticketsKeyNextRotation = now + d_ticketsKeyRotationDelay;
+      d_rotatingTicketsKey.clear();
+    }
+    catch(const std::runtime_error& e) {
+      d_rotatingTicketsKey.clear();
+      throw std::runtime_error("Error generating a new tickets key for TLS context");
+    }
   }
 
 private:
   gnutls_certificate_credentials_t d_creds{nullptr};
   gnutls_priority_t d_priorityCache{nullptr};
-  gnutls_datum_t d_ticketsKey{nullptr, 0};
+  std::shared_ptr<GnuTLSTicketsKey> d_ticketsKey{nullptr};
+  time_t d_ticketsKeyRotationDelay;
+  time_t d_ticketsKeyNextRotation;
+  std::atomic_flag d_rotatingTicketsKey{ATOMIC_FLAG_INIT};
 };
 
 #endif /* HAVE_GNUTLS */
