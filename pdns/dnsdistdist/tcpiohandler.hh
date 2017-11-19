@@ -36,6 +36,7 @@ public:
   std::string d_interface;
   std::shared_ptr<TLSCtx> d_ctx{nullptr};
 
+  time_t d_ticketsKeyRotationDelay{43200};
   int d_tcpFastOpenQueueSize{0};
   bool d_reusePort{false};
 };
@@ -44,16 +45,17 @@ class TLSCtx
 {
 public:
   virtual ~TLSCtx() {}
-  virtual std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout) = 0;
+  virtual std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout, time_t now) = 0;
+  virtual void rotateTicketsKey(time_t now) = 0;
 };
 
 class TCPIOHandler
 {
 public:
-  TCPIOHandler(int socket, unsigned int timeout, std::shared_ptr<TLSCtx> ctx): d_socket(socket)
+  TCPIOHandler(int socket, unsigned int timeout, std::shared_ptr<TLSCtx> ctx, time_t now): d_socket(socket)
   {
     if (ctx) {
-      d_conn = ctx->getConnection(d_socket, timeout);
+      d_conn = ctx->getConnection(d_socket, timeout, now);
     }
   }
   ~TCPIOHandler()
