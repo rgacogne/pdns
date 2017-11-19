@@ -1,4 +1,4 @@
-AM_CPPFLAGS += $(SYSTEMD_CFLAGS) $(LUA_CFLAGS) $(LIBEDIT_CFLAGS) $(LIBSODIUM_CFLAGS) $(YAHTTP_CFLAGS) $(SANITIZER_FLAGS) $(NET_SNMP_CFLAGS) $(LIBSSL_CFLAGS) -DSYSCONFDIR=\"${sysconfdir}\"
+AM_CPPFLAGS += $(SYSTEMD_CFLAGS) $(LUA_CFLAGS) $(LIBEDIT_CFLAGS) $(LIBSODIUM_CFLAGS) $(YAHTTP_CFLAGS) $(SANITIZER_FLAGS) $(NET_SNMP_CFLAGS) $(LIBSSL_CFLAGS) $(GNUTLS_CFLAGS) -DSYSCONFDIR=\"${sysconfdir}\"
 
 ACLOCAL_AMFLAGS = -I m4
 
@@ -125,7 +125,6 @@ dnsdist_SOURCES = \
 dnsdist_LDFLAGS = \
 	$(AM_LDFLAGS) \
 	$(PROGRAM_LDFLAGS) \
-	-ls2n -lgnutls \
 	-pthread 
 
 dnsdist_LDADD = \
@@ -137,14 +136,14 @@ dnsdist_LDADD = \
 	$(SANITIZER_FLAGS) \
 	$(SYSTEMD_LIBS) \
 	$(NET_SNMP_LIBS) \
-	-lcrypto -lssl
+	-lcrypto
 
 if HAVE_RE2
 dnsdist_LDADD += $(RE2_LIBS)
 endif
 
-if HAVE_S2N
-dnsdist_LDADD += -ls2n
+if HAVE_GNUTLS
+dnsdist_LDADD += -lgnutls
 endif
 
 if HAVE_LIBSSL

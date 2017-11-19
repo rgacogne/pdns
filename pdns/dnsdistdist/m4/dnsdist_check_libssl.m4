@@ -5,5 +5,5 @@ AC_DEFUN([DNSDIST_CHECK_LIBSSL], [
     [HAVE_LIBSSL=1],
     AC_DEFINE([HAVE_LIBSSL], [1], [Define to 1 if you have OpenSSL libssl])
   ])
-  AM_CONDITIONAL([HAVE_LIBSSL], [test "$HAVE_LIBSSL" -eq 1])
+  AM_CONDITIONAL([HAVE_LIBSSL], [test "x$LIBSSL_LIBS" != "x"])
 ])
