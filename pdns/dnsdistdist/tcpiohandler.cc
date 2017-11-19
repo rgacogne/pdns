@@ -272,207 +272,6 @@ std::atomic<uint64_t> OpenSSLTLSIOCtx::s_users(0);
 
 #endif /* HAVE_LIBSSL */
 
-#ifdef HAVE_S2N
-#warning with s2n!
-#include <s2n.h>
-#include <fstream>
-
-class S2NTLSConnection: public TLSConnection
-{
-public:
-  S2NTLSConnection(int socket, unsigned int timeout, struct s2n_config* tlsCtx)
-  {
-    d_socket = socket;
-
-    d_conn = s2n_connection_new(S2N_SERVER);
-    if (!d_conn) {
-      vinfolog("Error creating TLS object");
-      throw std::runtime_error("Error creating TLS object");
-    }
-
-    if (s2n_connection_set_config(d_conn, tlsCtx) < 0) {
-      throw std::runtime_error("Error assigning configuration");
-    }
-
-    if (s2n_connection_set_fd(d_conn, d_socket) < 0) {
-      throw std::runtime_error("Error assigning socket");
-    }
-
-    s2n_blocked_status status;
-    int res = 0;
-    do {
-      res = s2n_negotiate(d_conn, &status);
-
-      if (res < 0 && !status) {
-        int savedErrno = s2n_errno;
-        vinfolog("Error accepting TLS connection: %s (%s)", s2n_strerror(savedErrno, "EN"), s2n_connection_get_alert(d_conn));
-        throw std::runtime_error("Error accepting TLS connection");
-      }
-      if (status) {
-        handleIORequest(status, timeout);
-      }
-    }
-    while (status);
-  }
-
-  virtual ~S2NTLSConnection() override
-  {
-    if (d_conn) {
-      s2n_connection_free(d_conn);
-    }
-  }
-
-  void handleIORequest(s2n_blocked_status status, unsigned int timeout)
-  {
-    int res = 0;
-    if (status == S2N_BLOCKED_ON_READ) {
-      res = waitForData(d_socket, timeout);
-      if (res <= 0) {
-        throw std::runtime_error("Error reading from TLS connection");
-      }
-    }
-    else if (status == S2N_BLOCKED_ON_WRITE) {
-      res = waitForRWData(d_socket, false, timeout, 0);
-      if (res <= 0) {
-        throw std::runtime_error("Error waiting to write to TLS connection");
-      }
-    }
-    else {
-      throw std::runtime_error("Error writing to TLS connection");
-    }
-  }
-
-  size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout) override
-  {
-    size_t got = 0;
-    s2n_blocked_status status;
-    do {
-      ssize_t res = s2n_recv(d_conn, ((char *)buffer) + got, bufferSize - got, &status);
-      if (res == 0) {
-        throw std::runtime_error("Error reading from TLS connection");
-      }
-      else if (res > 0) {
-        got += (size_t) res;
-      }
-      else if (res < 0 && !status) {
-        throw std::runtime_error("Error reading from TLS connection");
-      }
-      if (got < bufferSize && status) {
-        handleIORequest(status, readTimeout);
-      }
-    }
-    while (got < bufferSize);
-
-    return got;
-  }
-
-  size_t write(const void* buffer, size_t bufferSize, unsigned int writeTimeout) override
-  {
-    size_t got = 0;
-    s2n_blocked_status status;
-    do {
-      ssize_t res = s2n_send(d_conn, ((char *)buffer) + got, bufferSize - got, &status);
-      if (res == 0) {
-        throw std::runtime_error("Error writing to TLS connection");
-      }
-      else if (res > 0) {
-        got += (size_t) res;
-      }
-      else if (res < 0 && !status) {
-        throw std::runtime_error("Error writing to TLS connection");
-      }
-      if (got < bufferSize && status) {
-        handleIORequest(status, writeTimeout);
-      }
-    }
-    while (got < bufferSize);
-
-    return got;
-  }
-
-  void close() override
-  {
-    if (d_conn) {
-      s2n_blocked_status status;
-      s2n_shutdown(d_conn, &status);
-    }
-  }
-
-private:
-  struct s2n_connection *d_conn{nullptr};
-};
-
-class S2NTLSIOCtx: public TLSCtx
-{
-public:
-  S2NTLSIOCtx(const TLSFrontend& fe)
-  {
-    if (s_users.fetch_add(1) == 0) {
-      s2n_init();
-    }
-
-    d_tlsCtx = s2n_config_new();
-    if (!d_tlsCtx) {
-      throw std::runtime_error("Error creating TLS context on " + fe.d_addr.toStringWithPort());
-    }
-
-    std::ifstream certStream(fe.d_certFile);
-    std::string certContent((std::istreambuf_iterator<char>(certStream)),
-                            (std::istreambuf_iterator<char>()));
-    std::ifstream keyStream(fe.d_keyFile);
-    std::string keyContent((std::istreambuf_iterator<char>(keyStream)),
-                           (std::istreambuf_iterator<char>()));
-
-    if (s2n_config_add_cert_chain_and_key(d_tlsCtx, certContent.c_str(), keyContent.c_str()) < 0) {
-      s2n_config_free(d_tlsCtx);
-      throw std::runtime_error("Error assigning certificate (from " + fe.d_certFile + ") and key (from " + fe.d_keyFile + ")");
-    }
-    certContent.clear();
-    keyContent.clear();
-
-    if (!fe.d_ciphers.empty()) {
-      if (s2n_config_set_cipher_preferences(d_tlsCtx, fe.d_ciphers.c_str()) < 0) {
-        warnlog("Error setting up TLS cipher preferences to %s, skipping.", fe.d_ciphers.c_str());
-      }
-    }
-
-    /* apparently s2n doesn't support TLS tickets:
-       https://github.com/awslabs/s2n/issues/4
-       https://github.com/awslabs/s2n/issues/262
-    */
-
-    /* we should implemente TLS sessions by providing the following callbacks:
-       s2n_config_set_cache_store_callback(struct s2n_config *config, int (*cache_store)(void *, uint64_t ttl_in_seconds, const void *key, uint64_t key_size, const void *value, uint64_t value_size), void *data);
-       s2n_config_set_cache_retrieve_callback(struct s2n_config *config, int (*cache_retrieve)(void *, const void *key, uint64_t key_size, void *value, uint64_t *value_size), void *data):
-       s2n_config_set_cache_delete_callback(struct s2n_config *config, int (*cache_delete))(void *, const void *key, uint64_t key_size), void *data);
-    */
-  }
-
-  virtual ~S2NTLSIOCtx() override
-  {
-    if (d_tlsCtx) {
-      s2n_config_free(d_tlsCtx);
-    }
-
-    if (s_users.fetch_sub(1) == 1) {
-      s2n_cleanup();
-    }
-  }
-
-  std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout) override
-  {
-    return std::unique_ptr<S2NTLSConnection>(new S2NTLSConnection(socket, timeout, d_tlsCtx));
-  }
-
-private:
-  struct s2n_config* d_tlsCtx{nullptr};
-  static std::atomic<uint64_t> s_users;
-};
-
-std::atomic<uint64_t> S2NTLSIOCtx::s_users(0);
-#endif /* HAVE_S2N */
-
-#define HAVE_GNUTLS 1
 #ifdef HAVE_GNUTLS
 #warning with gnutls!
 #include <gnutls/gnutls.h>
@@ -663,13 +462,7 @@ bool TLSFrontend::setupTLS()
       d_ctx = std::make_shared<GnuTLSIOCtx>(*this);
       return true;
     }
-#endif /* HAVE_S2N */
-#ifdef HAVE_S2N
-    if (d_provider == "s2n") {
-      d_ctx = std::make_shared<S2NTLSIOCtx>(*this);
-      return true;
-    }
-#endif /* HAVE_S2N */
+#endif /* HAVE_GNUTLS */
 #ifdef HAVE_LIBSSL
     if (d_provider == "openssl") {
       d_ctx = std::make_shared<OpenSSLTLSIOCtx>(*this);
@@ -680,13 +473,9 @@ bool TLSFrontend::setupTLS()
 #ifdef HAVE_GNUTLS
   d_ctx = std::make_shared<GnuTLSIOCtx>(*this);
 #else /* HAVE_GNUTLS */
-#ifdef HAVE_S2N
-  d_ctx = std::make_shared<S2NTLSIOCtx>(*this);
-#else /* HAVE_S2N */
 #ifdef HAVE_LIBSSL
   d_ctx = std::make_shared<OpenSSLTLSIOCtx>(*this);
 #endif /* HAVE_LIBSSL */
-#endif /* HAVE_S2N */
 #endif /* HAVE_GNUTLS */
 
 #endif /* HAVE_DNS_OVER_TLS */
