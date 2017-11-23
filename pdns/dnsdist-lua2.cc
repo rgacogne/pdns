@@ -1502,9 +1502,6 @@ void moreLua(bool client)
           if (vars->count("provider")) {
             frontend->d_provider = boost::get<const string>((*vars)["provider"]);
           }
-          if (vars->count("caFile")) {
-          frontend->d_caFile = boost::get<const string>((*vars)["caFile"]);
-          }
           if (vars->count("ciphers")) {
             frontend->d_ciphers = boost::get<const string>((*vars)["ciphers"]);
           }
@@ -1515,11 +1512,46 @@ void moreLua(bool client)
           vinfolog("Loading TLS provider %s", frontend->d_provider);
           g_tlslocals.push_back(frontend); /// only works pre-startup, so no sync necessary
         }
-        catch(std::exception& e) {
+        catch(const std::exception& e) {
           g_outputBuffer="Error: "+string(e.what())+"\n";
         }
 #else
         g_outputBuffer="DNS over TLS support is not present!\n";
 #endif
+      });
+
+    g_lua.writeFunction("getTLSContext", [client](size_t index) {
+        std::shared_ptr<TLSCtx> result = nullptr;
+#ifdef HAVE_DNS_OVER_TLS
+        setLuaNoSideEffect();
+        try {
+          if (index < g_tlslocals.size()) {
+            result = g_tlslocals.at(index)->getContext();
+          }
+          else {
+            errlog("Error: trying to get TLS context with index %zu but we only have %zu\n", index, g_tlslocals.size());
+            g_outputBuffer="Error: trying to get TLS context with index " + std::to_string(index) + " but we only have " + std::to_string(g_tlslocals.size()) + "\n";
+          }
+        }
+        catch(const std::exception& e) {
+          g_outputBuffer="Error: "+string(e.what())+"\n";
+          errlog("Error: %s\n", string(e.what()));
+        }
+#else
+        g_outputBuffer="DNS over TLS support is not present!\n";
+#endif
+        return result;
+      });
+
+    g_lua.registerFunction<void(std::shared_ptr<TLSCtx>::*)()>("rotateTicketsKey", [](std::shared_ptr<TLSCtx> ctx) {
+        if (ctx != nullptr) {
+          ctx->rotateTicketsKey(time(nullptr));
+        }
+      });
+
+    g_lua.registerFunction<void(std::shared_ptr<TLSCtx>::*)(const std::string&)>("loadTicketsKeys", [](std::shared_ptr<TLSCtx> ctx, const std::string& file) {
+        if (ctx != nullptr) {
+          ctx->loadTicketsKeys(file);
+        }
       });
 }
