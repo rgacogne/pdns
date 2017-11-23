@@ -2063,6 +2063,16 @@ try
       cout<<"dnsdist "<<VERSION<<" ("<<LUA_RELEASE<<")"<<endl;
 #endif
       cout<<"Enabled features: ";
+#ifdef HAVE_DNS_OVER_TLS
+      cout<<"dns-over-tls(";
+#ifdef HAVE_GNUTLS
+      cout<<"gnutls ";
+#endif
+#ifdef HAVE_LIBSSL
+      cout<<"openssl";
+#endif
+      cout<<") ";
+#endif
 #ifdef HAVE_DNSCRYPT
       cout<<"dnscrypt ";
 #endif
