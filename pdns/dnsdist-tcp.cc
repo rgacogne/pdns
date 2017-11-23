@@ -277,7 +277,7 @@ void* tcpClientThread(int pipefd)
     }
 
     try {
-      TCPIOHandler handler(ci.fd, g_tcpRecvTimeout, ci.cs->tlsFrontend ? ci.cs->tlsFrontend->d_ctx : nullptr, connectionStartTime);
+      TCPIOHandler handler(ci.fd, g_tcpRecvTimeout, ci.cs->tlsFrontend ? ci.cs->tlsFrontend->getContext() : nullptr, connectionStartTime);
 
       for(;;) {
         unsigned int remainingTime = 0;
