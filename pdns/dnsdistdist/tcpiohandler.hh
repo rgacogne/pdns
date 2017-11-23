@@ -8,7 +8,7 @@ class TLSConnection
 {
 public:
   virtual ~TLSConnection() { }
-  virtual size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout) = 0;
+  virtual size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout=0) = 0;
   virtual size_t write(const void* buffer, size_t bufferSize, unsigned int writeTimeout) = 0;
   virtual void close() = 0;
 
@@ -115,12 +115,12 @@ public:
       shutdown(d_socket, SHUT_RDWR);
     }
   }
-  size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout)
+  size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout=0)
   {
     if (d_conn) {
-      return d_conn->read(buffer, bufferSize, readTimeout);
+      return d_conn->read(buffer, bufferSize, readTimeout, totalTimeout);
     } else {
-      return readn2WithTimeout(d_socket, buffer, bufferSize, readTimeout);
+      return readn2WithTimeout(d_socket, buffer, bufferSize, readTimeout, totalTimeout);
     }
   }
   size_t write(const void* buffer, size_t bufferSize, unsigned int writeTimeout)

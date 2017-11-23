@@ -268,9 +268,15 @@ public:
     }
   }
 
-  size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout) override
+  size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout) override
   {
     size_t got = 0;
+    time_t start = 0;
+    unsigned int remainingTime = totalTimeout;
+    if (totalTimeout) {
+      start = time(NULL);
+    }
+
     do {
       int res = SSL_read(d_conn, ((char *)buffer) + got, (int) (bufferSize - got));
       if (res == 0) {
@@ -281,6 +287,16 @@ public:
       }
       else {
         got += (size_t) res;
+      }
+
+      if (totalTimeout) {
+        time_t now = time(NULL);
+        unsigned int elapsed = now - start;
+        if (now < start || elapsed >= remainingTime) {
+          throw runtime_error("Timeout while reading data");
+        }
+        start = now;
+        remainingTime -= elapsed;
       }
     }
     while (got < bufferSize);
@@ -546,9 +562,14 @@ public:
     }
   }
 
-  size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout) override
+  size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout) override
   {
     size_t got = 0;
+    time_t start = 0;
+    unsigned int remainingTime = totalTimeout;
+    if (totalTimeout) {
+      start = time(NULL);
+    }
 
     do {
       ssize_t res = gnutls_record_recv(d_conn, ((char *)buffer) + got, bufferSize - got);
@@ -563,6 +584,16 @@ public:
           throw std::runtime_error("Error reading from TLS connection");
         }
         warnlog("Warning, non-fatal error while reading from TLS connection: %s", gnutls_strerror(res));
+      }
+
+      if (totalTimeout) {
+        time_t now = time(NULL);
+        unsigned int elapsed = now - start;
+        if (now < start || elapsed >= remainingTime) {
+          throw runtime_error("Timeout while reading data");
+        }
+        start = now;
+        remainingTime -= elapsed;
       }
     }
     while (got < bufferSize);

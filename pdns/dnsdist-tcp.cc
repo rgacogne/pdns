@@ -315,7 +315,7 @@ void* tcpClientThread(int pipefd)
         queryBuffer.reserve(qlen + 512);
 
         char* query = &queryBuffer[0];
-        handler.read(query, qlen, g_tcpRecvTimeout);
+        handler.read(query, qlen, g_tcpRecvTimeout, remainingTime);
 #ifdef HAVE_DNSCRYPT
         std::shared_ptr<DnsCryptQuery> dnsCryptQuery = nullptr;
 
