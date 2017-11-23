@@ -1390,9 +1390,15 @@ void setupLuaConfig(bool client)
           if (vars->count("provider")) {
             frontend->d_provider = boost::get<const string>((*vars)["provider"]);
           }
+
           if (vars->count("ciphers")) {
             frontend->d_ciphers = boost::get<const string>((*vars)["ciphers"]);
           }
+
+          if (vars->count("ticketKeyFile")) {
+            frontend->d_ticketKeyFile = boost::get<const string>((*vars)["ticketKeyFile"]);
+          }
+
         }
 
         try {
