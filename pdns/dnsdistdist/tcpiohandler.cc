@@ -1,3 +1,4 @@
+#include <fstream>
 
 #include "config.h"
 #include "dolog.hh"
@@ -106,7 +107,21 @@ public:
 #endif /* HAVE_LIBSODIUM */
   }
 
-  OpenSSLTLSTicketKey(const std::string& file);
+  OpenSSLTLSTicketKey(ifstream& file)
+  {
+    file.read(reinterpret_cast<char*>(d_name), sizeof(d_name));
+    file.read(reinterpret_cast<char*>(d_cipherKey), sizeof(d_cipherKey));
+    file.read(reinterpret_cast<char*>(d_hmacKey), sizeof(d_hmacKey));
+
+    if (file.fail()) {
+      throw std::runtime_error("Unable to load a ticket key from the OpenSSL tickets key file");
+    }
+#ifdef HAVE_LIBSODIUM
+    sodium_mlock(d_name, sizeof(d_name));
+    sodium_mlock(d_cipherKey, sizeof(d_cipherKey));
+    sodium_mlock(d_hmacKey, sizeof(d_hmacKey));
+#endif /* HAVE_LIBSODIUM */
+  }
 
   ~OpenSSLTLSTicketKey()
   {
@@ -383,7 +398,12 @@ public:
     }
 
     try {
-      handleTicketsKeyRotation(time(nullptr));
+      if (fe.d_ticketKeyFile.empty()) {
+        handleTicketsKeyRotation(time(nullptr));
+      }
+      else {
+        loadTicketsKeys(fe.d_ticketKeyFile);
+      }
     }
     catch (const std::exception& e) {
       SSL_CTX_free(d_tlsCtx);
@@ -463,7 +483,38 @@ public:
   {
     auto newKey = std::make_shared<OpenSSLTLSTicketKey>();
     d_ticketKeys.addKey(newKey);
+
+    if (d_ticketsKeyRotationDelay > 0) {
+      d_ticketsKeyNextRotation = time(nullptr) + d_ticketsKeyRotationDelay;
+    }
   }
+
+  void loadTicketsKeys(const std::string& keyFile) override
+  {
+    bool keyLoaded = false;
+    ifstream file(keyFile);
+    try {
+      do {
+        auto newKey = std::make_shared<OpenSSLTLSTicketKey>(file);
+        d_ticketKeys.addKey(newKey);
+        keyLoaded = true;
+      }
+      while (!file.fail());
+    }
+    catch (const std::exception& e) {
+      /* if we haven't been able to load at least one key, fail */
+      if (!keyLoaded) {
+        throw;
+      }
+    }
+
+    if (d_ticketsKeyRotationDelay > 0) {
+      d_ticketsKeyNextRotation = time(nullptr) + d_ticketsKeyRotationDelay;
+    }
+
+    file.close();
+  }
+
 private:
   OpenSSLTLSTicketKeysRing d_ticketKeys;
   SSL_CTX* d_tlsCtx{nullptr};
@@ -491,6 +542,38 @@ public:
 #ifdef HAVE_LIBSODIUM
     sodium_mlock(d_key.data, d_key.size);
 #endif /* HAVE_LIBSODIUM */
+  }
+
+  GnuTLSTicketsKey(const std::string& keyFile)
+  {
+    /* to be sure we are looking the correct amount of data, which
+       may change between versions, let's generate a correct key first */
+    if (gnutls_session_ticket_key_generate(&d_key) != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error generating tickets key (before parsing key file) for TLS context");
+    }
+
+#ifdef HAVE_LIBSODIUM
+    sodium_mlock(d_key.data, d_key.size);
+#endif /* HAVE_LIBSODIUM */
+
+    try {
+      ifstream file(keyFile);
+      file.read(reinterpret_cast<char*>(d_key.data), d_key.size);
+
+      if (file.fail()) {
+        file.close();
+        throw std::runtime_error("Invalid GnuTLS tickets key file " + keyFile);
+      }
+
+      file.close();
+    }
+    catch (const std::exception& e) {
+#ifdef HAVE_LIBSODIUM
+      sodium_munlock(d_key.data, d_key.size);
+#endif /* HAVE_LIBSODIUM */
+      gnutls_free(d_key.data);
+      throw;
+    }
   }
 
   ~GnuTLSTicketsKey()
@@ -663,11 +746,16 @@ public:
     }
 
     try {
-      handleTicketsKeyRotation(time(nullptr));
+      if (fe.d_ticketKeyFile.empty()) {
+        handleTicketsKeyRotation(time(nullptr));
+      }
+      else {
+        loadTicketsKeys(fe.d_ticketKeyFile);
+      }
     }
     catch(const std::runtime_error& e) {
       gnutls_certificate_free_credentials(d_creds);
-      throw std::runtime_error("Error generating tickets key for TLS context on " + fe.d_addr.toStringWithPort());
+      throw std::runtime_error("Error generating tickets key for TLS context on " + fe.d_addr.toStringWithPort() + ": " + e.what());
     }
   }
 
@@ -692,6 +780,18 @@ public:
   {
     auto newKey = std::make_shared<GnuTLSTicketsKey>();
     d_ticketsKey = newKey;
+    if (d_ticketsKeyRotationDelay > 0) {
+      d_ticketsKeyNextRotation = time(nullptr) + d_ticketsKeyRotationDelay;
+    }
+  }
+
+  void loadTicketsKeys(const std::string& file) override
+  {
+    auto newKey = std::make_shared<GnuTLSTicketsKey>(file);
+    d_ticketsKey = newKey;
+    if (d_ticketsKeyRotationDelay > 0) {
+      d_ticketsKeyNextRotation = time(nullptr) + d_ticketsKeyRotationDelay;
+    }
   }
 
 private:

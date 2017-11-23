@@ -36,7 +36,6 @@ public:
       }
       try {
         rotateTicketsKey(now);
-        d_ticketsKeyNextRotation = now + d_ticketsKeyRotationDelay;
         d_rotatingTicketsKey.clear();
       }
       catch(const std::runtime_error& e) {
@@ -88,6 +87,7 @@ public:
   std::string d_ciphers;
   std::string d_provider;
   std::string d_interface;
+  std::string d_ticketKeyFile;
 
   time_t d_ticketsKeyRotationDelay{43200};
   int d_tcpFastOpenQueueSize{0};
