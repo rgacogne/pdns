@@ -110,10 +110,10 @@ try
             poolName = "_default_";
           }
           const string base = "dnsdist." + hostname + ".main.pools." + poolName + ".";
-          const std::shared_ptr<ServerPool> pool = entry.second;
-          str<<base<<"servers" << " " << pool->servers.size() << " " << now << "\r\n";
-          if (pool->packetCache != nullptr) {
-            const auto& cache = pool->packetCache;
+          const ServerPool& pool = entry.second;
+          str<<base<<"servers" << " " << pool.servers.size() << " " << now << "\r\n";
+          if (pool.packetCache != nullptr) {
+            const auto& cache = pool.packetCache;
             str<<base<<"cache-size" << " " << cache->getMaxEntries() << " " << now << "\r\n";
             str<<base<<"cache-entries" << " " << cache->getEntriesCount() << " " << now << "\r\n";
             str<<base<<"cache-hits" << " " << cache->getHits() << " " << now << "\r\n";

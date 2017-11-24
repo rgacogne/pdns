@@ -746,15 +746,15 @@ void moreLua(bool client)
         const auto localPools = g_pools.getCopy();
         for (const auto& entry : localPools) {
           const string& name = entry.first;
-          const std::shared_ptr<ServerPool> pool = entry.second;
-          string cache = pool->packetCache != nullptr ? pool->packetCache->toString() : "";
+          const ServerPool& pool = entry.second;
+          string cache = pool.packetCache != nullptr ? pool.packetCache->toString() : "";
           string policy = (*g_policy.getLocal())->name;
-          if (pool->policy != nullptr) {
-            policy = pool->policy->name;
+          if (pool.policy != nullptr) {
+            policy = pool.policy->name;
           }
           string servers;
 
-          for (const auto& server: pool->servers) {
+          for (const auto& server: pool.servers) {
             if (!servers.empty()) {
               servers += ", ";
             }
@@ -771,16 +771,32 @@ void moreLua(bool client)
       }catch(std::exception& e) { g_outputBuffer=e.what(); throw; }
     });
 
-    g_lua.registerFunction<void(std::shared_ptr<ServerPool>::*)(std::shared_ptr<DNSDistPacketCache>)>("setCache", [](std::shared_ptr<ServerPool> pool, std::shared_ptr<DNSDistPacketCache> cache) {
-        if (pool) {
-          pool->packetCache = cache;
-        }
+    g_lua.registerFunction<void(ServerPool::*)(std::shared_ptr<DNSDistPacketCache>)>("setCache", [](ServerPool& pool, std::shared_ptr<DNSDistPacketCache> cache) {
+        /* the pool object used by Lua is not linked to the "real" one in our shared holder,
+           so we use the name to get the current one */
+        auto localPools = g_pools.getCopy();
+        ServerPool& currentPool = getPool(localPools, pool.name);
+        currentPool.packetCache = cache;
+        g_pools.setState(localPools);
+        pool.packetCache = cache;
     });
-    g_lua.registerFunction("getCache", &ServerPool::getCache);
-    g_lua.registerFunction<void(std::shared_ptr<ServerPool>::*)()>("unsetCache", [](std::shared_ptr<ServerPool> pool) {
-        if (pool) {
-          pool->packetCache = nullptr;
-        }
+
+    g_lua.registerFunction<std::shared_ptr<DNSDistPacketCache>(ServerPool::*)()>("getCache", [](const ServerPool& pool) {
+        /* the pool object used by Lua is not linked to the "real" one in our shared holder,
+           so we use the name to get the current one */
+        auto localPools = g_pools.getCopy();
+        ServerPool& currentPool = getPool(localPools, pool.name);
+        return currentPool.packetCache;
+      });
+
+    g_lua.registerFunction<void(ServerPool::*)()>("unsetCache", [](ServerPool& pool) {
+        /* the pool object used by Lua is not linked to the "real" one in our shared holder,
+           so we use the name to get the current one */
+        auto localPools = g_pools.getCopy();
+        ServerPool& currentPool = getPool(localPools, pool.name);
+        currentPool.packetCache = nullptr;
+        g_pools.setState(localPools);
+        pool.packetCache = nullptr;
     });
 
     g_lua.writeFunction("newPacketCache", [client](size_t maxEntries, boost::optional<uint32_t> maxTTL, boost::optional<uint32_t> minTTL, boost::optional<uint32_t> tempFailTTL, boost::optional<uint32_t> staleTTL, boost::optional<bool> dontAge, boost::optional<size_t> numberOfShards, boost::optional<bool> deferrableInsertLock) {
@@ -812,12 +828,9 @@ void moreLua(bool client)
         }
       });
 
-    g_lua.writeFunction("getPool", [client](const string& poolName) {
-        if (client) {
-          return std::make_shared<ServerPool>();
-        }
+    g_lua.writeFunction<ServerPool(const string&)>("getPool", [](const std::string& poolName) {
         auto localPools = g_pools.getCopy();
-        std::shared_ptr<ServerPool> pool = createPoolIfNotExists(localPools, poolName);
+        ServerPool pool = createPoolIfNotExists(localPools, poolName);
         g_pools.setState(localPools);
         return pool;
       });
@@ -1460,10 +1473,10 @@ void moreLua(bool client)
         g_pools.setState(localPools);
       });
 
-    g_lua.writeFunction("setPoolServerPolicyLua", [](string name, policyfunc_t policy, string pool, boost::optional<bool> readOnly) {
+    g_lua.writeFunction("setPoolServerPolicyLua", [](string name, policyfunc_t policy, string pool, boost::optional<bool> needLock, boost::optional<bool> readOnly) {
         setLuaSideEffect();
         auto localPools = g_pools.getCopy();
-        setPoolPolicy(localPools, pool, std::make_shared<ServerPolicy>(ServerPolicy{name, policy, readOnly ? *readOnly : false}));
+        setPoolPolicy(localPools, pool, std::make_shared<ServerPolicy>(ServerPolicy{name, policy, needLock ? *needLock : true, readOnly ? *readOnly : false}));
         g_pools.setState(localPools);
       });
 
@@ -1471,10 +1484,10 @@ void moreLua(bool client)
         setLuaSideEffect();
         auto localPools = g_pools.getCopy();
         auto poolObj = getPool(localPools, pool);
-        if (poolObj->policy == nullptr) {
+        if (poolObj.policy == nullptr) {
           g_outputBuffer=(*g_policy.getLocal())->name+"\n";
         } else {
-          g_outputBuffer=poolObj->policy->name+"\n";
+          g_outputBuffer=poolObj.policy->name+"\n";
         }
       });
 

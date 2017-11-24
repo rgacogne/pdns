@@ -736,12 +736,13 @@ typedef std::function<shared_ptr<DownstreamState>(const NumberedServerVector& se
 
 struct ServerPolicy
 {
-  ServerPolicy(const string& name_, policyfunc_t policy_, bool ro): name(name_), policy(policy_), isReadOnly(ro)
+  ServerPolicy(const string& name_, policyfunc_t policy_, bool needLock_, bool ro): name(name_), policy(policy_), isReadOnly(ro), needLock(needLock_)
   {
   }
   string name;
   policyfunc_t policy;
   bool isReadOnly;
+  bool needLock;
 };
 
 struct ServerPool
@@ -751,8 +752,9 @@ struct ServerPool
   NumberedVector<shared_ptr<DownstreamState>> servers;
   std::shared_ptr<DNSDistPacketCache> packetCache{nullptr};
   std::shared_ptr<ServerPolicy> policy{nullptr};
+  std::string name;
 };
-using pools_t=std::unordered_map<std::string,std::shared_ptr<ServerPool>>;
+using pools_t=std::unordered_map<std::string,ServerPool>;
 void setPoolPolicy(pools_t& pools, const string& poolName, std::shared_ptr<ServerPolicy> policy);
 void addServerToPool(pools_t& pools, const string& poolName, std::shared_ptr<DownstreamState> server);
 void removeServerFromPool(pools_t& pools, const string& poolName, std::shared_ptr<DownstreamState> server);
@@ -856,8 +858,9 @@ struct dnsheader;
 
 void controlThread(int fd, ComboAddress local);
 vector<std::function<void(void)>> setupLua(bool client, const std::string& config);
-std::shared_ptr<ServerPool> getPool(const pools_t& pools, const std::string& poolName);
-std::shared_ptr<ServerPool> createPoolIfNotExists(pools_t& pools, const string& poolName);
+ServerPool& getPool(pools_t& pools, const std::string& poolName);
+const ServerPool& getPool(const pools_t& pools, const std::string& poolName);
+ServerPool& createPoolIfNotExists(pools_t& pools, const string& poolName);
 const NumberedServerVector& getDownstreamCandidates(const pools_t& pools, const std::string& poolName);
 std::shared_ptr<DownstreamState> getBackendFromPolicy(const std::shared_ptr<ServerPolicy> policy, const NumberedServerVector& servers, const DNSQuestion& dq);
 

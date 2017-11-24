@@ -626,9 +626,9 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
       setLuaSideEffect();
       g_policy.setState(policy);
     });
-  g_lua.writeFunction("setServerPolicyLua", [](string name, policyfunc_t policy, boost::optional<bool> readOnly)  {
+  g_lua.writeFunction("setServerPolicyLua", [](string name, policyfunc_t policy, boost::optional<bool> needLock, boost::optional<bool> readOnly)  {
       setLuaSideEffect();
-      g_policy.setState(std::make_shared<ServerPolicy>(name, policy, readOnly ? *readOnly : false));
+      g_policy.setState(std::make_shared<ServerPolicy>(name, policy, needLock ? *needLock : true, readOnly ? *readOnly : false));
     });
 
   g_lua.writeFunction("showServerPolicy", []() {
@@ -642,12 +642,12 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
   g_lua.registerMember("name", &ServerPolicy::name);
   g_lua.registerMember("policy", &ServerPolicy::policy);
   g_lua.registerMember("isReadOnly", &ServerPolicy::isReadOnly);
-  g_lua.writeFunction("newServerPolicy", [](string name, policyfunc_t policy) { return std::make_shared<ServerPolicy>(name, policy, false);});
-  g_lua.writeVariable("firstAvailable", std::make_shared<ServerPolicy>("firstAvailable", firstAvailable, true));
-  g_lua.writeVariable("roundrobin", std::make_shared<ServerPolicy>("roundrobin", roundrobin, true));
-  g_lua.writeVariable("wrandom", std::make_shared<ServerPolicy>("wrandom", wrandom, true));
-  g_lua.writeVariable("whashed", std::make_shared<ServerPolicy>("whashed", whashed, true));
-  g_lua.writeVariable("leastOutstanding", std::make_shared<ServerPolicy>("leastOutstanding", leastOutstanding, true));
+  g_lua.writeFunction("newServerPolicy", [](string name, policyfunc_t policy) { return std::make_shared<ServerPolicy>(name, policy, true, false);});
+  g_lua.writeVariable("firstAvailable", std::make_shared<ServerPolicy>("firstAvailable", firstAvailable, false, true));
+  g_lua.writeVariable("roundrobin", std::make_shared<ServerPolicy>("roundrobin", roundrobin, false, true));
+  g_lua.writeVariable("wrandom", std::make_shared<ServerPolicy>("wrandom", wrandom, false, true));
+  g_lua.writeVariable("whashed", std::make_shared<ServerPolicy>("whashed", whashed, false, true));
+  g_lua.writeVariable("leastOutstanding", std::make_shared<ServerPolicy>("leastOutstanding", leastOutstanding, false, true));
   g_lua.writeFunction("addACL", [](const std::string& domain) {
       setLuaSideEffect();
       g_ACL.modify([domain](NetmaskGroup& nmg) { nmg.addMask(domain); });

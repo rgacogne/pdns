@@ -360,13 +360,13 @@ void* tcpClientThread(int pipefd)
 	  goto drop;
 	}
 
-        std::shared_ptr<ServerPool> serverPool = getPool(*holders.pools, poolname);
-        std::shared_ptr<DNSDistPacketCache> packetCache = serverPool->packetCache;
+        const ServerPool& serverPool = getPool(*holders.pools, poolname);
+        std::shared_ptr<DNSDistPacketCache> packetCache = serverPool.packetCache;
         auto policy = *(holders.policy);
-        if (serverPool->policy != nullptr) {
-          policy = serverPool->policy;
+        if (serverPool.policy != nullptr) {
+          policy = serverPool.policy;
         }
-        ds = getBackendFromPolicy(policy, serverPool->servers, dq);
+        ds = getBackendFromPolicy(policy, serverPool.servers, dq);
 
         if (dq.useECS && ds && ds->useECS) {
           uint16_t newLen = dq.len;

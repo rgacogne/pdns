@@ -705,57 +705,55 @@ static void daemonize(void)
 
 ComboAddress g_serverControl{"127.0.0.1:5199"};
 
-std::shared_ptr<ServerPool> createPoolIfNotExists(pools_t& pools, const string& poolName)
+ServerPool& createPoolIfNotExists(pools_t& pools, const string& poolName)
 {
-  std::shared_ptr<ServerPool> pool;
-  pools_t::iterator it = pools.find(poolName);
-  if (it != pools.end()) {
-    pool = it->second;
-  }
-  else {
-    if (!poolName.empty())
+  auto pair = pools.insert(std::make_pair(poolName, ServerPool()));
+  if (pair.second) {
+    /* did not exist yet */
+    if (!poolName.empty()) {
       vinfolog("Creating pool %s", poolName);
-    pool = std::make_shared<ServerPool>();
-    pools.insert(std::pair<std::string,std::shared_ptr<ServerPool> >(poolName, pool));
+      pair.first->second.name = poolName;
+    }
   }
-  return pool;
+
+  return pair.first->second;
 }
 
 void setPoolPolicy(pools_t& pools, const string& poolName, std::shared_ptr<ServerPolicy> policy)
 {
-  std::shared_ptr<ServerPool> pool = createPoolIfNotExists(pools, poolName);
+  ServerPool& pool = createPoolIfNotExists(pools, poolName);
   if (!poolName.empty()) {
     vinfolog("Setting pool %s server selection policy to %s", poolName, policy->name);
   } else {
     vinfolog("Setting default pool server selection policy to %s", policy->name);
   }
-  pool->policy = policy;
+  pool.policy = policy;
 }
 
 void addServerToPool(pools_t& pools, const string& poolName, std::shared_ptr<DownstreamState> server)
 {
-  std::shared_ptr<ServerPool> pool = createPoolIfNotExists(pools, poolName);
-  unsigned int count = (unsigned int) pool->servers.size();
+  ServerPool& pool = createPoolIfNotExists(pools, poolName);
+  unsigned int count = (unsigned int) pool.servers.size();
   if (!poolName.empty()) {
     vinfolog("Adding server to pool %s", poolName);
   } else {
     vinfolog("Adding server to default pool");
   }
-  pool->servers.push_back(make_pair(++count, server));
+  pool.servers.push_back(make_pair(++count, server));
   /* we need to reorder based on the server 'order' */
-  std::stable_sort(pool->servers.begin(), pool->servers.end(), [](const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& a, const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& b) {
+  std::stable_sort(pool.servers.begin(), pool.servers.end(), [](const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& a, const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& b) {
       return a.second->order < b.second->order;
     });
   /* and now we need to renumber for Lua (custom policies) */
   size_t idx = 1;
-  for (auto& serv : pool->servers) {
+  for (auto& serv : pool.servers) {
     serv.first = idx++;
   }
 }
 
 void removeServerFromPool(pools_t& pools, const string& poolName, std::shared_ptr<DownstreamState> server)
 {
-  std::shared_ptr<ServerPool> pool = getPool(pools, poolName);
+  ServerPool& pool = getPool(pools, poolName);
 
   if (!poolName.empty()) {
     vinfolog("Removing server from pool %s", poolName);
@@ -766,7 +764,7 @@ void removeServerFromPool(pools_t& pools, const string& poolName, std::shared_pt
 
   size_t idx = 1;
   bool found = false;
-  for (NumberedVector<shared_ptr<DownstreamState> >::iterator it = pool->servers.begin(); it != pool->servers.end();) {
+  for (NumberedVector<shared_ptr<DownstreamState> >::iterator it = pool.servers.begin(); it != pool.servers.end();) {
     if (found) {
       /* we need to renumber the servers placed
          after the removed one, for Lua (custom policies) */
@@ -774,7 +772,7 @@ void removeServerFromPool(pools_t& pools, const string& poolName, std::shared_pt
       it++;
     }
     else if (it->second == server) {
-      it = pool->servers.erase(it);
+      it = pool.servers.erase(it);
       found = true;
     } else {
       idx++;
@@ -783,9 +781,20 @@ void removeServerFromPool(pools_t& pools, const string& poolName, std::shared_pt
   }
 }
 
-std::shared_ptr<ServerPool> getPool(const pools_t& pools, const std::string& poolName)
+ServerPool& getPool(pools_t& pools, const std::string& poolName)
 {
-  pools_t::const_iterator it = pools.find(poolName);
+  auto it = pools.find(poolName);
+
+  if (it == pools.end()) {
+    throw std::out_of_range("No pool named " + poolName);
+  }
+
+  return it->second;
+}
+
+const ServerPool& getPool(const pools_t& pools, const std::string& poolName)
+{
+  auto it = pools.find(poolName);
 
   if (it == pools.end()) {
     throw std::out_of_range("No pool named " + poolName);
@@ -798,13 +807,18 @@ std::shared_ptr<DownstreamState> getBackendFromPolicy(const std::shared_ptr<Serv
 {
   std::shared_ptr<DownstreamState> backend = nullptr;
 
-  if (policy->isReadOnly) {
-    ReadLock rl(&g_lualock);
+  if (!policy->needLock) {
     backend = policy->policy(servers, &dq);
   }
   else {
-    WriteLock wl(&g_lualock);
-    backend = policy->policy(servers, &dq);
+    if (policy->isReadOnly) {
+      ReadLock rl(&g_lualock);
+      backend = policy->policy(servers, &dq);
+    }
+    else {
+      WriteLock wl(&g_lualock);
+      backend = policy->policy(servers, &dq);
+    }
   }
 
   return backend;
@@ -812,8 +826,8 @@ std::shared_ptr<DownstreamState> getBackendFromPolicy(const std::shared_ptr<Serv
 
 const NumberedServerVector& getDownstreamCandidates(const pools_t& pools, const std::string& poolName)
 {
-  std::shared_ptr<ServerPool> pool = getPool(pools, poolName);
-  return pool->servers;
+  const ServerPool& pool = getPool(pools, poolName);
+  return pool.servers;
 }
 
 // goal in life - if you send us a reasonably normal packet, we'll get Z for you, otherwise 0
@@ -1260,14 +1274,14 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
       return;
     }
 
-    std::shared_ptr<ServerPool> serverPool = getPool(*holders.pools, poolname);
-    std::shared_ptr<DNSDistPacketCache> packetCache = serverPool->packetCache;
+    const ServerPool& serverPool = getPool(*holders.pools, poolname);
+    std::shared_ptr<DNSDistPacketCache> packetCache = serverPool.packetCache;
     std::shared_ptr<ServerPolicy> policy = *(holders.policy);
-    if (serverPool->policy != nullptr) {
-      policy = serverPool->policy;
+    if (serverPool.policy != nullptr) {
+      policy = serverPool.policy;
     }
 
-    std::shared_ptr<DownstreamState> ss = getBackendFromPolicy(policy, serverPool->servers, dq);
+    std::shared_ptr<DownstreamState> ss = getBackendFromPolicy(policy, serverPool.servers, dq);
 
     bool ednsAdded = false;
     bool ecsAdded = false;
@@ -1683,7 +1697,7 @@ void* maintThread()
       const auto localPools = g_pools.getCopy();
       std::shared_ptr<DNSDistPacketCache> packetCache = nullptr;
       for (const auto& entry : localPools) {
-        packetCache = entry.second->packetCache;
+        packetCache = entry.second.packetCache;
         if (packetCache) {
           size_t upTo = (packetCache->getMaxEntries()* (100 - g_cacheCleaningPercentage)) / 100;
           packetCache->purgeExpired(upTo);
@@ -2114,7 +2128,7 @@ try
     }
   }
 
-  auto leastOutstandingPol = std::make_shared<ServerPolicy>("leastOutstanding", leastOutstanding, true);
+  auto leastOutstandingPol = std::make_shared<ServerPolicy>("leastOutstanding", leastOutstanding, false, true);
 
   g_policy.setState(leastOutstandingPol);
   if(g_cmdLine.beClient || !g_cmdLine.command.empty()) {
