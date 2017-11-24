@@ -593,33 +593,39 @@ shared_ptr<DownstreamState> leastOutstanding(const NumberedServerVector& servers
     return servers[0].second;
   }
 
-  static thread_local vector<pair<tuple<int,int,double>, shared_ptr<DownstreamState>>> poss;
+  static thread_local vector<pair<tuple<int,int,double>, size_t>> poss;
   /* so you might wonder, why do we go through this trouble? The data on which we sort could change during the sort,
      which would suck royally and could even lead to crashes. So first we snapshot on what we sort, and then we sort */
   poss.resize(0);
   poss.reserve(servers.size());
+  size_t pos = 0;
   for(auto& d : servers) {
     if(d.second->isUp()) {
-      poss.push_back({make_tuple(d.second->outstanding.load(), d.second->order, d.second->latencyUsec), d.second});
+      poss.push_back({make_tuple(d.second->outstanding.load(), d.second->order, d.second->latencyUsec), pos});
     }
+    ++pos;
   }
-  if(poss.empty())
+
+  if (poss.empty())
     return shared_ptr<DownstreamState>();
+
   nth_element(poss.begin(), poss.begin(), poss.end(), [](const decltype(poss)::value_type& a, const decltype(poss)::value_type& b) { return a.first < b.first; });
-  return poss.begin()->second;
+  return servers[poss.begin()->second].second;
 }
 
 shared_ptr<DownstreamState> valrandom(unsigned int val, const NumberedServerVector& servers, const DNSQuestion* dq)
 {
-  static thread_local vector<pair<int, shared_ptr<DownstreamState>>> poss;
+  static thread_local vector<pair<int, size_t>> poss;
   poss.resize(0);
 
   int sum=0;
+  size_t pos = 0;
   for(auto& d : servers) {      // w=1, w=10 -> 1, 11
     if(d.second->isUp()) {
       sum+=d.second->weight;
-      poss.push_back({sum, d.second});
+      poss.push_back({sum, pos});
     }
+    ++pos;
   }
 
   // Catch poss & sum are empty to avoid SIGFPE
@@ -630,7 +636,7 @@ shared_ptr<DownstreamState> valrandom(unsigned int val, const NumberedServerVect
   auto p = upper_bound(poss.begin(), poss.end(),r, [](int r_, const decltype(poss)::value_type& a) { return  r_ < a.first;});
   if(p==poss.end())
     return shared_ptr<DownstreamState>();
-  return p->second;
+  return servers[p->second].second;
 }
 
 shared_ptr<DownstreamState> wrandom(const NumberedServerVector& servers, const DNSQuestion* dq)
@@ -647,25 +653,23 @@ shared_ptr<DownstreamState> whashed(const NumberedServerVector& servers, const D
 
 shared_ptr<DownstreamState> roundrobin(const NumberedServerVector& servers, const DNSQuestion* dq)
 {
-  static thread_local NumberedServerVector poss;
-  poss.resize(0);
+  static thread_local std::vector<size_t> validServerIndexes;
+  validServerIndexes.resize(0);
 
+  size_t pos = 0;
   for(auto& d : servers) {
     if(d.second->isUp()) {
-      poss.push_back(d);
+      validServerIndexes.push_back(pos);
     }
+    ++pos;
   }
 
-  const auto *res=&poss;
-  if(poss.empty())
-    res = &servers;
-
-  if(res->empty())
+  if(validServerIndexes.empty())
     return shared_ptr<DownstreamState>();
 
   static unsigned int counter;
- 
-  return (*res)[(counter++) % res->size()].second;
+
+  return servers[validServerIndexes[(counter++) % validServerIndexes.size()]].second;
 }
 
 static void writepid(string pidfile) {
