@@ -115,6 +115,7 @@ EXTRA_PROGRAMS = \
 	dnsbulktest \
 	dnsdemog \
 	dnsgram \
+	dnspcap2calidns \
 	dnsreplay \
 	dnsscan \
 	dnsscope \
@@ -1075,6 +1076,36 @@ dnsdemog_LDFLAGS = \
 
 dnsdemog_LDADD = \
 	$(LIBCRYPTO_LIBS)
+
+dnspcap2calidns_SOURCES = \
+	base32.cc \
+	base64.cc base64.hh \
+	dnslabeltext.cc \
+	dnsname.cc dnsname.hh \
+	dnsparser.cc dnsparser.hh \
+	dnspcap.cc dnspcap.hh \
+	dnspcap2calidns.cc \
+	dnsrecords.cc \
+	dnswriter.cc dnswriter.hh \
+	iputils.cc \
+	logger.cc \
+	misc.cc \
+	nsecrecords.cc \
+	qtype.cc \
+	rcpgenerator.cc rcpgenerator.hh \
+	sillyrecords.cc \
+	statbag.cc \
+	unix_utility.cc \
+	utility.hh
+
+dnspcap2calidns_LDFLAGS = \
+	$(AM_LDFLAGS) \
+	$(LIBCRYPTO_LDFLAGS) \
+	$(BOOST_PROGRAM_OPTIONS_LDFLAGS)
+
+dnspcap2calidns_LDADD = \
+	$(LIBCRYPTO_LIBS) \
+	$(BOOST_PROGRAM_OPTIONS_LIBS)
 
 if HAVE_PROTOBUF
 if HAVE_PROTOC
