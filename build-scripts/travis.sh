@@ -349,6 +349,7 @@ install_dnsdist() {
   # test requirements / setup
   run "sudo apt-get -qq --no-install-recommends install \
     snmpd \
+    libgnutls-dev \
     libsnmp-dev"
   run "sudo sed -i \"s/agentxperms 0700 0755 dnsdist/agentxperms 0700 0755 ${USER}/g\" regression-tests.dnsdist/snmpd.conf"
   run "sudo cp -f regression-tests.dnsdist/snmpd.conf /etc/snmp/snmpd.conf"
@@ -407,6 +408,8 @@ build_dnsdist(){
     --enable-unit-tests \
     --enable-libsodium \
     --enable-dnscrypt \
+    --enable-dns-over-tls \
+    --enable-gnutls \
     --prefix=$HOME/dnsdist \
     --disable-silent-rules"
   run "make -k -j3"
