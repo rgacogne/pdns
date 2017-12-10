@@ -257,8 +257,13 @@ class DNSDistTest(unittest.TestCase):
         if timeout:
             sock.settimeout(timeout)
 
-        sslctx = ssl.create_default_context(cafile=caCert)
-        sslsock = sslctx.wrap_socket(sock, server_hostname=serverName)
+        # 2.7.9+
+        if hasattr(ssl, 'create_default_context'):
+            sslctx = ssl.create_default_context(cafile=caCert)
+            sslsock = sslctx.wrap_socket(sock, server_hostname=serverName)
+        else:
+            sslsock = ssl.wrap_socket(sock, ca_certs=caCert, cert_reqs=ssl.CERT_REQUIRED)
+
         sslsock.connect(("127.0.0.1", port))
         return sslsock
 
