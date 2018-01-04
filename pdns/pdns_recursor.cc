@@ -165,6 +165,7 @@ bool g_lowercaseOutgoing;
 unsigned int g_numThreads;
 uint16_t g_outgoingEDNSBufsize;
 bool g_logRPZChanges{false};
+bool g_strictECSCheck{false};
 
 #define LOCAL_NETS "127.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 192.168.0.0/16, 172.16.0.0/12, ::1/128, fc00::/7, fe80::/10"
 // Bad Nets taken from both:
@@ -3037,6 +3038,7 @@ static int serviceMain(int argc, char*argv[])
 
   SyncRes::parseEDNSSubnetWhitelist(::arg()["edns-subnet-whitelist"]);
   g_useIncomingECS = ::arg().mustDo("use-incoming-edns-subnet");
+  g_strictECSCheck = ::arg().mustDo("ecs-strict-check");
 
   int forks;
   for(forks = 0; forks < ::arg().asNum("processes") - 1; ++forks) {
@@ -3398,6 +3400,7 @@ int main(int argc, char **argv)
     ::arg().set("edns-subnet-whitelist", "List of netmasks and domains that we should enable EDNS subnet for")="";
     ::arg().set("ecs-scope-zero-address", "Address to send to whitelisted authoritative servers for incoming queries with ECS prefix-length source of 0")="";
     ::arg().setSwitch( "use-incoming-edns-subnet", "Pass along received EDNS Client Subnet information")="no";
+    ::arg().setSwitch( "ecs-strict-check", "Whether to check that the EDNS Client Subnet source values in authoritative servers responses match the ones from the query")="no";
     ::arg().setSwitch( "pdns-distributes-queries", "If PowerDNS itself should distribute queries over threads")="yes";
     ::arg().setSwitch( "root-nx-trust", "If set, believe that an NXDOMAIN from the root means the TLD does not exist")="yes";
     ::arg().setSwitch( "any-to-tcp","Answer ANY queries with tc=1, shunting to TCP" )="no";

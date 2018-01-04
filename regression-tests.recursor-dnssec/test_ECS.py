@@ -12,6 +12,7 @@ from twisted.internet import reactor
 emptyECSText = 'No ECS received'
 nameECS = 'ecs-echo.example.'
 nameECSInvalidScope = 'invalid-scope.ecs-echo.example.'
+nameECSInvalidSource = 'invalid-source.ecs-echo.example.'
 ttlECS = 60
 ecsReactorRunning = False
 
@@ -479,6 +480,26 @@ forward-zones=ecs-echo.example=%s.21
         query = dns.message.make_query(nameECS, 'TXT', 'IN', use_edns=True, options=[ecso], payload=512)
         self.sendECSQuery(query, expected)
 
+class testSourceAndScope(ECSTest):
+    _confdir = 'ECSSourceAndScope'
+
+    _config_template = """edns-subnet-whitelist=%s.21
+use-incoming-edns-subnet=yes
+forward-zones=ecs-echo.example=%s.21
+ecs-scope-zero-address=::1
+ecs-strict-check=yes
+    """ % (os.environ['PREFIX'], os.environ['PREFIX'])
+
+    def testSendECSInvalidSource(self):
+        # test that the recursor dismiss an answer with a non-matching source when ecs-strict-check is set
+        # The rec will then retry without EDNS
+        expected = dns.rrset.from_text(nameECSInvalidSource, ttlECS, dns.rdataclass.IN, 'TXT', emptyECSText)
+
+        ecso = clientsubnetoption.ClientSubnetOption('192.0.2.1', 32)
+        query = dns.message.make_query(nameECSInvalidSource, 'TXT', 'IN', use_edns=True, options=[ecso], payload=512)
+
+        self.sendECSQuery(query, expected)
+
 class UDPECSResponder(DatagramProtocol):
     @staticmethod
     def ipToStr(option):
@@ -498,16 +519,19 @@ class UDPECSResponder(DatagramProtocol):
         response.flags |= dns.flags.AA
         ecso = None
 
-        if (request.question[0].name == dns.name.from_text(nameECS) or request.question[0].name == dns.name.from_text(nameECSInvalidScope)) and request.question[0].rdtype == dns.rdatatype.TXT:
+        if (request.question[0].name == dns.name.from_text(nameECS) or request.question[0].name == dns.name.from_text(nameECSInvalidScope) or request.question[0].name == dns.name.from_text(nameECSInvalidSource)) and request.question[0].rdtype == dns.rdatatype.TXT:
 
             text = emptyECSText
             for option in request.options:
                 if option.otype == clientsubnetoption.ASSIGNED_OPTION_CODE and isinstance(option, clientsubnetoption.ClientSubnetOption):
                     text = self.ipToStr(option) + '/' + str(option.mask)
 
-                    # Send a scope more specific than the received source for nameECSInvalidScope
                     if request.question[0].name == dns.name.from_text(nameECSInvalidScope):
+                        # Send a scope more specific than the received source for nameECSInvalidScope
                         ecso = clientsubnetoption.ClientSubnetOption("192.0.42.42", 32, 32)
+                    elif request.question[0].name == dns.name.from_text(nameECSInvalidSource):
+                        # Send a different source than the received one for nameECSInvalidSource
+                        ecso = clientsubnetoption.ClientSubnetOption("192.0.3.0", option.mask, option.mask)
                     else:
                         ecso = clientsubnetoption.ClientSubnetOption(self.ipToStr(option), option.mask, option.mask)
 

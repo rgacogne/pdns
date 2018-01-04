@@ -264,6 +264,18 @@ int asyncresolve(const ComboAddress& ip, const DNSName& domain, int type, bool d
                  IPv4 and IPv6. Still I'm pretty sure it doesn't matter in real life, so let's not duplicate
                  entries in our cache. */
               if(reso.scope.getBits()) {
+                if (g_strictECSCheck) {
+                  /* rfc7871 section 11.2 "Birthday attacks":
+                     To counter this, the ECS option in a response packet MUST contain the
+                     full FAMILY, ADDRESS, and SOURCE PREFIX-LENGTH fields from the
+                     corresponding query.  Intermediate Nameservers processing a response
+                     MUST verify that these match, and they SHOULD discard the entire
+                     response if they do not.
+                  */
+                  if (reso.source.getBits() != outgoingECSBits || reso.source.getNetwork() != outgoingECSAddr) {
+                    throw std::runtime_error("Invalid ECS source value received (" + reso.source.toString() + "/" + std::to_string(reso.source.getBits()) + " vs " + outgoingECSAddr.toString() + "/" + std::to_string(outgoingECSBits) + ") and strict checking is enabled");
+                  }
+                }
                 uint8_t bits = std::min(reso.scope.getBits(), outgoingECSBits);
                 outgoingECSAddr.truncate(bits);
                 srcmask = Netmask(outgoingECSAddr, bits);
