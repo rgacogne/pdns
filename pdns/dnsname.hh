@@ -291,12 +291,12 @@ struct SuffixMatchTree
     }
   }
 
-  T* lookup(const DNSName& name)  const
+  T* lookup(const DNSName& name) const
   {
     if(children.empty()) { // speed up empty set
       if(endNode)
         return &d_value;
-      return 0;
+      return nullptr;
     }
     return lookup(name.getRawLabels());
   }
@@ -306,7 +306,7 @@ struct SuffixMatchTree
     if(labels.empty()) { // optimization
       if(endNode)
         return &d_value;
-      return 0;
+      return nullptr;
     }
 
     SuffixMatchTree smn(*labels.rbegin());
@@ -314,12 +314,56 @@ struct SuffixMatchTree
     if(child == children.end()) {
       if(endNode)
         return &d_value;
-      return 0;
+      return nullptr;
     }
     labels.pop_back();
     return child->lookup(labels);
   }
 
+  bool erase(const DNSName& name)
+  {
+    if (children.empty()) { // speed up empty set
+      if (endNode && (name.empty() || name.isRoot())) {
+        endNode = false;
+        return true;
+      }
+      return false;
+    }
+    return erase(name.getRawLabels());
+  }
+
+  bool erase(std::vector<std::string> labels) const
+  {
+    if(labels.empty()) { // optimization
+      if(endNode) {
+        endNode = false;
+        return true;
+      }
+      return false;
+    }
+
+    SuffixMatchTree smn(*labels.rbegin());
+    auto child = children.find(smn);
+    if (child == children.end()) {
+      return false;
+    }
+    if (labels.size() == 1) {
+      if (!child->endNode) {
+        return false;
+      }
+      child->endNode = false;
+    }
+    else {
+      labels.pop_back();
+      if (!child->erase(labels)) {
+        return false;
+      }
+    }
+    if (child->endNode == false && child->children.empty()) {
+      children.erase(child);
+    }
+    return true;
+  }
 };
 
 /* Quest in life: serve as a rapid block list. If you add a DNSName to a root SuffixMatchNode,
