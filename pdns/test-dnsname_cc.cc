@@ -558,6 +558,43 @@ BOOST_AUTO_TEST_CASE(test_suffixmatch_tree) {
   BOOST_CHECK_EQUAL(*smt.lookup(examplenet), examplenet);
   BOOST_REQUIRE(smt.lookup(net));
   BOOST_CHECK_EQUAL(*smt.lookup(net), net);
+
+  smt = SuffixMatchTree<DNSName>();
+  smt.add(examplenet, examplenet);
+  smt.add(net, net);
+  smt.add(DNSName("news.bbc.co.uk."), DNSName("news.bbc.co.uk."));
+
+  BOOST_CHECK_EQUAL(smt.erase(DNSName("not-such-entry.news.bbc.co.uk.")), false);
+  BOOST_REQUIRE(smt.lookup(DNSName("news.bbc.co.uk.")));
+  BOOST_CHECK_EQUAL(smt.erase(DNSName("news.bbc.co.uk.")), true);
+  BOOST_CHECK(smt.lookup(DNSName("news.bbc.co.uk.")) == nullptr);
+
+  BOOST_CHECK_EQUAL(smt.erase(net), true);
+  BOOST_REQUIRE(smt.lookup(examplenet));
+  BOOST_CHECK_EQUAL(*smt.lookup(examplenet), examplenet);
+  BOOST_CHECK(smt.lookup(net) == nullptr);
+
+  BOOST_CHECK_EQUAL(smt.erase(examplenet), true);
+  BOOST_CHECK(smt.lookup(net) == nullptr);
+  BOOST_CHECK(smt.lookup(examplenet) == nullptr);
+
+  smt.add(examplenet, examplenet);
+  smt.add(net, net);
+  BOOST_REQUIRE(smt.lookup(examplenet));
+  BOOST_CHECK_EQUAL(*smt.lookup(examplenet), examplenet);
+  BOOST_REQUIRE(smt.lookup(net));
+  BOOST_CHECK_EQUAL(*smt.lookup(net), net);
+
+  BOOST_CHECK_EQUAL(smt.erase(examplenet), true);
+  BOOST_CHECK_EQUAL(*smt.lookup(examplenet), net);
+  BOOST_CHECK_EQUAL(*smt.lookup(net), net);
+  BOOST_CHECK_EQUAL(smt.erase(examplenet), false);
+  BOOST_CHECK_EQUAL(*smt.lookup(examplenet), net);
+  BOOST_CHECK_EQUAL(*smt.lookup(net), net);
+  BOOST_CHECK_EQUAL(smt.erase(net), true);
+  BOOST_CHECK(smt.lookup(net) == nullptr);
+  BOOST_CHECK(smt.lookup(examplenet) == nullptr);
+  BOOST_CHECK_EQUAL(smt.erase(net), false);
 }
 
 
