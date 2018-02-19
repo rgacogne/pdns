@@ -801,7 +801,7 @@ void setupLuaConfig(bool client)
 	  g_outputBuffer+= (fmt % e->first.toString() % (e->second.until.tv_sec - now.tv_sec) % e->second.blocks % e->second.reason).str();
       }
       auto slow2 = g_dynblockSMT.getCopy();
-      slow2.visit([&now, &fmt](const SuffixMatchTree<DynBlock>& node) {
+      slow2.visit([now, &fmt](const SuffixMatchTree<DynBlock>& node) {
           if(now <node.d_value.until) {
             string dom("empty");
             if(!node.d_value.domain.empty())
