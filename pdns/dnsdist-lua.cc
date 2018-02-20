@@ -818,11 +818,13 @@ void setupLuaConfig(bool client)
       g_dynblockNMG.setState(nmg);
       SuffixMatchTree<DynBlock> smt;
       g_dynblockSMT.setState(smt);
+#warning TODO: update counters (before)
     });
 
   g_lua.writeFunction("addDynBlocks",
                       [](const map<ComboAddress,int>& m, const std::string& msg, boost::optional<int> seconds, boost::optional<DNSAction::Action> action) {
                            setLuaSideEffect();
+#warning TODO: update counters (before)
 			   auto slow = g_dynblockNMG.getCopy();
 			   struct timespec until, now;
 			   gettime(&now);
@@ -853,6 +855,7 @@ void setupLuaConfig(bool client)
   g_lua.writeFunction("addDynBlockSMT",
                       [](const vector<pair<unsigned int, string> >&names, const std::string& msg, boost::optional<int> seconds, boost::optional<DNSAction::Action> action) {
                            setLuaSideEffect();
+#warning TODO: update counters (before)
 			   auto slow = g_dynblockSMT.getCopy();
 			   struct timespec until, now;
 			   gettime(&now);
