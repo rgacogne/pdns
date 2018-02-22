@@ -34,9 +34,9 @@ public:
 class DynBlockStatsEntry
 {
 public:
-  void fill(std::unordered_map<std::string, std::map<ComboAddress, DynBlockStatsTimeEntry> >& map)
+  void fill(std::unordered_map<std::string, std::map<Netmask, DynBlockStatsTimeEntry> >& map)
   {
-    for (const auto& entry : d_entries) {
+    for (const auto& entry : d_NMGEntries) {
       const auto& reason = entry.first;
 
       for (const auto& value : entry.second) {
@@ -45,13 +45,11 @@ public:
     }
   }
 
-private:
-  std::unordered_map<std::string, std::map<ComboAddress, DynBlockStatsTimeEntry> > d_entries;
+  std::unordered_map<std::string, std::map<Netmask, DynBlockStatsTimeEntry> > d_NMGEntries;
+  std::unordered_map<std::string, std::map<DNSName, DynBlockStatsTimeEntry> > d_SMTEntries;
 };
-
-
-extern boost::circular_buffer<std::shared_ptr<DynBlockStatsEntry> > g_dynblockStatsEntries;
-extern std::mutex g_dynblockStatsEntriesMutex;
 
 void purgeExpiredDynBlockNMGEntries(GlobalStateHolder<NetmaskTree<DynBlock>>& dynblockNMG);
 void purgeExpiredDynBlockSMTEntries(GlobalStateHolder<SuffixMatchTree<DynBlock>>& dynblockSMT);
+
+std::map<std::string, std::vector<std::pair<Netmask, uint64_t> > > getTopDynBlockNMGEntries(GlobalStateHolder<NetmaskTree<DynBlock>>& dynblockNMG, size_t top);
