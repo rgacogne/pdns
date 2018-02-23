@@ -26,6 +26,36 @@
 static boost::circular_buffer<DynBlockStatsEntry > s_dynblockStatsEntries;
 static std::mutex s_dynblockStatsEntriesMutex;
 
+size_t g_dynBlockCleaningDelay{0};
+size_t g_dynBlockCountersRefreshDelay{0};
+std::map<std::string, std::vector<std::pair<Netmask, uint64_t> > > g_topDynBlockNMGEntries;
+std::map<std::string, vector<std::pair<DNSName, uint64_t> > > g_topDynBlockSMTEntries;
+
+void insertDynBlockNMGEntry(const std::string& tag, const Netmask& nm)
+{
+  std::lock_guard<std::mutex> lock(s_dynblockStatsEntriesMutex);
+  auto& lastBucket = s_dynblockStatsEntries.back();
+  auto statEntry = lastBucket.d_NMGEntries[tag].find(nm);
+  /* if it doesn't exist yet, create it and set the previous counter to 0
+     otherwise both the previous and current counter might be > 0 */
+  if (statEntry == lastBucket.d_NMGEntries[tag].end()) {
+    lastBucket.d_NMGEntries[tag][nm].d_previousCounter = 0;
+  }
+}
+
+void insertDynBlockSMTEntry(const std::string& tag, const DNSName& name)
+{
+  std::lock_guard<std::mutex> lock(s_dynblockStatsEntriesMutex);
+  auto& lastBucket = s_dynblockStatsEntries.back();
+  auto statEntry = lastBucket.d_SMTEntries[tag].find(name);
+//    statEntry->second.d_previousCounter = previous;
+  /* if it doesn't exist yet, create it and set the previous counter to 0
+     otherwise both the previous and current counter might be > 0 */
+  if (statEntry == lastBucket.d_SMTEntries[tag].end()) {
+    lastBucket.d_SMTEntries[tag][name].d_previousCounter = 0;
+  }
+}
+
 void purgeExpiredDynBlockNMGEntries(GlobalStateHolder<NetmaskTree<DynBlock>>& dynblockNMG)
 {
   NetmaskTree<DynBlock> fresh;
@@ -41,7 +71,7 @@ void purgeExpiredDynBlockNMGEntries(GlobalStateHolder<NetmaskTree<DynBlock>>& dy
       auto& lastBucket = s_dynblockStatsEntries.back();
       auto statEntry = lastBucket.d_NMGEntries[entry->second.reason].find(entry->first);
       if (statEntry != lastBucket.d_NMGEntries[entry->second.reason].end()) {
-        statEntry->second.d_counter = entry->second.blocks - statEntry->second.d_previousCounter;
+        statEntry->second.d_counter += entry->second.blocks - statEntry->second.d_previousCounter;
       } else {
         lastBucket.d_NMGEntries[entry->second.reason][entry->first].d_counter = entry->second.blocks;
       }
@@ -66,7 +96,7 @@ void purgeExpiredDynBlockSMTEntries(GlobalStateHolder<SuffixMatchTree<DynBlock>>
       auto& lastBucket = s_dynblockStatsEntries.back();
       auto statEntry = lastBucket.d_SMTEntries[node.d_value.reason].find(node.d_value.domain);
       if (statEntry != lastBucket.d_SMTEntries[node.d_value.reason].end()) {
-        statEntry->second.d_counter = node.d_value.blocks - statEntry->second.d_previousCounter;
+        statEntry->second.d_counter += node.d_value.blocks - statEntry->second.d_previousCounter;
       } else {
         lastBucket.d_SMTEntries[node.d_value.reason][node.d_value.domain].d_counter = node.d_value.blocks;
       }
@@ -85,7 +115,6 @@ std::map<std::string, std::vector<std::pair<Netmask, uint64_t> > > getTopDynBloc
   for (const auto& bucket: s_dynblockStatsEntries) {
     for (const auto& tagEntries: bucket.d_NMGEntries) {
       for (const auto& clientEntry: tagEntries.second) {
-        // in the last bucket the counter is always 0
         results[tagEntries.first][clientEntry.first] += clientEntry.second.d_counter;
       }
     }
@@ -108,17 +137,70 @@ std::map<std::string, std::vector<std::pair<Netmask, uint64_t> > > getTopDynBloc
 
   std::map<std::string, std::vector<std::pair<Netmask, uint64_t> > > tops;
   for (auto& tag : results) {
-    size_t tosort = std::min(tag.second.size(), top);
-    partial_sort(tag.second.begin(), tag.second.begin() + tosort, tag.second.end(), [](const ret_t::value_type&a, const ret_t::value_type&b) {
+    auto& vect = tops[tag.first];
+
+    for (const auto& client : tag.second) {
+      vect.push_back({ client.first, client.second });
+    }
+
+    auto toSort = std::min(vect.size(), top);
+    partial_sort(vect.begin(), vect.begin() + toSort, vect.end(), [](const std::pair<Netmask, uint64_t>& a, const std::pair<Netmask, uint64_t>& b) {
         return (b.first < a.first);
       });
-    tops[tag.first].reserve(tosort);
-    std::copy(tag.second.begin(), tag.second.begin() + tosort, tops[tag.first].begin());
+
+    tops[tag.first].reserve(toSort);
+    std::copy(vect.begin(), vect.begin() + toSort, tops[tag.first].begin());
   }
 
   return tops;
 }
 
-std::vector<std::pair<DNSName, uint64_t> > getTopDynBlockSMTEntries(GlobalStateHolder<SuffixMatchTree<DynBlock>>& dynblockSMT, uint8_t top)
+std::map<std::string, vector<std::pair<DNSName, uint64_t> > > getTopDynBlockSMTEntries(GlobalStateHolder<SuffixMatchTree<DynBlock>>& dynblockSMT, size_t top)
 {
+  std::map<std::string, std::unordered_map<DNSName, uint64_t> > results;
+
+  std::lock_guard<std::mutex> lock(s_dynblockStatsEntriesMutex);
+
+  for (const auto& bucket: s_dynblockStatsEntries) {
+    for (const auto& tagEntries: bucket.d_SMTEntries) {
+      for (const auto& clientEntry: tagEntries.second) {
+        results[tagEntries.first][clientEntry.first] += clientEntry.second.d_counter;
+      }
+    }
+  }
+
+  const auto& lastBucket = s_dynblockStatsEntries.back();
+  const auto copy = g_dynblockSMT.getCopy();
+
+  copy.visit([lastBucket, &results](const SuffixMatchTree<DynBlock>& node) {
+    uint64_t previous = 0;
+    const auto& tag = lastBucket.d_SMTEntries.find(node.d_value.reason);
+    if (tag != lastBucket.d_SMTEntries.cend()) {
+      const auto& domain = tag->second.find(node.d_value.domain);
+      if (domain != tag->second.cend()) {
+        previous = domain->second.d_previousCounter;
+      }
+    }
+    results[node.d_value.reason][node.d_value.domain] += (node.d_value.blocks - previous);
+
+  });
+
+  std::map<std::string, std::vector<std::pair<DNSName, uint64_t> > > tops;
+  for (auto& tag : results) {
+    auto& vect = tops[tag.first];
+
+    for (const auto& client : tag.second) {
+      vect.push_back({ client.first, client.second });
+    }
+
+    auto toSort = std::min(vect.size(), top);
+    partial_sort(vect.begin(), vect.begin() + toSort, vect.end(), [](const std::pair<DNSName, uint64_t>& a, const std::pair<DNSName, uint64_t>& b) {
+        return (b.first < a.first);
+      });
+
+    tops[tag.first].reserve(toSort);
+    std::copy(vect.begin(), vect.begin() + toSort, tops[tag.first].begin());
+  }
+
+  return tops;
 }

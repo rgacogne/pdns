@@ -30,6 +30,7 @@
 
 #include "dnsdist.hh"
 #include "dnsdist-lua.hh"
+#include "dnsdist-dynblocks.hh"
 
 #include "base64.hh"
 #include "dnswriter.hh"
@@ -824,7 +825,6 @@ void setupLuaConfig(bool client)
   g_lua.writeFunction("addDynBlocks",
                       [](const map<ComboAddress,int>& m, const std::string& msg, boost::optional<int> seconds, boost::optional<DNSAction::Action> action) {
                            setLuaSideEffect();
-#warning TODO: update counters (before)
 			   auto slow = g_dynblockNMG.getCopy();
 			   struct timespec until, now;
 			   gettime(&now);
@@ -842,7 +842,9 @@ void setupLuaConfig(bool client)
 				 count=got->second.blocks;
                                else
                                  expired=true;
-			     }
+			     } else {
+                               insertDynBlockNMGEntry(msg, Netmask(capair.first));
+                             }
 			     DynBlock db{msg,until,DNSName(),(action ? *action : DNSAction::Action::None)};
 			     db.blocks=count;
                              if(!got || expired)
@@ -855,7 +857,6 @@ void setupLuaConfig(bool client)
   g_lua.writeFunction("addDynBlockSMT",
                       [](const vector<pair<unsigned int, string> >&names, const std::string& msg, boost::optional<int> seconds, boost::optional<DNSAction::Action> action) {
                            setLuaSideEffect();
-#warning TODO: update counters (before)
 			   auto slow = g_dynblockSMT.getCopy();
 			   struct timespec until, now;
 			   gettime(&now);
@@ -875,8 +876,9 @@ void setupLuaConfig(bool client)
 				 count=got->blocks;
                                else
                                  expired=true;
-			     }
-
+			     } else {
+                               insertDynBlockSMTEntry(msg, domain);
+                             }
 			     DynBlock db{msg,until,domain,(action ? *action : DNSAction::Action::None)};
 			     db.blocks=count;
                              if(!got || expired)

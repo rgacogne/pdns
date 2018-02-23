@@ -43,6 +43,7 @@
 
 #include "dnsdist.hh"
 #include "dnsdist-cache.hh"
+#include "dnsdist-dynblocks.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
 
@@ -1737,7 +1738,7 @@ void* maintThread()
     }
 
     counter++;
-    if (counter >= g_cacheCleaningDelay) {
+    if (g_cacheCleaningDelay > 0 && (counter % g_cacheCleaningDelay) == 0) {
       const auto localPools = g_pools.getCopy();
       std::shared_ptr<DNSDistPacketCache> packetCache = nullptr;
       for (const auto& entry : localPools) {
@@ -1750,10 +1751,28 @@ void* maintThread()
           packetCache->purgeExpired(upTo);
         }
       }
-      counter = 0;
     }
 
     // ponder pruning g_dynblocks of expired entries here
+    if (g_dynBlockCleaningDelay > 0 && (counter % g_dynBlockCleaningDelay) == 0) {
+      purgeExpiredDynBlockNMGEntries(g_dynblockNMG);
+      purgeExpiredDynBlockSMTEntries(g_dynblockSMT);
+    }
+
+    if (g_dynBlockCountersRefreshDelay > 0) {
+
+      if ((counter % 60) == 0) {
+        // update counters of the current slot (counter += current counter - previous)
+        // set new previous to current counter
+        rotateDynBlockNMGStatEntries(g_dynblockNMG);
+        rotateDynBlockSMTStatEntries(g_dynblockSMT);
+      }
+
+      if ((counter % g_dynBlockCountersRefreshDelay) == 0) {
+        g_topDynBlockNMGEntries = getTopDynBlockNMGEntries(g_dynblockNMG, 10);
+        g_topDynBlockSMTEntries = getTopDynBlockSMTEntries(g_dynblockSMT, 10);
+      }
+    }
   }
   return 0;
 }

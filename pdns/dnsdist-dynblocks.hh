@@ -49,7 +49,15 @@ public:
   std::unordered_map<std::string, std::map<DNSName, DynBlockStatsTimeEntry> > d_SMTEntries;
 };
 
+void insertDynBlockNMGEntry(const std::string& tag, const Netmask& nm);
+void insertDynBlockSMTEntry(const std::string& tag, const DNSName& name);
 void purgeExpiredDynBlockNMGEntries(GlobalStateHolder<NetmaskTree<DynBlock>>& dynblockNMG);
 void purgeExpiredDynBlockSMTEntries(GlobalStateHolder<SuffixMatchTree<DynBlock>>& dynblockSMT);
 
 std::map<std::string, std::vector<std::pair<Netmask, uint64_t> > > getTopDynBlockNMGEntries(GlobalStateHolder<NetmaskTree<DynBlock>>& dynblockNMG, size_t top);
+std::map<std::string, vector<std::pair<DNSName, uint64_t> > > getTopDynBlockSMTEntries(GlobalStateHolder<SuffixMatchTree<DynBlock>>& dynblockSMT, size_t top);
+
+extern size_t g_dynBlockCleaningDelay;
+extern size_t g_dynBlockCountersRefreshDelay;
+extern std::map<std::string, std::vector<std::pair<Netmask, uint64_t> > > g_topDynBlockNMGEntries;
+extern std::map<std::string, vector<std::pair<DNSName, uint64_t> > > g_topDynBlockSMTEntries;
