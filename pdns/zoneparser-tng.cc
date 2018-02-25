@@ -35,6 +35,7 @@
 #include <deque>
 #include <boost/algorithm/string.hpp>
 #include <system_error>
+#include <sys/stat.h>
 
 static string g_INstr("IN");
 
@@ -61,6 +62,20 @@ void ZoneParserTNG::stackFile(const std::string& fname)
   if(!fp) {
     std::error_code ec (errno,std::generic_category());
     throw std::system_error(ec, "Unable to open file '"+fname+"': "+stringerror());
+  }
+
+#if HAVE_POSIX_FADVISE
+  struct stat stbuf;
+  int fd = fileno(fp);
+
+  if (fstat(fd, &stbuf) == 0 && stbuf.st_size > 0) {
+#ifdef POSIX_FADV_SEQUENTIAL
+    posix_fadvise(fd, 0, stbuf.st_size, POSIX_FADV_SEQUENTIAL);
+#endif /* POSIX_FADV_SEQUENTIAL */
+#ifdef POSIX_FADV_NOREUSE
+    posix_fadvise(fd, 0, stbuf.st_size, POSIX_FADV_NOREUSE);
+#endif /* POSIX_FADV_NOREUSE */
+#endif /* HAVE_POSIX_FADVISE */
   }
 
   filestate fs(fp, fname);

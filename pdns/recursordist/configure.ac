@@ -123,7 +123,7 @@ PDNS_WITH_NET_SNMP
 PDNS_CHECK_RAGEL([pdns/dnslabeltext.cc], [www.powerdns.com])
 PDNS_CHECK_CURL
 
-AC_CHECK_FUNCS([strcasestr])
+AC_CHECK_FUNCS([strcasestr posix_fadvise])
 
 PDNS_CHECK_PTHREAD_NP
 
