@@ -40,27 +40,6 @@
 string GenUDPQueryResponse(const ComboAddress& dest, const string& query);
 unsigned int getRecursorThreadId();
 
-struct pdns_ffi_param
-{
-public:
-  pdns_ffi_param(const DNSName& qname_, uint16_t qtype_, const ComboAddress& local_, const ComboAddress& remote_, const Netmask& ednssubnet_, std::vector<std::string>& policyTags_, const std::map<uint16_t, EDNSOptionView>& ednsOptions_, std::string& requestorId_, std::string& deviceId_,  bool tcp_): qname(qname_), local(local_), remote(remote_), ednssubnet(ednssubnet_), policyTags(policyTags_), ednsOptions(ednsOptions_), requestorId(requestorId_), deviceId(deviceId_), tag(0), qtype(qtype_), tcp(tcp_)
-  {
-  }
-
-  const DNSName& qname;
-  const ComboAddress& local;
-  const ComboAddress& remote;
-  const Netmask& ednssubnet;
-  std::vector<std::string>& policyTags;
-  const std::map<uint16_t, EDNSOptionView>& ednsOptions;
-  std::string& requestorId;
-  std::string& deviceId;
-
-  unsigned int tag;
-  uint16_t qtype;
-  bool tcp;
-};
-
 // pdns_ffi_param_t is a lightuserdata
 template<>
 struct LuaContext::Pusher<pdns_ffi_param*> {

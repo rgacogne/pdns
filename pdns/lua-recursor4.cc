@@ -480,7 +480,32 @@ unsigned int RecursorLua4::gettag(const ComboAddress& remote, const Netmask& edn
   return 0;
 }
 
-  unsigned int gettag_ffi(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>&, bool tcp, std::string& requestorId, std::string& deviceId);
+struct pdns_ffi_param
+{
+public:
+  pdns_ffi_param(const DNSName& qname_, uint16_t qtype_, const ComboAddress& local_, const ComboAddress& remote_, const Netmask& ednssubnet_, std::vector<std::string>& policyTags_, const std::map<uint16_t, EDNSOptionView>& ednsOptions_, std::string& requestorId_, std::string& deviceId_,  bool tcp_): qname(qname_), local(local_), remote(remote_), ednssubnet(ednssubnet_), policyTags(policyTags_), ednsOptions(ednsOptions_), requestorId(requestorId_), deviceId(deviceId_), tag(0), qtype(qtype_), tcp(tcp_)
+  {
+  }
+
+  std::unique_ptr<std::string> qnameStr{nullptr};
+  std::unique_ptr<std::string> localStr{nullptr};
+  std::unique_ptr<std::string> remoteStr{nullptr};
+  std::unique_ptr<std::string> ednssubnetStr{nullptr};
+  std::vector<pdns_ednsoption_t> ednsOptionsVect;
+
+  const DNSName& qname;
+  const ComboAddress& local;
+  const ComboAddress& remote;
+  const Netmask& ednssubnet;
+  std::vector<std::string>& policyTags;
+  const std::map<uint16_t, EDNSOptionView>& ednsOptions;
+  std::string& requestorId;
+  std::string& deviceId;
+
+  unsigned int tag;
+  uint16_t qtype;
+  bool tcp;
+};
 
 unsigned int RecursorLua4::gettag_ffi(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>& ednsOptions, bool tcp, std::string& requestorId, std::string& deviceId)
 {
@@ -557,9 +582,13 @@ loop:;
 
 RecursorLua4::~RecursorLua4(){}
 
-const char* pdns_ffi_param_get_qname(const pdns_ffi_param_t* ref)
+const char* pdns_ffi_param_get_qname(pdns_ffi_param_t* ref)
 {
-  return ref->qname.toString().c_str();
+  if (!ref->qnameStr) {
+    ref->qnameStr = std::unique_ptr<std::string>(new std::string(ref->qname.toStringNoDot()));
+  }
+
+  return ref->qnameStr->c_str();
 }
 
 uint16_t pdns_ffi_param_get_qtype(const pdns_ffi_param_t* ref)
@@ -567,9 +596,13 @@ uint16_t pdns_ffi_param_get_qtype(const pdns_ffi_param_t* ref)
   return ref->qtype;
 }
 
-const char* pdns_ffi_param_get_remote(const pdns_ffi_param_t* ref)
+const char* pdns_ffi_param_get_remote(pdns_ffi_param_t* ref)
 {
-  return ref->remote.toString().c_str();
+  if (!ref->remoteStr) {
+    ref->remoteStr = std::unique_ptr<std::string>(new std::string(ref->remote.toString()));
+  }
+
+  return ref->remoteStr->c_str();
 }
 
 uint16_t pdns_ffi_param_get_remote_port(const pdns_ffi_param_t* ref)
@@ -577,9 +610,13 @@ uint16_t pdns_ffi_param_get_remote_port(const pdns_ffi_param_t* ref)
   return ref->remote.getPort();
 }
 
-const char* pdns_ffi_param_get_local(const pdns_ffi_param_t* ref)
+const char* pdns_ffi_param_get_local(pdns_ffi_param_t* ref)
 {
-  return ref->local.toString().c_str();
+  if (!ref->localStr) {
+    ref->localStr = std::unique_ptr<std::string>(new std::string(ref->local.toString()));
+  }
+
+  return ref->localStr->c_str();
 }
 
 uint16_t pdns_ffi_param_get_local_port(const pdns_ffi_param_t* ref)
@@ -587,9 +624,13 @@ uint16_t pdns_ffi_param_get_local_port(const pdns_ffi_param_t* ref)
   return ref->local.getPort();
 }
 
-const char* pdns_ffi_param_get_edns_cs(const pdns_ffi_param_t* ref)
+const char* pdns_ffi_param_get_edns_cs(pdns_ffi_param_t* ref)
 {
-  return ref->ednssubnet.toStringNoMask().c_str();
+  if (!ref->ednssubnetStr) {
+    ref->ednssubnetStr = std::unique_ptr<std::string>(new std::string(ref->ednssubnet.toStringNoMask()));
+  }
+
+  return ref->ednssubnetStr->c_str();
 }
 
 uint8_t pdns_ffi_param_get_edns_cs_source_mask(const pdns_ffi_param_t* ref)
@@ -597,11 +638,52 @@ uint8_t pdns_ffi_param_get_edns_cs_source_mask(const pdns_ffi_param_t* ref)
   return ref->ednssubnet.getBits();
 }
 
-// allocate and returns length of result 'out' array
-size_t pdns_ffi_param_edns_option(const pdns_ffi_param_t *ref, uint16_t optioncode, pdns_ednsoption_t** out)
+static void fill_edns_option(const EDNSOptionView& view, pdns_ednsoption_t& option)
 {
-  #warning TODO
-  return 0;
+  option.len = view.size;
+  option.data = nullptr;
+
+  if (view.size > 0) {
+    option.data = view.content;
+  }
+}
+
+size_t pdns_ffi_param_get_edns_options(pdns_ffi_param_t* ref, const pdns_ednsoption_t** out)
+{
+  if (ref->ednsOptions.empty()) {
+    return 0;
+  }
+
+  size_t count = ref->ednsOptions.size();
+  ref->ednsOptionsVect.resize(count);
+
+  size_t pos = 0;
+  for (const auto& entry : ref->ednsOptions) {
+    fill_edns_option(entry.second, ref->ednsOptionsVect.at(pos));
+    ref->ednsOptionsVect.at(pos).optionCode = entry.first;
+    pos++;
+  }
+
+  *out = ref->ednsOptionsVect.data();
+
+  return count;
+}
+
+size_t pdns_ffi_param_get_edns_options_by_code(pdns_ffi_param_t* ref, uint16_t optionCode, const pdns_ednsoption_t** out)
+{
+  const auto& it = ref->ednsOptions.find(optionCode);
+  if (it == ref->ednsOptions.cend()) {
+    return 0;
+  }
+
+  /* the current code deals with only one entry per code, but we will fix that */
+  ref->ednsOptionsVect.resize(1);
+  fill_edns_option(it->second, ref->ednsOptionsVect.at(0));
+  ref->ednsOptionsVect.at(0).optionCode = it->first;
+
+  *out = ref->ednsOptionsVect.data();
+
+  return 1;
 }
 
 void pdns_ffi_param_set_tag(pdns_ffi_param_t* ref, unsigned int tag)
