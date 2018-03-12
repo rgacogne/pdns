@@ -43,7 +43,7 @@ unsigned int getRecursorThreadId();
 struct pdns_ffi_param
 {
 public:
-  pdns_ffi_param(const DNSName& qname_, uint16_t qtype_, const ComboAddress& local_, const ComboAddress& remote_, const Netmask& ednssubnet_, std::vector<std::string>& policyTags_, LuaContext::LuaObject& data_, const std::map<uint16_t, EDNSOptionView>& ednsOptions_, std::string& requestorId_, std::string& deviceId_,  bool tcp_): qname(qname_), local(local_), remote(remote_), ednssubnet(ednssubnet_), data(data_), policyTags(policyTags_), ednsOptions(ednsOptions_), requestorId(requestorId_), deviceId(deviceId_), qtype(qtype_), tcp(tcp_)
+  pdns_ffi_param(const DNSName& qname_, uint16_t qtype_, const ComboAddress& local_, const ComboAddress& remote_, const Netmask& ednssubnet_, std::vector<std::string>& policyTags_, const std::map<uint16_t, EDNSOptionView>& ednsOptions_, std::string& requestorId_, std::string& deviceId_,  bool tcp_): qname(qname_), local(local_), remote(remote_), ednssubnet(ednssubnet_), policyTags(policyTags_), ednsOptions(ednsOptions_), requestorId(requestorId_), deviceId(deviceId_), tag(0), qtype(qtype_), tcp(tcp_)
   {
   }
 
@@ -51,12 +51,12 @@ public:
   const ComboAddress& local;
   const ComboAddress& remote;
   const Netmask& ednssubnet;
-  LuaContext::LuaObject& data;
   std::vector<std::string>& policyTags;
   const std::map<uint16_t, EDNSOptionView>& ednsOptions;
   std::string& requestorId;
   std::string& deviceId;
 
+  unsigned int tag;
   uint16_t qtype;
   bool tcp;
 };
@@ -119,6 +119,7 @@ public:
   };
 
   unsigned int gettag(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>&, bool tcp, std::string& requestorId, std::string& deviceId);
+  unsigned int gettag_ffi(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>&, bool tcp, std::string& requestorId, std::string& deviceId);
 
   bool prerpz(DNSQuestion& dq, int& ret);
   bool preresolve(DNSQuestion& dq, int& ret);
@@ -140,7 +141,7 @@ public:
 
   typedef std::function<std::tuple<unsigned int,boost::optional<std::unordered_map<int,string> >,boost::optional<LuaContext::LuaObject>,boost::optional<std::string>,boost::optional<std::string> >(ComboAddress, Netmask, ComboAddress, DNSName, uint16_t, const std::map<uint16_t, EDNSOptionView>&, bool)> gettag_t;
   gettag_t d_gettag; // public so you can query if we have this hooked
-  typedef std::function<unsigned int(pdns_ffi_param_t*)> gettag_ffi_t;
+  typedef std::function<boost::optional<LuaContext::LuaObject>(pdns_ffi_param_t*)> gettag_ffi_t;
   gettag_ffi_t d_gettag_ffi;
 
 protected:

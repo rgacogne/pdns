@@ -32,12 +32,16 @@ extern "C" {
   const char* pdns_ffi_param_get_qname(const pdns_ffi_param_t* ref);
   uint16_t pdns_ffi_param_get_qtype(const pdns_ffi_param_t* ref);
   const char* pdns_ffi_param_get_remote(const pdns_ffi_param_t* ref);
+  uint16_t pdns_ffi_param_get_remote_port(const pdns_ffi_param_t* ref);
   const char* pdns_ffi_param_get_local(const pdns_ffi_param_t* ref);
+  uint16_t pdns_ffi_param_get_local_port(const pdns_ffi_param_t* ref);
   const char* pdns_ffi_param_get_edns_cs(const pdns_ffi_param_t* ref);
+  uint8_t pdns_ffi_param_get_edns_cs_source_mask(const pdns_ffi_param_t* ref);
 
   // allocate and returns length of result 'out' array
   size_t pdns_ffi_param_edns_option(const pdns_ffi_param_t *ref, uint16_t optioncode, pdns_ednsoption_t** out);
-  
+
+  void pdns_ffi_param_set_tag(pdns_ffi_param_t* ref, unsigned int tag);
   void pdns_ffi_param_add_policytag(pdns_ffi_param_t *ref, const char* name);
   void pdns_ffi_param_set_requestorid(pdns_ffi_param_t* ref, const char* name);
   void pdns_ffi_param_set_devicename(pdns_ffi_param_t* ref, const char* name);

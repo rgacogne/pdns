@@ -480,6 +480,23 @@ unsigned int RecursorLua4::gettag(const ComboAddress& remote, const Netmask& edn
   return 0;
 }
 
+  unsigned int gettag_ffi(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>&, bool tcp, std::string& requestorId, std::string& deviceId);
+
+unsigned int RecursorLua4::gettag_ffi(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>& ednsOptions, bool tcp, std::string& requestorId, std::string& deviceId)
+{
+  if (d_gettag_ffi) {
+    pdns_ffi_param_t param(qname, qtype, local, remote, ednssubnet, *policyTags, ednsOptions, requestorId, deviceId, tcp);
+
+    auto ret = d_gettag_ffi(&param);
+    if (ret) {
+      data = *ret;
+    }
+
+    return param.tag;
+  }
+  return 0;
+}
+
 bool RecursorLua4::genhook(luacall_t& func, DNSQuestion& dq, int& ret)
 {
   if(!func)
@@ -552,17 +569,32 @@ uint16_t pdns_ffi_param_get_qtype(const pdns_ffi_param_t* ref)
 
 const char* pdns_ffi_param_get_remote(const pdns_ffi_param_t* ref)
 {
-  return ref->remote.toStringWithPort().c_str();
+  return ref->remote.toString().c_str();
+}
+
+uint16_t pdns_ffi_param_get_remote_port(const pdns_ffi_param_t* ref)
+{
+  return ref->remote.getPort();
 }
 
 const char* pdns_ffi_param_get_local(const pdns_ffi_param_t* ref)
 {
-  return ref->local.toStringWithPort().c_str();
+  return ref->local.toString().c_str();
+}
+
+uint16_t pdns_ffi_param_get_local_port(const pdns_ffi_param_t* ref)
+{
+  return ref->local.getPort();
 }
 
 const char* pdns_ffi_param_get_edns_cs(const pdns_ffi_param_t* ref)
 {
-  return ref->ednssubnet.toString().c_str();
+  return ref->ednssubnet.toStringNoMask().c_str();
+}
+
+uint8_t pdns_ffi_param_get_edns_cs_source_mask(const pdns_ffi_param_t* ref)
+{
+  return ref->ednssubnet.getBits();
 }
 
 // allocate and returns length of result 'out' array
@@ -570,6 +602,11 @@ size_t pdns_ffi_param_edns_option(const pdns_ffi_param_t *ref, uint16_t optionco
 {
   #warning TODO
   return 0;
+}
+
+void pdns_ffi_param_set_tag(pdns_ffi_param_t* ref, unsigned int tag)
+{
+  ref->tag = tag;
 }
 
 void pdns_ffi_param_add_policytag(pdns_ffi_param_t *ref, const char* name)
@@ -590,9 +627,4 @@ void pdns_ffi_param_set_devicename(pdns_ffi_param_t* ref, const char* name)
 void pdns_ffi_param_set_deviceid(pdns_ffi_param_t* ref, size_t len, const void* name)
 {
   ref->deviceId = std::string(reinterpret_cast<const char*>(name), len);
-}
-
-void pdns_ffi_param_set_data(pdns_ffi_param_t* ref, LuaContext::LuaObject& data)
-{
-  ref->data = data;
 }

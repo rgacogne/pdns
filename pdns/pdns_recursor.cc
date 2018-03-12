@@ -1557,25 +1557,17 @@ static void handleRunningTCPQuestion(int fd, FDMultiplexer::funcparam_t& var)
                             xpfFound, needXPF ? &dc->d_source : nullptr, needXPF ? &dc->d_destination : nullptr);
 
           if(t_pdl) {
-            if (t_pdl->d_gettag_ffi) {
-              try {
-                pdns_ffi_param_t param(qname, qtype, dc->d_destination, dc->d_source, dc->d_ednssubnet.source, dc->d_policyTags, dc->d_data, ednsOptions, requestorId, deviceId, true);
-
-                dc->d_tag = t_pdl->d_gettag_ffi(&param);
+            try {
+              if (t_pdl->d_gettag_ffi) {
+                dc->d_tag = t_pdl->gettag_ffi(dc->d_source, dc->d_ednssubnet.source, dc->d_destination, qname, qtype, &dc->d_policyTags, dc->d_data, ednsOptions, true, requestorId, deviceId);
               }
-              catch(const std::exception& e)  {
-                if(g_logCommonErrors)
-                  L<<Logger::Warning<<"Error parsing a query packet qname='"<<qname<<"' for FFI tag determination, setting tag=0: "<<e.what()<<endl;
-              }
-            }
-            else if (t_pdl->d_gettag) {
-              try {
+              else if (t_pdl->d_gettag) {
                 dc->d_tag = t_pdl->gettag(dc->d_source, dc->d_ednssubnet.source, dc->d_destination, qname, qtype, &dc->d_policyTags, dc->d_data, ednsOptions, true, requestorId, deviceId);
               }
-              catch(const std::exception& e)  {
-                if(g_logCommonErrors)
-                  L<<Logger::Warning<<"Error parsing a query packet qname='"<<qname<<"' for tag determination, setting tag=0: "<<e.what()<<endl;
-              }
+            }
+            catch(const std::exception& e)  {
+              if(g_logCommonErrors)
+                L<<Logger::Warning<<"Error parsing a query packet qname='"<<qname<<"' for tag determination, setting tag=0: "<<e.what()<<endl;
             }
           }
         }
@@ -1757,25 +1749,17 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
         ecsParsed = true;
 
         if(t_pdl) {
-          if (t_pdl->d_gettag_ffi) {
-            try {
-              pdns_ffi_param_t param(qname, qtype, destination, source, ednssubnet.source, policyTags, data, ednsOptions, requestorId, deviceId, false);
-
-              ctag = t_pdl->d_gettag_ffi(&param);
+          try {
+            if (t_pdl->d_gettag_ffi) {
+              ctag = t_pdl->gettag_ffi(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId);
             }
-            catch(const std::exception& e)  {
-              if(g_logCommonErrors)
-                L<<Logger::Warning<<"Error parsing a query packet qname='"<<qname<<"' for FFI tag determination, setting tag=0: "<<e.what()<<endl;
+            else if (t_pdl->d_gettag) {
+              ctag = t_pdl->gettag(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId);
             }
           }
-          else if (t_pdl->d_gettag) {
-            try {
-              ctag=t_pdl->gettag(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId);
-            }
-            catch(const std::exception& e)  {
-              if(g_logCommonErrors)
-                L<<Logger::Warning<<"Error parsing a query packet qname='"<<qname<<"' for tag determination, setting tag=0: "<<e.what()<<endl;
-            }
+          catch(const std::exception& e)  {
+            if(g_logCommonErrors)
+              L<<Logger::Warning<<"Error parsing a query packet qname='"<<qname<<"' for tag determination, setting tag=0: "<<e.what()<<endl;
           }
         }
       }
