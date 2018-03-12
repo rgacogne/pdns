@@ -405,6 +405,7 @@ void RecursorLua4::postLoad() {
 
   d_ipfilter = d_lw->readVariable<boost::optional<ipfilter_t>>("ipfilter").get_value_or(0);
   d_gettag = d_lw->readVariable<boost::optional<gettag_t>>("gettag").get_value_or(0);
+  d_gettag_ffi = d_lw->readVariable<boost::optional<gettag_ffi_t>>("gettag_ffi").get_value_or(0);
 }
 
 bool RecursorLua4::prerpz(DNSQuestion& dq, int& ret)
@@ -538,3 +539,60 @@ loop:;
 }
 
 RecursorLua4::~RecursorLua4(){}
+
+const char* pdns_ffi_param_get_qname(const pdns_ffi_param_t* ref)
+{
+  return ref->qname.toString().c_str();
+}
+
+uint16_t pdns_ffi_param_get_qtype(const pdns_ffi_param_t* ref)
+{
+  return ref->qtype;
+}
+
+const char* pdns_ffi_param_get_remote(const pdns_ffi_param_t* ref)
+{
+  return ref->remote.toStringWithPort().c_str();
+}
+
+const char* pdns_ffi_param_get_local(const pdns_ffi_param_t* ref)
+{
+  return ref->local.toStringWithPort().c_str();
+}
+
+const char* pdns_ffi_param_get_edns_cs(const pdns_ffi_param_t* ref)
+{
+  return ref->ednssubnet.toString().c_str();
+}
+
+// allocate and returns length of result 'out' array
+size_t pdns_ffi_param_edns_option(const pdns_ffi_param_t *ref, uint16_t optioncode, pdns_ednsoption_t** out)
+{
+  #warning TODO
+  return 0;
+}
+
+void pdns_ffi_param_add_policytag(pdns_ffi_param_t *ref, const char* name)
+{
+  ref->policyTags.push_back(std::string(name));
+}
+
+void pdns_ffi_param_set_requestorid(pdns_ffi_param_t* ref, const char* name)
+{
+  ref->requestorId = std::string(name);
+}
+
+void pdns_ffi_param_set_devicename(pdns_ffi_param_t* ref, const char* name)
+{
+  ref->deviceId = std::string(name);
+}
+
+void pdns_ffi_param_set_deviceid(pdns_ffi_param_t* ref, size_t len, const void* name)
+{
+  ref->deviceId = std::string(reinterpret_cast<const char*>(name), len);
+}
+
+void pdns_ffi_param_set_data(pdns_ffi_param_t* ref, LuaContext::LuaObject& data)
+{
+  ref->data = data;
+}

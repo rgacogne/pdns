@@ -35,8 +35,31 @@
 #include "lua-base4.hh"
 #include <unordered_map>
 
+#include "lua-recursor4-ffi.hh"
+
 string GenUDPQueryResponse(const ComboAddress& dest, const string& query);
 unsigned int getRecursorThreadId();
+
+struct pdns_ffi_param
+{
+public:
+  pdns_ffi_param(const DNSName& qname_, uint16_t qtype_, const ComboAddress& local_, const ComboAddress& remote_, const Netmask& ednssubnet_, std::vector<std::string>& policyTags_, LuaContext::LuaObject& data_, const std::map<uint16_t, EDNSOptionView>& ednsOptions_, std::string& requestorId_, std::string& deviceId_,  bool tcp_): qname(qname_), local(local_), remote(remote_), ednssubnet(ednssubnet_), data(data_), policyTags(policyTags_), ednsOptions(ednsOptions_), requestorId(requestorId_), deviceId(deviceId_), qtype(qtype_), tcp(tcp_)
+  {
+  }
+
+  const DNSName& qname;
+  const ComboAddress& local;
+  const ComboAddress& remote;
+  const Netmask& ednssubnet;
+  LuaContext::LuaObject& data;
+  std::vector<std::string>& policyTags;
+  const std::map<uint16_t, EDNSOptionView>& ednsOptions;
+  std::string& requestorId;
+  std::string& deviceId;
+
+  uint16_t qtype;
+  bool tcp;
+};
 
 class RecursorLua4 : public BaseLua4
 {
@@ -117,6 +140,9 @@ public:
 
   typedef std::function<std::tuple<unsigned int,boost::optional<std::unordered_map<int,string> >,boost::optional<LuaContext::LuaObject>,boost::optional<std::string>,boost::optional<std::string> >(ComboAddress, Netmask, ComboAddress, DNSName, uint16_t, const std::map<uint16_t, EDNSOptionView>&, bool)> gettag_t;
   gettag_t d_gettag; // public so you can query if we have this hooked
+  typedef std::function<unsigned int(pdns_ffi_param_t*)> gettag_ffi_t;
+  gettag_ffi_t d_gettag_ffi;
+
 protected:
   virtual void postPrepareContext() override;
   virtual void postLoad() override;
