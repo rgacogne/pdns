@@ -626,6 +626,10 @@ uint16_t pdns_ffi_param_get_local_port(const pdns_ffi_param_t* ref)
 
 const char* pdns_ffi_param_get_edns_cs(pdns_ffi_param_t* ref)
 {
+  if (ref->ednssubnet.empty()) {
+    return nullptr;
+  }
+
   if (!ref->ednssubnetStr) {
     ref->ednssubnetStr = std::unique_ptr<std::string>(new std::string(ref->ednssubnet.toStringNoMask()));
   }
