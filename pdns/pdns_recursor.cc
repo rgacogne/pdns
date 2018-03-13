@@ -763,6 +763,125 @@ static bool addRecordToPacket(DNSPacketWriter& pw, const DNSRecord& rec, uint32_
   return true;
 }
 
+static void updateAnswerFromHeader(DNSPacketWriter& pw, const dnsheader& dh)
+{
+  pw.getHeader()->aa = 0;
+  pw.getHeader()->ra = 1;
+  pw.getHeader()->qr = 1;
+  pw.getHeader()->tc = 0;
+  pw.getHeader()->id = dh.id;
+  pw.getHeader()->rd = dh.rd;
+  pw.getHeader()->cd = dh.cd;
+}
+
+static void addRecordsToAnswer(DNSPacketWriter& pw, const std::vector<DNSRecord>& records, uint16_t qtype, uint32_t& minTTL, uint32_t ttlCap, uint16_t maxAnswerSize, bool DNSSECOK, RecProtoBufMessage& pbMessage, bool addToProtobuf)
+{
+  bool needCommit = false;
+
+  for (const auto& record : records) {
+    if (!DNSSECOK &&
+        ( record.d_type == QType::NSEC3 ||
+          (
+            ( record.d_type == QType::RRSIG || record.d_type==QType::NSEC ) &&
+            (
+              ( qtype != record.d_type && qtype != QType::ANY ) ||
+              record.d_place != DNSResourceRecord::ANSWER
+            )
+          )
+        )
+      ) {
+      continue;
+    }
+
+    if (!addRecordToPacket(pw, record, minTTL, ttlCap, maxAnswerSize)) {
+      needCommit = false;
+      break;
+    }
+    needCommit = true;
+
+#ifdef HAVE_PROTOBUF
+    if (addToProtobuf && (record.d_type == QType::A || record.d_type == QType::AAAA || record.d_type == QType::CNAME)) {
+      pbMessage.addRR(record);
+    }
+#endif
+  }
+
+  if (needCommit) {
+    pw.commit();
+  }
+}
+
+static void handleEDNSInAnswer(DNSPacketWriter& pw, const EDNSOpts& edo, uint32_t& minTTL, uint32_t ttlCap, uint16_t maxAnswerSize)
+{
+  /* we try to add the EDNS OPT RR even for truncated answers,
+     as rfc6891 states:
+     "The minimal response MUST be the DNS header, question section, and an
+     OPT record.  This MUST also occur when a truncated response (using
+     the DNS header's TC bit) is returned."
+  */
+  if (addRecordToPacket(pw, makeOpt(edo.d_packetsize, 0, edo.d_Z), minTTL, ttlCap, maxAnswerSize)) {
+    pw.commit();
+  }
+}
+
+static ssize_t sendUDPAnswer(const vector<uint8_t>& packet, const ComboAddress& remote, int socket, const ComboAddress& local)
+{
+  struct msghdr msgh;
+  struct iovec iov;
+  char cbuf[256];
+  fillMSGHdr(&msgh, &iov, cbuf, 0, const_cast<char*>(reinterpret_cast<const char*>(&*packet.begin())), packet.size(), const_cast<ComboAddress*>(&remote));
+  msgh.msg_control = nullptr;
+
+  if (g_fromtosockets.count(socket)) {
+    addCMsgSrcAddr(&msgh, cbuf, &local, 0);
+  }
+
+  return sendmsg(socket, &msgh, 0);
+}
+
+static void sendTCPAnswer(const vector<uint8_t>& packet, const DNSName& qname, int& socket, shared_ptr<TCPConnection>& tcpConnection, const std::string remote)
+{
+  char buf[2];
+  buf[0]=packet.size()/256;
+  buf[1]=packet.size()%256;
+
+  Utility::iovec iov[2];
+
+  iov[0].iov_base=(void*)buf;              iov[0].iov_len=2;
+  iov[1].iov_base=(void*)&*packet.begin(); iov[1].iov_len = packet.size();
+
+  int wret=Utility::writev(socket, iov, 2);
+  bool hadError=true;
+
+  if(wret == 0)
+    L<<Logger::Error<<"EOF writing TCP answer to "<<remote<<endl;
+  else if(wret < 0 )
+    L<<Logger::Error<<"Error writing TCP answer to "<<remote<<": "<< strerror(errno) <<endl;
+  else if((unsigned int)wret != 2 + packet.size())
+    L<<Logger::Error<<"Oops, partial answer sent to "<<remote<<" for "<<qname.toLogString()<<" (size="<< (2 + packet.size()) <<", sent "<<wret<<")"<<endl;
+  else
+    hadError=false;
+
+  // update tcp connection status, either by closing or moving to 'BYTE0'
+
+  if(hadError) {
+    // no need to remove us from FDM, we weren't there
+    socket = -1;
+  }
+  else {
+    tcpConnection->queriesCount++;
+    if (g_tcpMaxQueriesPerConn && tcpConnection->queriesCount >= g_tcpMaxQueriesPerConn) {
+      socket = -1;
+    }
+    else {
+      tcpConnection->state=TCPConnection::BYTE0;
+      Utility::gettimeofday(&g_now, 0); // needs to be updated
+      t_fdm->addReadFD(socket, handleRunningTCPQuestion, tcpConnection);
+      t_fdm->setReadTTD(socket, g_now, g_tcpTimeout);
+    }
+  }
+}
+
 static void startDoResolve(void *p)
 {
   DNSComboWriter* dc=(DNSComboWriter *)p;
@@ -811,15 +930,9 @@ static void startDoResolve(void *p)
     }
 #endif /* HAVE_PROTOBUF */
 
-    DNSPacketWriter pw(packet, dc->d_mdp.d_qname, dc->d_mdp.d_qtype, dc->d_mdp.d_qclass);
 
-    pw.getHeader()->aa=0;
-    pw.getHeader()->ra=1;
-    pw.getHeader()->qr=1;
-    pw.getHeader()->tc=0;
-    pw.getHeader()->id=dc->d_mdp.d_header.id;
-    pw.getHeader()->rd=dc->d_mdp.d_header.rd;
-    pw.getHeader()->cd=dc->d_mdp.d_header.cd;
+    DNSPacketWriter pw(packet, dc->d_mdp.d_qname, dc->d_mdp.d_qtype, dc->d_mdp.d_qclass);
+    updateAnswerFromHeader(pw, dc->d_mdp.d_header);
 
     /* This is the lowest TTL seen in the records of the response,
        so we can't cache it for longer than this value.
@@ -1154,49 +1267,16 @@ static void startDoResolve(void *p)
 	}
       }
 
-      bool needCommit = false;
-      for(auto i=ret.cbegin(); i!=ret.cend(); ++i) {
-        if( ! DNSSECOK &&
-            ( i->d_type == QType::NSEC3 ||
-              (
-                ( i->d_type == QType::RRSIG || i->d_type==QType::NSEC ) &&
-                (
-                  ( dc->d_mdp.d_qtype != i->d_type &&  dc->d_mdp.d_qtype != QType::ANY ) ||
-                  i->d_place != DNSResourceRecord::ANSWER
-                )
-              )
-            )
-          ) {
-          continue;
-        }
-
-        if (!addRecordToPacket(pw, *i, minTTL, dc->d_ttlCap, maxanswersize)) {
-          needCommit = false;
-          break;
-        }
-        needCommit = true;
-
+      bool addToProtobuf = false;
 #ifdef HAVE_PROTOBUF
-        if(luaconfsLocal->protobufServer && (i->d_type == QType::A || i->d_type == QType::AAAA || i->d_type == QType::CNAME)) {
-          pbMessage.addRR(*i);
-        }
+      addToProtobuf = luaconfsLocal->protobufServer != nullptr;
 #endif
-      }
-      if(needCommit)
-	pw.commit();
+      addRecordsToAnswer(pw, ret, dc->d_mdp.d_qtype, minTTL, dc->d_ttlCap, maxanswersize, DNSSECOK, pbMessage, addToProtobuf);
     }
   sendit:;
 
     if (haveEDNS) {
-      /* we try to add the EDNS OPT RR even for truncated answers,
-         as rfc6891 states:
-         "The minimal response MUST be the DNS header, question section, and an
-         OPT record.  This MUST also occur when a truncated response (using
-         the DNS header's TC bit) is returned."
-      */
-      if (addRecordToPacket(pw, makeOpt(edo.d_packetsize, 0, edo.d_Z), minTTL, dc->d_ttlCap, maxanswersize)) {
-        pw.commit();
-      }
+      handleEDNSInAnswer(pw, edo, minTTL, dc->d_ttlCap, maxanswersize);
     }
 
     g_rs.submitResponse(dc->d_mdp.d_qtype, packet.size(), !dc->d_tcp);
@@ -1216,18 +1296,11 @@ static void startDoResolve(void *p)
       protobufLogResponse(luaconfsLocal->protobufServer, pbMessage);
     }
 #endif
-    if(!dc->d_tcp) {
-      struct msghdr msgh;
-      struct iovec iov;
-      char cbuf[256];
-      fillMSGHdr(&msgh, &iov, cbuf, 0, (char*)&*packet.begin(), packet.size(), &dc->d_remote);
-      msgh.msg_control=NULL;
 
-      if(g_fromtosockets.count(dc->d_socket)) {
-	addCMsgSrcAddr(&msgh, cbuf, &dc->d_local, 0);
-      }
-      if(sendmsg(dc->d_socket, &msgh, 0) < 0 && g_logCommonErrors) 
+    if(!dc->d_tcp) {
+      if (sendUDPAnswer(packet, dc->d_remote, dc->d_socket, dc->d_local) < 0 && g_logCommonErrors) {
         L<<Logger::Warning<<"Sending UDP reply to client "<<dc->getRemote()<<" failed with: "<<strerror(errno)<<endl;
+      }
 
       if(!SyncRes::s_nopacketcache && !variableAnswer && !sr.wasVariable() ) {
         t_packetCache->insertResponsePacket(dc->d_tag, dc->d_qhash, dc->d_mdp.d_qname, dc->d_mdp.d_qtype, dc->d_mdp.d_qclass,
@@ -1240,46 +1313,9 @@ static void startDoResolve(void *p)
       //      else cerr<<"Not putting in packet cache: "<<sr.wasVariable()<<endl;
     }
     else {
-      char buf[2];
-      buf[0]=packet.size()/256;
-      buf[1]=packet.size()%256;
-
-      Utility::iovec iov[2];
-
-      iov[0].iov_base=(void*)buf;              iov[0].iov_len=2;
-      iov[1].iov_base=(void*)&*packet.begin(); iov[1].iov_len = packet.size();
-
-      int wret=Utility::writev(dc->d_socket, iov, 2);
-      bool hadError=true;
-
-      if(wret == 0)
-        L<<Logger::Error<<"EOF writing TCP answer to "<<dc->getRemote()<<endl;
-      else if(wret < 0 )
-        L<<Logger::Error<<"Error writing TCP answer to "<<dc->getRemote()<<": "<< strerror(errno) <<endl;
-      else if((unsigned int)wret != 2 + packet.size())
-        L<<Logger::Error<<"Oops, partial answer sent to "<<dc->getRemote()<<" for "<<dc->d_mdp.d_qname<<" (size="<< (2 + packet.size()) <<", sent "<<wret<<")"<<endl;
-      else
-        hadError=false;
-
-      // update tcp connection status, either by closing or moving to 'BYTE0'
-
-      if(hadError) {
-        // no need to remove us from FDM, we weren't there
-        dc->d_socket = -1;
-      }
-      else {
-        dc->d_tcpConnection->queriesCount++;
-        if (g_tcpMaxQueriesPerConn && dc->d_tcpConnection->queriesCount >= g_tcpMaxQueriesPerConn) {
-          dc->d_socket = -1;
-        }
-        else {
-          dc->d_tcpConnection->state=TCPConnection::BYTE0;
-          Utility::gettimeofday(&g_now, 0); // needs to be updated
-          t_fdm->addReadFD(dc->d_socket, handleRunningTCPQuestion, dc->d_tcpConnection);
-          t_fdm->setReadTTD(dc->d_socket, g_now, g_tcpTimeout);
-        }
-      }
+      sendTCPAnswer(packet, dc->d_mdp.d_qname, dc->d_socket, dc->d_tcpConnection, dc->getRemote());
     }
+
     float spent=makeFloat(sr.getNow()-dc->d_now);
     if(!g_quiet) {
       L<<Logger::Error<<t_id<<" ["<<MT->getTid()<<"/"<<MT->numProcesses()<<"] answer to "<<(dc->d_mdp.d_header.rd?"":"non-rd ")<<"question '"<<dc->d_mdp.d_qname<<"|"<<DNSRecordContent::NumberToType(dc->d_mdp.d_qtype);
@@ -1545,6 +1581,7 @@ static void handleRunningTCPQuestion(int fd, FDMultiplexer::funcparam_t& var)
       bool needXPF = g_XPFAcl.match(conn->d_remote);
       string requestorId;
       string deviceId;
+      std::vector<DNSRecord> records;
 #ifdef HAVE_PROTOBUF
       auto luaconfsLocal = g_luaconfs.getLocal();
       if (luaconfsLocal->protobufServer) {
@@ -1566,7 +1603,7 @@ static void handleRunningTCPQuestion(int fd, FDMultiplexer::funcparam_t& var)
           if(t_pdl) {
             try {
               if (t_pdl->d_gettag_ffi) {
-                dc->d_tag = t_pdl->gettag_ffi(dc->d_source, dc->d_ednssubnet.source, dc->d_destination, qname, qtype, &dc->d_policyTags, dc->d_data, ednsOptions, true, requestorId, deviceId, dc->d_ttlCap, dc->d_variable);
+                dc->d_tag = t_pdl->gettag_ffi(dc->d_source, dc->d_ednssubnet.source, dc->d_destination, qname, qtype, records, &dc->d_policyTags, dc->d_data, ednsOptions, true, requestorId, deviceId, dc->d_ttlCap, dc->d_variable);
               }
               else if (t_pdl->d_gettag) {
                 dc->d_tag = t_pdl->gettag(dc->d_source, dc->d_ednssubnet.source, dc->d_destination, qname, qtype, &dc->d_policyTags, dc->d_data, ednsOptions, true, requestorId, deviceId);
@@ -1723,6 +1760,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
   EDNSSubnetOpts ednssubnet;
   bool ecsFound = false;
   bool ecsParsed = false;
+  std::vector<DNSRecord> records;
   uint32_t ttlCap = std::numeric_limits<uint32_t>::max();
   bool variable = false;
   try {
@@ -1760,7 +1798,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
         if(t_pdl) {
           try {
             if (t_pdl->d_gettag_ffi) {
-              ctag = t_pdl->gettag_ffi(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId, ttlCap, variable);
+              ctag = t_pdl->gettag_ffi(source, ednssubnet.source, destination, qname, qtype, records, &policyTags, data, ednsOptions, false, requestorId, deviceId, ttlCap, variable);
             }
             else if (t_pdl->d_gettag) {
               ctag = t_pdl->gettag(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId);

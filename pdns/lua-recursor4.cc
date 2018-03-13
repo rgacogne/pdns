@@ -50,7 +50,7 @@ static int followCNAMERecords(vector<DNSRecord>& ret, const QType& qtype)
   if(target.empty())
     return 0;
   
-  int rcode=directResolve(target, qtype, 1, resolved); // 1 == class
+  int rcode=directResolve(target, qtype, QClass::IN, resolved);
   
   for(const DNSRecord& rr :  resolved) {
     ret.push_back(rr);
@@ -61,7 +61,7 @@ static int followCNAMERecords(vector<DNSRecord>& ret, const QType& qtype)
 
 static int getFakeAAAARecords(const DNSName& qname, const std::string& prefix, vector<DNSRecord>& ret)
 {
-  int rcode=directResolve(qname, QType(QType::A), 1, ret);
+  int rcode=directResolve(qname, QType(QType::A), QClass::IN, ret);
 
   ComboAddress prefixAddress(prefix);
 
@@ -71,9 +71,10 @@ static int getFakeAAAARecords(const DNSName& qname, const std::string& prefix, v
       if(auto rec = getRR<ARecordContent>(rr)) {
         ComboAddress ipv4(rec->getCA());
         uint32_t tmp;
-        memcpy((void*)&tmp, &ipv4.sin4.sin_addr.s_addr, 4);
-        // tmp=htonl(tmp);
-        memcpy(((char*)&prefixAddress.sin6.sin6_addr.s6_addr)+12, &tmp, 4);
+        static_assert(sizeof(ipv4.sin4.sin_addr.s_addr) == sizeof(tmp), "This variable is not large enough to hold an IPv4 address");
+        memcpy((void*)&tmp, &ipv4.sin4.sin_addr.s_addr, sizeof(tmp));
+        static_assert(sizeof(prefixAddress.sin6.sin6_addr.s6_addr) == (sizeof(tmp) + 12), "The size of an IPv6 address is not valid");
+        memcpy(((char*)&prefixAddress.sin6.sin6_addr.s6_addr)+12, &tmp, sizeof(tmp));
         rr.d_content = std::make_shared<AAAARecordContent>(prefixAddress);
         rr.d_type = QType::AAAA;
       }
@@ -101,7 +102,7 @@ static int getFakePTRRecords(const DNSName& qname, const std::string& prefix, ve
   newquery += "in-addr.arpa.";
 
 
-  int rcode = directResolve(DNSName(newquery), QType(QType::PTR), 1, ret);
+  int rcode = directResolve(DNSName(newquery), QType(QType::PTR), QClass::IN, ret);
   for(DNSRecord& rr :  ret)
   {
     if(rr.d_type == QType::PTR && rr.d_place==DNSResourceRecord::ANSWER) {
@@ -198,7 +199,7 @@ void RecursorLua4::DNSQuestion::addRecord(uint16_t type, const std::string& cont
   dr.d_ttl=ttl.get_value_or(3600);
   dr.d_type = type;
   dr.d_place = place;
-  dr.d_content = DNSRecordContent::mastermake(type, 1, content);
+  dr.d_content = DNSRecordContent::mastermake(type, QClass::IN, content);
   records.push_back(dr);
 }
 
@@ -259,7 +260,7 @@ void RecursorLua4::postPrepareContext()
     },
     [](DNSFilterEngine::Policy& pol, const std::string& content) {
       // Only CNAMES for now, when we ever add a d_custom_type, there will be pain
-      pol.d_custom = DNSRecordContent::mastermake(QType::CNAME, 1, content);
+      pol.d_custom = DNSRecordContent::mastermake(QType::CNAME, QClass::IN, content);
     }
   );
   d_lw->registerFunction("getDH", &DNSQuestion::getDH);
@@ -288,7 +289,7 @@ void RecursorLua4::postPrepareContext()
     });
 
 
-  d_lw->registerFunction<void(DNSRecord::*)(const std::string&)>("changeContent", [](DNSRecord& dr, const std::string& newContent) { dr.d_content = DNSRecordContent::mastermake(dr.d_type, 1, newContent); });
+  d_lw->registerFunction<void(DNSRecord::*)(const std::string&)>("changeContent", [](DNSRecord& dr, const std::string& newContent) { dr.d_content = DNSRecordContent::mastermake(dr.d_type, QClass::IN, newContent); });
   d_lw->registerFunction("addAnswer", &DNSQuestion::addAnswer);
   d_lw->registerFunction("addRecord", &DNSQuestion::addRecord);
   d_lw->registerFunction("getRecords", &DNSQuestion::getRecords);
@@ -483,7 +484,7 @@ unsigned int RecursorLua4::gettag(const ComboAddress& remote, const Netmask& edn
 struct pdns_ffi_param
 {
 public:
-  pdns_ffi_param(const DNSName& qname_, uint16_t qtype_, const ComboAddress& local_, const ComboAddress& remote_, const Netmask& ednssubnet_, std::vector<std::string>& policyTags_, const std::map<uint16_t, EDNSOptionView>& ednsOptions_, std::string& requestorId_, std::string& deviceId_, uint32_t& ttlCap_, bool& variable_, bool tcp_): qname(qname_), local(local_), remote(remote_), ednssubnet(ednssubnet_), policyTags(policyTags_), ednsOptions(ednsOptions_), requestorId(requestorId_), deviceId(deviceId_), ttlCap(ttlCap_), variable(variable_), qtype(qtype_), tcp(tcp_)
+  pdns_ffi_param(const DNSName& qname_, uint16_t qtype_, const ComboAddress& local_, const ComboAddress& remote_, const Netmask& ednssubnet_, std::vector<DNSRecord>& records_, std::vector<std::string>& policyTags_, const std::map<uint16_t, EDNSOptionView>& ednsOptions_, std::string& requestorId_, std::string& deviceId_, uint32_t& ttlCap_, bool& variable_, bool tcp_): records(records_), qname(qname_), local(local_), remote(remote_), ednssubnet(ednssubnet_), policyTags(policyTags_), ednsOptions(ednsOptions_), requestorId(requestorId_), deviceId(deviceId_), ttlCap(ttlCap_), variable(variable_), qtype(qtype_), tcp(tcp_)
   {
   }
 
@@ -492,6 +493,8 @@ public:
   std::unique_ptr<std::string> remoteStr{nullptr};
   std::unique_ptr<std::string> ednssubnetStr{nullptr};
   std::vector<pdns_ednsoption_t> ednsOptionsVect;
+
+  std::vector<DNSRecord>& records;
 
   const DNSName& qname;
   const ComboAddress& local;
@@ -504,15 +507,17 @@ public:
   uint32_t& ttlCap;
   bool& variable;
 
+  boost::optional<int> rcode{boost::none};
+
   unsigned int tag{0};
   uint16_t qtype;
   bool tcp;
 };
 
-unsigned int RecursorLua4::gettag_ffi(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>& ednsOptions, bool tcp, std::string& requestorId, std::string& deviceId, uint32_t& ttlCap, bool& variable) const
+unsigned int RecursorLua4::gettag_ffi(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::vector<DNSRecord>& records, std::vector<std::string>* policyTags, LuaContext::LuaObject& data, const std::map<uint16_t, EDNSOptionView>& ednsOptions, bool tcp, std::string& requestorId, std::string& deviceId, uint32_t& ttlCap, bool& variable) const
 {
   if (d_gettag_ffi) {
-    pdns_ffi_param_t param(qname, qtype, local, remote, ednssubnet, *policyTags, ednsOptions, requestorId, deviceId, ttlCap, variable, tcp);
+    pdns_ffi_param_t param(qname, qtype, local, remote, ednssubnet, records, *policyTags, ednsOptions, requestorId, deviceId, ttlCap, variable, tcp);
 
     auto ret = d_gettag_ffi(&param);
     if (ret) {
@@ -725,4 +730,26 @@ void pdns_ffi_param_set_variable(pdns_ffi_param_t* ref, bool variable)
 void pdns_ffi_param_set_ttl_cap(pdns_ffi_param_t* ref, uint32_t ttl)
 {
   ref->ttlCap = ttl;
+}
+
+void pdns_ffi_param_set_rcode(pdns_ffi_param_t* ref, int rcode)
+{
+  ref->rcode = rcode;
+}
+
+void pdns_ffi_param_add_record(pdns_ffi_param_t* ref, uint8_t place, const char* name, uint16_t type, uint32_t ttl, size_t contentSize, const char* content)
+{
+  DNSRecord dr;
+  dr.d_name = DNSName(std::string(name));
+  dr.d_ttl = ttl;
+  dr.d_type = type;
+  dr.d_place = DNSResourceRecord::Place(place);
+  dr.d_content = DNSRecordContent::mastermake(type, QClass::IN, content);
+  ref->records.push_back(dr);
+}
+
+int pdns_ffi_param_follow_cname_records(pdns_ffi_param_t* ref)
+{
+  ref->rcode = followCNAMERecords(ref->records, QType(ref->qtype));
+  return *(ref->rcode);
 }

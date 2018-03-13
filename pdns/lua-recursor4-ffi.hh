@@ -47,6 +47,12 @@ extern "C" {
   void pdns_ffi_param_set_requestorid(pdns_ffi_param_t* ref, const char* name);
   void pdns_ffi_param_set_devicename(pdns_ffi_param_t* ref, const char* name);
   void pdns_ffi_param_set_deviceid(pdns_ffi_param_t* ref, size_t len, const void* name);
+
   void pdns_ffi_param_set_variable(pdns_ffi_param_t* ref, bool variable);
   void pdns_ffi_param_set_ttl_cap(pdns_ffi_param_t* ref, uint32_t ttl);
+
+  void pdns_ffi_param_set_rcode(pdns_ffi_param_t* ref, int rcode);
+  void pdns_ffi_param_add_record(pdns_ffi_param_t* ref, uint8_t place, const char* name, uint16_t type, uint32_t ttl, size_t contentSize, const char* content);
+
+  int pdns_ffi_param_follow_cname_records(pdns_ffi_param_t* ref);
 }
