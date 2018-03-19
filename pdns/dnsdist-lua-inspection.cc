@@ -31,9 +31,9 @@ static std::unordered_map<unsigned int, vector<boost::variant<string,double>>> g
   unsigned int total=0;
   {
     for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-      ReadLock rl(&g_rings.d_shards[idx].respLock);
+      std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
       if(!labels) {
-        for(const auto& a : g_rings.d_shards[idx].respRing) {
+        for(const auto& a : g_rings.d_shards[idx]->respRing) {
           if(!pred(a))
             continue;
           counts[a.name]++;
@@ -42,7 +42,7 @@ static std::unordered_map<unsigned int, vector<boost::variant<string,double>>> g
       }
       else {
         unsigned int lab = *labels;
-        for(auto a : g_rings.d_shards[idx].respRing) {
+        for(auto a : g_rings.d_shards[idx]->respRing) {
           if(!pred(a))
             continue;
 
@@ -107,9 +107,9 @@ static void statNodeRespRing(statvisitor_t visitor, unsigned int seconds)
 
   StatNode root;
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    ReadLock rl(&g_rings.d_shards[idx].respLock);
+    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
 
-    for(const auto& c : g_rings.d_shards[idx].respRing) {
+    for(const auto& c : g_rings.d_shards[idx]->respRing) {
       if (now < c.when)
         continue;
 
@@ -131,11 +131,11 @@ static vector<pair<unsigned int, std::unordered_map<string,string> > > getRespRi
   vector<pair<unsigned int, entry_t > > ret;
 
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    ReadLock rl(&g_rings.d_shards[idx].respLock);
+    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
 
     entry_t e;
     unsigned int count=1;
-    for(const auto& c : g_rings.d_shards[idx].respRing) {
+    for(const auto& c : g_rings.d_shards[idx]->respRing) {
       if(rcode && (rcode.get() != c.dh.rcode))
         continue;
       e["qname"]=c.name.toString();
@@ -158,15 +158,15 @@ static counts_t exceedRespGen(unsigned int rate, int seconds, std::function<void
 
   size_t total = 0;
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    ReadLock rl(&g_rings.d_shards[idx].respLock);
-    total += g_rings.d_shards[idx].respRing.size();
+    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
+    total += g_rings.d_shards[idx]->respRing.size();
   }
 
   counts.reserve(total);
 
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    ReadLock rl(&g_rings.d_shards[idx].respLock);
-    for(const auto& c : g_rings.d_shards[idx].respRing) {
+    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
+    for(const auto& c : g_rings.d_shards[idx]->respRing) {
 
       if(seconds && c.when < cutoff)
         continue;
@@ -193,15 +193,15 @@ static counts_t exceedQueryGen(unsigned int rate, int seconds, std::function<voi
 
   size_t total = 0;
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    ReadLock rl(&g_rings.d_shards[idx].queryLock);
-    total += g_rings.d_shards[idx].queryRing.size();
+    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
+    total += g_rings.d_shards[idx]->queryRing.size();
   }
 
   counts.reserve(total);
 
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    ReadLock rl(&g_rings.d_shards[idx].queryLock);
-    for(const auto& c : g_rings.d_shards[idx].queryRing) {
+    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
+    for(const auto& c : g_rings.d_shards[idx]->queryRing) {
       if(seconds && c.when < cutoff)
         continue;
       if(now < c.when)
@@ -243,8 +243,8 @@ void setupLuaInspection()
       unsigned int total=0;
       {
         for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-          ReadLock rl(&g_rings.d_shards[idx].queryLock);
-          for(const auto& c : g_rings.d_shards[idx].queryRing) {
+          std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
+          for(const auto& c : g_rings.d_shards[idx]->queryRing) {
             counts[c.requestor]++;
             total++;
           }
@@ -276,8 +276,8 @@ void setupLuaInspection()
       unsigned int total=0;
       if(!labels) {
         for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-          ReadLock rl(&g_rings.d_shards[idx].queryLock);
-          for(const auto& a : g_rings.d_shards[idx].queryRing) {
+          std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
+          for(const auto& a : g_rings.d_shards[idx]->queryRing) {
             counts[a.name]++;
             total++;
           }
@@ -286,8 +286,8 @@ void setupLuaInspection()
       else {
 	unsigned int lab = *labels;
         for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-          ReadLock rl(&g_rings.d_shards[idx].queryLock);
-          for(auto a : g_rings.d_shards[idx].queryRing) {
+          std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
+          for(auto a : g_rings.d_shards[idx]->queryRing) {
             a.name.trimToLabels(lab);
             counts[a.name]++;
             total++;
@@ -327,8 +327,8 @@ void setupLuaInspection()
       rings.reserve(g_rings.getNumberOfShards());
       for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
         {
-          ReadLock rl(&g_rings.d_shards[idx].respLock);
-          rings[idx] = g_rings.d_shards[idx].respRing;
+          std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
+          rings[idx] = g_rings.d_shards[idx]->respRing;
         }
         totalEntries += rings[idx].size();
       }
@@ -421,16 +421,16 @@ void setupLuaInspection()
       std::vector<Rings::Response> rr;
       for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
         {
-          ReadLock rl(&g_rings.d_shards[idx].queryLock);
-          qr.resize(qr.size() + g_rings.d_shards[idx].queryRing.size());
-          for (const auto& entry : g_rings.d_shards[idx].queryRing) {
+          std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
+          qr.resize(qr.size() + g_rings.d_shards[idx]->queryRing.size());
+          for (const auto& entry : g_rings.d_shards[idx]->queryRing) {
             qr.push_back(entry);
           }
         }
         {
-          ReadLock rl(&g_rings.d_shards[idx].respLock);
-          rr.resize(rr.size() + g_rings.d_shards[idx].respRing.size());
-          for (const auto& entry : g_rings.d_shards[idx].respRing) {
+          std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
+          rr.resize(rr.size() + g_rings.d_shards[idx]->respRing.size());
+          for (const auto& entry : g_rings.d_shards[idx]->respRing) {
             rr.push_back(entry);
           }
         }
@@ -516,8 +516,8 @@ void setupLuaInspection()
       unsigned int size=0;
       {
         for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-          ReadLock rl(&g_rings.d_shards[idx].respLock);
-          for(const auto& r : g_rings.d_shards[idx].respRing) {
+          std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
+          for(const auto& r : g_rings.d_shards[idx]->respRing) {
             /* skip actively discovered timeouts */
             if (r.usec == std::numeric_limits<unsigned int>::max())
               continue;
