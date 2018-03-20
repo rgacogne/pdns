@@ -45,6 +45,7 @@
 #include "dnsdist-cache.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
+#include "dnsdist-rings.hh"
 
 #include "base64.hh"
 #include "delaypipe.hh"

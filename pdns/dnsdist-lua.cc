@@ -30,6 +30,7 @@
 
 #include "dnsdist.hh"
 #include "dnsdist-lua.hh"
+#include "dnsdist-rings.hh"
 
 #include "base64.hh"
 #include "dnswriter.hh"
