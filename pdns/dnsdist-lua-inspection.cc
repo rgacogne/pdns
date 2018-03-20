@@ -157,13 +157,7 @@ static counts_t exceedRespGen(unsigned int rate, int seconds, std::function<void
   cutoff = mintime = now;
   cutoff.tv_sec -= seconds;
 
-  size_t total = 0;
-  for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
-    total += g_rings.d_shards[idx]->respRing.size();
-  }
-
-  counts.reserve(total);
+  counts.reserve(g_rings.getNumberOfResponseEntries());
 
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
     std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
@@ -192,13 +186,7 @@ static counts_t exceedQueryGen(unsigned int rate, int seconds, std::function<voi
   cutoff = mintime = now;
   cutoff.tv_sec -= seconds;
 
-  size_t total = 0;
-  for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
-    std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
-    total += g_rings.d_shards[idx]->queryRing.size();
-  }
-
-  counts.reserve(total);
+  counts.reserve(g_rings.getNumberOfQueryEntries());
 
   for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
     std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
@@ -420,17 +408,17 @@ void setupLuaInspection()
 
       std::vector<Rings::Query> qr;
       std::vector<Rings::Response> rr;
+      qr.reserve(g_rings.getNumberOfQueryEntries());
+      rr.reserve(g_rings.getNumberOfResponseEntries());
       for (size_t idx = 0; idx < g_rings.getNumberOfShards(); idx++) {
         {
           std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->queryLock);
-          qr.resize(qr.size() + g_rings.d_shards[idx]->queryRing.size());
           for (const auto& entry : g_rings.d_shards[idx]->queryRing) {
             qr.push_back(entry);
           }
         }
         {
           std::lock_guard<std::mutex> rl(g_rings.d_shards[idx]->respLock);
-          rr.resize(rr.size() + g_rings.d_shards[idx]->respRing.size());
           for (const auto& entry : g_rings.d_shards[idx]->respRing) {
             rr.push_back(entry);
           }
