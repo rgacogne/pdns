@@ -1683,6 +1683,189 @@ static void handleNewTCPQuestion(int fd, FDMultiplexer::funcparam_t& )
   }
 }
 
+struct StopWatch
+{
+  StopWatch(bool realTime=false): d_needRealTime(realTime)
+  {
+  }
+  struct timespec d_start{0,0};
+  bool d_needRealTime{false};
+
+  void start() {
+    if(gettime(&d_start, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+  }
+
+  void set(const struct timespec& from) {
+    d_start = from;
+  }
+
+  double udiff() const {
+    struct timespec now;
+    if(gettime(&now, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+
+    return 1000000.0*(now.tv_sec - d_start.tv_sec) + (now.tv_nsec - d_start.tv_nsec)/1000.0;
+  }
+
+  double udiffAndSet() {
+    struct timespec now;
+    if(gettime(&now, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+
+    auto ret= 1000000.0*(now.tv_sec - d_start.tv_sec) + (now.tv_nsec - d_start.tv_nsec)/1000.0;
+    d_start = now;
+    return ret;
+  }
+
+};
+
+static void doBenchmarks()
+{
+  static const size_t numberOfRounds = ::arg().asNum("benchmark-iterations");
+
+  const ComboAddress source("192.0.2.1");
+  const ComboAddress destination("192.0.2.2");
+  EDNSSubnetOpts ednssubnet;
+
+  vector<uint8_t> packet;
+  DNSPacketWriter pw(packet, DNSName("www.powerdns.com."), QType::A);
+  pw.getHeader()->rd = true;
+  pw.getHeader()->qr = false;
+  std::string question(reinterpret_cast<const char*>(&packet[0]), packet.size());
+
+  std::vector<std::string> policyTags;
+  LuaContext::LuaObject data;
+  DNSName qname;
+  uint16_t qtype = 0;
+  uint16_t qclass = 0;
+  uint16_t ctag = 0;
+  string requestorId;
+  string deviceId;
+
+  t_packetCache = std::unique_ptr<RecursorPacketCache>(new RecursorPacketCache());
+  t_RC = std::unique_ptr<MemRecursorCache>(new MemRecursorCache());
+
+  time_t now = time(nullptr);
+
+  /* populate the caches */
+  for (size_t idx = 0; idx < 10000; idx++) {
+    DNSName fakeQName("www.powerdns" + std::to_string(idx) + ".com.");
+    QType fakeQType(QType::A);
+    vector<uint8_t> fakePacket;
+    DNSPacketWriter pwriter(fakePacket, fakeQName, QType::A);
+    pw.getHeader()->rd = true;
+    pw.getHeader()->qr = false;
+    std::string fakeQuestion(reinterpret_cast<const char*>(&fakePacket[0]), fakePacket.size());
+    std::string response;
+    uint32_t age = 0;
+    uint32_t qhash = 0;
+    t_packetCache->getResponsePacket(0, fakeQuestion, now, &response, &age, &qhash);
+    t_packetCache->insertResponsePacket(0, qhash, fakeQName, QType::A, QClass::IN, response, now, 3600);
+
+    const vector<DNSRecord> content;
+    const vector<shared_ptr<RRSIGRecordContent>> signatures;
+    const std::vector<std::shared_ptr<DNSRecord>> authorityRecs;
+
+    t_RC->replace(now, fakeQName, fakeQType, content, signatures, authorityRecs, false);
+  }
+
+  try {
+    if(!::arg()["lua-dns-script"].empty()) {
+      t_pdl = std::make_shared<RecursorLua4>();
+      t_pdl->loadFile(::arg()["lua-dns-script"]);
+    }
+  }
+  catch(std::exception &e) {
+    L<<Logger::Error<<"Failed to load 'lua' script from '"<<::arg()["lua-dns-script"]<<"': "<<e.what()<<endl;
+  }
+
+  StopWatch sw;
+  if (t_pdl && t_pdl->d_gettag_ffi) {
+    L<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to gettag_ffi().."<<endl;
+
+    sw.start();
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::map<uint16_t, EDNSOptionView> ednsOptions;
+      bool xpfFound = false;
+      bool ecsFound = false;
+      bool variable = false;
+      uint32_t ttlCap = std::numeric_limits<uint32_t>::max();
+
+      getQNameAndSubnet(question, &qname, &qtype, &qclass,
+                        ecsFound,
+                        &ednssubnet,
+                        g_gettagNeedsEDNSOptions ? &ednsOptions : nullptr,
+                        xpfFound,
+                        nullptr,
+                        nullptr);
+
+      ctag = t_pdl->gettag_ffi(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId, ttlCap, variable);
+    }
+    L<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to gettag_ffi() in "<<std::to_string(sw.udiff())<<endl;
+  }
+  else {
+    L<<Logger::Notice<<"Skipping benchmark of gettag_ffi() because it's not defined"<<endl;
+  }
+
+  if (t_pdl && t_pdl->d_gettag) {
+    L<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to gettag().."<<endl;
+
+    sw.start();
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::map<uint16_t, EDNSOptionView> ednsOptions;
+      bool xpfFound = false;
+      bool ecsFound = false;
+
+      getQNameAndSubnet(question, &qname, &qtype, &qclass,
+                        ecsFound,
+                        &ednssubnet,
+                        g_gettagNeedsEDNSOptions ? &ednsOptions : nullptr,
+                        xpfFound,
+                        nullptr,
+                        nullptr);
+
+      ctag = t_pdl->gettag(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId);
+    }
+    L<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to gettag() in "<<std::to_string(sw.udiff())<<endl;
+  }
+  else {
+    L<<Logger::Notice<<"Skipping benchmark of gettag() because it's not defined"<<endl;
+  }
+
+  if (!qname.empty()) {
+    L<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to the packetcache (name already parsed).."<<endl;
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::string response;
+      RecProtoBufMessage pbMessage(DNSProtoBufMessage::DNSProtoBufMessageType::Response);
+      uint32_t age;
+      uint32_t qhash;
+
+      t_packetCache->getResponsePacket(ctag, question, qname, qtype, qclass, now, &response, &age, &qhash, &pbMessage);
+    }
+    L<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the packetcache (name already parsed)!"<<endl;
+  }
+  else {
+    L<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to the packetcache (name NOT parsed).."<<endl;
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::string response;
+      RecProtoBufMessage pbMessage(DNSProtoBufMessage::DNSProtoBufMessageType::Response);
+      uint32_t age;
+      uint32_t qhash;
+
+      t_packetCache->getResponsePacket(ctag, question, now, &response, &age, &qhash, &pbMessage);
+    }
+    L<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the packetcache (name NOT parsed)!"<<endl;
+  }
+
+  L<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to the query cache.."<<endl;
+  for (size_t idx = 0; idx < numberOfRounds; idx++) {
+    vector<DNSRecord> records;
+    t_RC->get(now, DNSName("www.powerdns.com."), QType(QType::A), false, &records, source);
+  }
+  L<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the query cache!"<<endl;
+}
+
 static string* doProcessUDPQuestion(const std::string& question, const ComboAddress& fromaddr, const ComboAddress& destaddr, struct timeval tv, int fd)
 {
   gettimeofday(&g_now, 0);
@@ -3540,6 +3723,8 @@ int main(int argc, char **argv)
     ::arg().set("xpf-allow-from","XPF information is only processed from these subnets")="";
     ::arg().set("xpf-rr-code","XPF option code to use")="0";
 
+    ::arg().setCmd("benchmark","Benchmark gettag() if defined, the packet cache and the query cache");
+    ::arg().set("benchmark-iterations","The number of iterations to run in benchmark mode")="100000";
     ::arg().setCmd("help","Provide a helpful message");
     ::arg().setCmd("version","Print version string");
     ::arg().setCmd("config","Output blank configuration");
@@ -3593,6 +3778,10 @@ int main(int argc, char **argv)
     if(::arg().mustDo("version")) {
       showProductVersion();
       showBuildConfiguration();
+      exit(0);
+    }
+    if(::arg().mustDo("benchmark")) {
+      doBenchmarks();
       exit(0);
     }
 
