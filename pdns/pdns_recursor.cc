@@ -776,6 +776,8 @@ static bool addRecordToPacket(DNSPacketWriter& pw, const DNSRecord& rec, uint32_
   return true;
 }
 
+#include "test-common.hh"
+
 static void startDoResolve(void *p)
 {
   DNSComboWriter* dc=(DNSComboWriter *)p;
@@ -842,7 +844,18 @@ static void startDoResolve(void *p)
     uint32_t minTTL = dc->d_ttlCap;
 
     SyncRes sr(dc->d_now);
+    sr.setAsyncCallback([](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, std::shared_ptr<RemoteLogger> outgoingLogger, LWResult* res) {
 
+        //cerr<<"in asyncresolve for "<<domain.toLogString()<<" | "<<QType(type).getName()<<endl;
+        res->d_rcode = 0;
+        res->d_aabit = true;
+        res->d_tcbit = false;
+        res->d_haveEDNS = (EDNS0Level != 0);
+
+        addRecordToList(res->d_records, domain, QType::A, "192.0.2.1", DNSResourceRecord::ANSWER, 3600);
+
+        return 1;
+      });
     bool DNSSECOK=false;
     if(t_pdl) {
       sr.setLuaEngine(t_pdl);
@@ -1240,16 +1253,18 @@ static void startDoResolve(void *p)
       if(g_fromtosockets.count(dc->d_socket)) {
 	addCMsgSrcAddr(&msgh, cbuf, &dc->d_local, 0);
       }
-      if(sendmsg(dc->d_socket, &msgh, 0) < 0 && g_logCommonErrors) 
-        g_log<<Logger::Warning<<"Sending UDP reply to client "<<dc->getRemote()<<" failed with: "<<strerror(errno)<<endl;
+      if (dc->d_socket != -1) {
+        if(sendmsg(dc->d_socket, &msgh, 0) < 0 && g_logCommonErrors) 
+          g_log<<Logger::Warning<<"Sending UDP reply to client "<<dc->getRemote()<<" failed with: "<<strerror(errno)<<endl;
 
-      if(!SyncRes::s_nopacketcache && !variableAnswer && !sr.wasVariable() ) {
-        t_packetCache->insertResponsePacket(dc->d_tag, dc->d_qhash, dc->d_mdp.d_qname, dc->d_mdp.d_qtype, dc->d_mdp.d_qclass,
-                                            string((const char*)&*packet.begin(), packet.size()),
-                                            g_now.tv_sec,
-                                            pw.getHeader()->rcode == RCode::ServFail ? SyncRes::s_packetcacheservfailttl :
-                                            min(minTTL,SyncRes::s_packetcachettl),
-                                            pbMessage);
+        if(!SyncRes::s_nopacketcache && !variableAnswer && !sr.wasVariable() ) {
+          t_packetCache->insertResponsePacket(dc->d_tag, dc->d_qhash, dc->d_mdp.d_qname, dc->d_mdp.d_qtype, dc->d_mdp.d_qclass,
+                                              string((const char*)&*packet.begin(), packet.size()),
+                                              g_now.tv_sec,
+                                              pw.getHeader()->rcode == RCode::ServFail ? SyncRes::s_packetcacheservfailttl :
+                                              min(minTTL,SyncRes::s_packetcachettl),
+                                              pbMessage);
+        }
       }
       //      else cerr<<"Not putting in packet cache: "<<sr.wasVariable()<<endl;
     }
@@ -1906,6 +1921,266 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
   return 0;
 }
 
+struct StopWatch
+{
+  StopWatch(bool realTime=false): d_needRealTime(realTime)
+  {
+  }
+  struct timespec d_start{0,0};
+  bool d_needRealTime{false};
+
+  void start() {
+    if(gettime(&d_start, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+  }
+
+  void set(const struct timespec& from) {
+    d_start = from;
+  }
+
+  double udiff() const {
+    struct timespec now;
+    if(gettime(&now, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+
+    return 1000000.0*(now.tv_sec - d_start.tv_sec) + (now.tv_nsec - d_start.tv_nsec)/1000.0;
+  }
+
+  double udiffAndSet() {
+    struct timespec now;
+    if(gettime(&now, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+
+    auto ret= 1000000.0*(now.tv_sec - d_start.tv_sec) + (now.tv_nsec - d_start.tv_nsec)/1000.0;
+    d_start = now;
+    return ret;
+  }
+
+};
+
+static void doBenchmarks()
+{
+  static const size_t numberOfRounds = ::arg().asNum("benchmark-iterations");
+
+  const ComboAddress source("192.0.2.1");
+  const ComboAddress destination("192.0.2.2");
+  EDNSSubnetOpts ednssubnet;
+
+  vector<uint8_t> packet;
+  DNSPacketWriter pw(packet, DNSName("www.powerdns.com."), QType::A);
+  pw.getHeader()->rd = true;
+  pw.getHeader()->qr = false;
+  std::string question(reinterpret_cast<const char*>(&packet[0]), packet.size());
+
+  std::vector<std::string> policyTags;
+  LuaContext::LuaObject data;
+  DNSName qname;
+  uint16_t qtype = 0;
+  uint16_t qclass = 0;
+  uint16_t ctag = 0;
+  string requestorId;
+  string deviceId;
+
+  t_packetCache = std::unique_ptr<RecursorPacketCache>(new RecursorPacketCache());
+  t_RC = std::unique_ptr<MemRecursorCache>(new MemRecursorCache());
+
+  time_t now = time(nullptr);
+
+  StopWatch sw;
+
+#if 0
+  /* populate the caches */
+  for (size_t idx = 0; idx < 10000; idx++) {
+    DNSName fakeQName("www.powerdns" + std::to_string(idx) + ".com.");
+    QType fakeQType(QType::A);
+    vector<uint8_t> fakePacket;
+    DNSPacketWriter pwriter(fakePacket, fakeQName, QType::A);
+    pw.getHeader()->rd = true;
+    pw.getHeader()->qr = false;
+    std::string fakeQuestion(reinterpret_cast<const char*>(&fakePacket[0]), fakePacket.size());
+    std::string response;
+    uint32_t age = 0;
+    uint32_t qhash = 0;
+    t_packetCache->getResponsePacket(0, fakeQuestion, now, &response, &age, &qhash);
+    t_packetCache->insertResponsePacket(0, qhash, fakeQName, QType::A, QClass::IN, response, now, 3600);
+
+    const vector<DNSRecord> content;
+    const vector<shared_ptr<RRSIGRecordContent>> signatures;
+    const std::vector<std::shared_ptr<DNSRecord>> authorityRecs;
+
+    t_RC->replace(now, fakeQName, fakeQType, content, signatures, authorityRecs, false);
+  }
+
+  try {
+    if(!::arg()["lua-dns-script"].empty()) {
+      t_pdl = std::make_shared<RecursorLua4>();
+      t_pdl->loadFile(::arg()["lua-dns-script"]);
+    }
+  }
+  catch(std::exception &e) {
+    g_log<<Logger::Error<<"Failed to load 'lua' script from '"<<::arg()["lua-dns-script"]<<"': "<<e.what()<<endl;
+  }
+
+  if (t_pdl && t_pdl->d_gettag_ffi) {
+    g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to gettag_ffi().."<<endl;
+
+    sw.start();
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::map<uint16_t, EDNSOptionView> ednsOptions;
+      bool xpfFound = false;
+      bool ecsFound = false;
+      bool variable = false;
+      uint32_t ttlCap = std::numeric_limits<uint32_t>::max();
+
+      getQNameAndSubnet(question, &qname, &qtype, &qclass,
+                        ecsFound,
+                        &ednssubnet,
+                        g_gettagNeedsEDNSOptions ? &ednsOptions : nullptr,
+                        xpfFound,
+                        nullptr,
+                        nullptr);
+
+      ctag = t_pdl->gettag_ffi(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId, ttlCap, variable);
+    }
+    g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to gettag_ffi() in "<<std::to_string(sw.udiff())<<endl;
+  }
+  else {
+    g_log<<Logger::Notice<<"Skipping benchmark of gettag_ffi() because it's not defined"<<endl;
+  }
+
+  if (t_pdl && t_pdl->d_gettag) {
+    g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to gettag().."<<endl;
+
+    sw.start();
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::map<uint16_t, EDNSOptionView> ednsOptions;
+      bool xpfFound = false;
+      bool ecsFound = false;
+
+      getQNameAndSubnet(question, &qname, &qtype, &qclass,
+                        ecsFound,
+                        &ednssubnet,
+                        g_gettagNeedsEDNSOptions ? &ednsOptions : nullptr,
+                        xpfFound,
+                        nullptr,
+                        nullptr);
+
+      ctag = t_pdl->gettag(source, ednssubnet.source, destination, qname, qtype, &policyTags, data, ednsOptions, false, requestorId, deviceId);
+    }
+    g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to gettag() in "<<std::to_string(sw.udiff())<<endl;
+  }
+  else {
+    g_log<<Logger::Notice<<"Skipping benchmark of gettag() because it's not defined"<<endl;
+  }
+
+  if (!qname.empty()) {
+    g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to the packetcache (name already parsed).."<<endl;
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::string response;
+      RecProtoBufMessage pbMessage(DNSProtoBufMessage::DNSProtoBufMessageType::Response);
+      uint32_t age;
+      uint32_t qhash;
+
+      t_packetCache->getResponsePacket(ctag, question, qname, qtype, qclass, now, &response, &age, &qhash, &pbMessage);
+    }
+    g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the packetcache (name already parsed)!"<<endl;
+  }
+  else {
+    g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to the packetcache (name NOT parsed).."<<endl;
+    for (size_t idx = 0; idx < numberOfRounds; idx++) {
+      std::string response;
+      RecProtoBufMessage pbMessage(DNSProtoBufMessage::DNSProtoBufMessageType::Response);
+      uint32_t age;
+      uint32_t qhash;
+
+      t_packetCache->getResponsePacket(ctag, question, now, &response, &age, &qhash, &pbMessage);
+    }
+    g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the packetcache (name NOT parsed)!"<<endl;
+  }
+
+  g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to the query cache.."<<endl;
+  for (size_t idx = 0; idx < numberOfRounds; idx++) {
+    vector<DNSRecord> records;
+    t_RC->get(now, DNSName("www.powerdns.com."), QType(QType::A), false, &records, source);
+  }
+  g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the query cache!"<<endl;
+#endif
+  MT = std::unique_ptr<MTasker<PacketID,string> >(new MTasker<PacketID,string>(::arg().asNum("stack-size")));
+  SyncRes::setDomainMap(std::make_shared<SyncRes::domainmap_t>());
+  SyncRes::clearNegCache();
+  seedRandom(::arg()["entropy-source"]);
+  SyncRes::s_maxqperq=::arg().asNum("max-qperq");
+  SyncRes::s_maxtotusec=1000*::arg().asNum("max-total-msec");
+  SyncRes::s_maxdepth=::arg().asNum("max-recursion-depth");
+  SyncRes::s_rootNXTrust = ::arg().mustDo( "root-nx-trust");
+  g_maxMThreads = ::arg().asNum("max-mthreads");  
+  g_quiet=::arg().mustDo("quiet");
+  SyncRes::s_nopacketcache = ::arg().mustDo("disable-packetcache");
+/*  SyncRes::setDefaultLogMode(SyncRes::Log);
+  ::arg().set("quiet")="no";
+  g_quiet=false;
+  g_dnssecLOG=true;*/
+
+#if 0
+  g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to startDoResolve().."<<endl;
+  sw.start();
+  for (size_t idx = 0; idx < numberOfRounds; idx++) {
+    gettimeofday(&g_now, 0);
+
+    if(t_pdl) {
+      if(t_pdl->ipfilter(source, destination, *dh)) {
+        g_stats.policyDrops++;
+        continue;
+      }
+    }
+
+    if(MT->numProcesses() > g_maxMThreads) {
+      g_stats.overCapacityDrops++;
+      continue;
+    }
+    
+    DNSComboWriter* dc = new DNSComboWriter(question.c_str(), question.size(), g_now);
+    dc->setSocket(-1);
+    dc->d_tag=ctag;
+    dc->d_qhash=0;
+    dc->d_query = question;
+    dc->setRemote(source);
+    dc->setSource(source);
+    dc->setLocal(destination);
+    dc->setDestination(destination);
+    dc->d_tcp=false;
+    dc->d_policyTags = policyTags;
+    dc->d_data = data;
+    dc->d_ecsFound = false;
+    dc->d_ecsParsed = false;
+    dc->d_ednssubnet = ednssubnet;
+    dc->d_ttlCap = std::numeric_limits<uint32_t>::max();
+    dc->d_variable = true;
+#ifdef HAVE_PROTOBUF
+    dc->d_requestorId = requestorId;
+    dc->d_deviceId = deviceId;
+#endif
+
+    //MT->makeThread(startDoResolve, (void*) dc); // deletes dc
+    startDoResolve(dc);
+  }
+  g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to startDoResolve() in "<<std::to_string(sw.udiff())<<endl;
+#endif
+
+  gettimeofday(&g_now, 0);
+  g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to doProcessUDPQuestion().."<<endl;
+  sw.start();
+  for (size_t idx = 0; idx < numberOfRounds; idx++) {
+    doProcessUDPQuestion(question, source, destination, g_now, -1);
+    while (MT->schedule(nullptr)) {
+      auto nbProcs = MT->numProcesses();
+      if (nbProcs > 1) {
+        cerr<<"number of processes is "<<nbProcs<<endl;
+      }
+    }    
+  }
+  g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to doProcessUDPQuestion() in "<<std::to_string(sw.udiff())<<endl;
+}
 
 static void handleNewUDPQuestion(int fd, FDMultiplexer::funcparam_t& var)
 {
@@ -3583,6 +3858,8 @@ int main(int argc, char **argv)
     ::arg().set("udp-source-port-max", "Maximum UDP port to bind on")="65535";
     ::arg().set("udp-source-port-avoid", "List of comma separated UDP port number to avoid")="11211";
 
+    ::arg().setCmd("benchmark","Benchmark gettag() if defined, the packet cache and the query cache");
+    ::arg().set("benchmark-iterations","The number of iterations to run in benchmark mode")="100000";
     ::arg().setCmd("help","Provide a helpful message");
     ::arg().setCmd("version","Print version string");
     ::arg().setCmd("config","Output blank configuration");
@@ -3636,6 +3913,10 @@ int main(int argc, char **argv)
     if(::arg().mustDo("version")) {
       showProductVersion();
       showBuildConfiguration();
+      exit(0);
+    }
+    if(::arg().mustDo("benchmark")) {
+      doBenchmarks();
       exit(0);
     }
 
