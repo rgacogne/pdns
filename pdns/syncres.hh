@@ -20,6 +20,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #pragma once
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <boost/container/flat_set.hpp>
+
 #include <string>
 #include <atomic>
 #include "utility.hh"
@@ -29,6 +36,7 @@
 #include <set>
 #include <unordered_set>
 #include <map>
+#include <unordered_map>
 #include <cmath>
 #include <iostream>
 #include <utility>
@@ -50,10 +58,6 @@
 #include "filterpo.hh"
 #include "negcache.hh"
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #ifdef HAVE_PROTOBUF
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -61,7 +65,7 @@
 
 class RecursorLua4;
 
-typedef map<
+typedef std::unordered_map<
   DNSName,
   pair<
     vector<ComboAddress>,
@@ -326,7 +330,7 @@ public:
     ComboAddress d_best;
   };
 
-  typedef map<DNSName, DecayingEwmaCollection> nsspeeds_t;
+  typedef std::unordered_map<DNSName, DecayingEwmaCollection> nsspeeds_t;
   typedef map<ComboAddress, EDNSStatus> ednsstatus_t;
 
   vState getDSRecords(const DNSName& zone, dsmap_t& ds, bool onlyTA, unsigned int depth, bool bogusOnNXD=true, bool* foundCut=nullptr);
@@ -721,7 +725,7 @@ private:
   struct GetBestNSAnswer
   {
     DNSName qname;
-    set<pair<DNSName,DNSName> > bestns;
+    boost::container::flat_set<pair<DNSName,DNSName> > bestns;
     uint8_t qtype; // only A and AAAA anyhow
     bool operator<(const GetBestNSAnswer &b) const
     {

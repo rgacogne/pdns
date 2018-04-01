@@ -167,9 +167,12 @@ inline bool DNSName::canonCompare(const DNSName& rhs) const
   uint8_t ourpos[64], rhspos[64];
   uint8_t ourcount=0, rhscount=0;
   //cout<<"Asked to compare "<<toString()<<" to "<<rhs.toString()<<endl;
-  for(const unsigned char* p = (const unsigned char*)d_storage.c_str(); p < (const unsigned char*)d_storage.c_str() + d_storage.size() && *p && ourcount < sizeof(ourpos); p+=*p+1)
+  const unsigned char* ourEnd = (const unsigned char*)d_storage.c_str() + d_storage.size();
+  const unsigned char* rhsEnd = (const unsigned char*)rhs.d_storage.c_str() + rhs.d_storage.size();
+
+  for(const unsigned char* p = (const unsigned char*)d_storage.c_str(); p < ourEnd && *p && ourcount < sizeof(ourpos); p+=*p+1)
     ourpos[ourcount++]=(p-(const unsigned char*)d_storage.c_str());
-  for(const unsigned char* p = (const unsigned char*)rhs.d_storage.c_str(); p < (const unsigned char*)rhs.d_storage.c_str() + rhs.d_storage.size() && *p && rhscount < sizeof(rhspos); p+=*p+1)
+  for(const unsigned char* p = (const unsigned char*)rhs.d_storage.c_str(); p < rhsEnd && *p && rhscount < sizeof(rhspos); p+=*p+1)
     rhspos[rhscount++]=(p-(const unsigned char*)rhs.d_storage.c_str());
 
   if(ourcount == sizeof(ourpos) || rhscount==sizeof(rhspos)) {
