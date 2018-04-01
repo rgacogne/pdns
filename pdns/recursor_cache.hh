@@ -143,6 +143,8 @@ private:
     uint16_t d_qtype;
   };
 
+  struct HashTag {};
+
   typedef multi_index_container<
     CacheEntry,
     indexed_by <
@@ -155,7 +157,8 @@ private:
                       >,
 		  composite_key_compare<CanonDNSNameCompare, std::less<uint16_t>, std::less<Netmask> >
                 >,
-               sequenced<>
+                sequenced<>,
+                hashed_non_unique<tag<HashTag>, member<CacheEntry,DNSName,&CacheEntry::d_qname> >
                >
   > cache_t;
   typedef multi_index_container<
@@ -173,14 +176,16 @@ private:
 
   cache_t d_cache;
   ecsIndex_t d_ecsIndex;
-  pair<cache_t::iterator, cache_t::iterator> d_cachecache;
+  std::pair<cache_t::index<HashTag>::type::iterator, cache_t::index<HashTag>::type::iterator> d_cachecache;
+//  pair<cache_t::iterator, cache_t::iterator> d_cachecache;
   DNSName d_cachedqname;
   bool d_cachecachevalid;
 
-  bool entryMatches(cache_t::const_iterator& entry, uint16_t qt, bool requireAuth, const ComboAddress& who);
-  std::pair<cache_t::const_iterator, cache_t::const_iterator> getEntries(const DNSName &qname, const QType& qt);
+  bool entryMatches(cache_t::index<HashTag>::type::iterator& entry, uint16_t qt, bool requireAuth, const ComboAddress& who);
+  std::pair<cache_t::index<HashTag>::type::iterator, cache_t::index<HashTag>::type::iterator> getEntries(const DNSName &qname, const QType& qt);
   cache_t::const_iterator getEntryUsingECSIndex(time_t now, const DNSName &qname, uint16_t qtype, bool requireAuth, const ComboAddress& who);
   int32_t handleHit(cache_t::iterator entry, const DNSName& qname, const ComboAddress& who, vector<DNSRecord>* res, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth);
+  int32_t handleHit(cache_t::index<HashTag>::type::iterator entry, const DNSName& qname, const ComboAddress& who, vector<DNSRecord>* res, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth);
 
 public:
   void preRemoval(const CacheEntry& entry)

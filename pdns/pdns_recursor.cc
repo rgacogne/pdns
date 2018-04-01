@@ -1473,7 +1473,7 @@ static void startDoResolve(void *p)
     g_log<<Logger::Error<<"Any other exception in a resolver context "<< makeLoginfo(dc) <<endl;
   }
 
-  g_stats.maxMThreadStackUsage = max(MT->getMaxStackUsage(), g_stats.maxMThreadStackUsage);
+//  g_stats.maxMThreadStackUsage = max(MT->getMaxStackUsage(), g_stats.maxMThreadStackUsage);
 }
 
 static void makeControlChannelSocket(int processNum=-1)

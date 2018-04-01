@@ -343,7 +343,8 @@ vector<string> DNSName::getRawLabels() const
   vector<string> ret;
   ret.reserve(countLabels());
   // 3www4ds9a2nl0
-  for(const unsigned char* p = (const unsigned char*) d_storage.c_str(); p < ((const unsigned char*) d_storage.c_str()) + d_storage.size() && *p; p+=*p+1) {
+  const unsigned char* ourEnd = (const unsigned char*)d_storage.c_str() + d_storage.size();
+  for(const unsigned char* p = (const unsigned char*) d_storage.c_str(); p < ourEnd && *p; p+=*p+1) {
     ret.push_back({(const char*)p+1, (size_t)*p}); // XXX FIXME
   }
   return ret;
@@ -352,7 +353,8 @@ vector<string> DNSName::getRawLabels() const
 std::string DNSName::getRawLabel(unsigned int pos) const
 {
   unsigned int currentPos = 0;
-  for(const unsigned char* p = (const unsigned char*) d_storage.c_str(); p < ((const unsigned char*) d_storage.c_str()) + d_storage.size() && *p; p+=*p+1, currentPos++) {
+  const unsigned char* ourEnd = (const unsigned char*)d_storage.c_str() + d_storage.size();
+  for(const unsigned char* p = (const unsigned char*) d_storage.c_str(); p < ourEnd && *p; p+=*p+1, currentPos++) {
     if (currentPos == pos) {
       return std::string((const char*)p+1, (size_t)*p);
     }

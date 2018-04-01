@@ -48,6 +48,8 @@ int32_t MemRecursorCache::handleHit(cache_t::iterator entry, const DNSName& qnam
 
   // cerr<<"Looking at "<<entry->d_records.size()<<" records for this name"<<endl;
   if (res) {
+    res->reserve(res->size() + entry->d_records.size());
+
     for(const auto& k : entry->d_records) {
       DNSRecord dr;
       dr.d_name = qname;
@@ -77,6 +79,52 @@ int32_t MemRecursorCache::handleHit(cache_t::iterator entry, const DNSName& qnam
   }
 
   moveCacheItemToBack(d_cache, entry);
+
+  return ttd;
+}
+
+int32_t MemRecursorCache::handleHit(MemRecursorCache::cache_t::index<MemRecursorCache::HashTag>::type::iterator entry, const DNSName& qname, const ComboAddress& who, vector<DNSRecord>* res, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth)
+{
+  int32_t ttd = entry->d_ttd;
+
+  if(variable && !entry->d_netmask.empty()) {
+    *variable = true;
+  }
+
+  // cerr<<"Looking at "<<entry->d_records.size()<<" records for this name"<<endl;
+  if (res) {
+    res->reserve(res->size() + entry->d_records.size());
+
+    for(const auto& k : entry->d_records) {
+      DNSRecord dr;
+      dr.d_name = qname;
+      dr.d_type = entry->d_qtype;
+      dr.d_class = QClass::IN;
+      dr.d_content = k;
+      dr.d_ttl = static_cast<uint32_t>(entry->d_ttd);
+      dr.d_place = DNSResourceRecord::ANSWER;
+      res->push_back(dr);
+    }
+  }
+
+  if(signatures) { // if you do an ANY lookup you are hosed XXXX
+    *signatures = entry->d_signatures;
+  }
+
+  if(authorityRecs) {
+    *authorityRecs = entry->d_authorityRecs;
+  }
+
+  if (state) {
+    *state = entry->d_state;
+  }
+
+  if (wasAuth) {
+    *wasAuth = entry->d_auth;
+  }
+
+  auto firstIndexIterator = d_cache.project<0>(entry);
+  moveCacheItemToBack(d_cache, firstIndexIterator);
 
   return ttd;
 }
@@ -143,13 +191,15 @@ MemRecursorCache::cache_t::const_iterator MemRecursorCache::getEntryUsingECSInde
 }
 
 // returns -1 for no hits
-std::pair<MemRecursorCache::cache_t::const_iterator, MemRecursorCache::cache_t::const_iterator> MemRecursorCache::getEntries(const DNSName &qname, const QType& qt)
+std::pair<MemRecursorCache::cache_t::index<MemRecursorCache::HashTag>::type::iterator, MemRecursorCache::cache_t::index<MemRecursorCache::HashTag>::type::iterator> MemRecursorCache::getEntries(const DNSName &qname, const QType& qt)
 {
   //  cerr<<"looking up "<< qname<<"|"+qt.getName()<<"\n";
   if(!d_cachecachevalid || d_cachedqname!= qname) {
     //    cerr<<"had cache cache miss"<<endl;
     d_cachedqname=qname;
-    d_cachecache=d_cache.equal_range(tie(qname));
+    //d_cachecache=d_cache.equal_range(qname);
+    const auto& idx = d_cache.get<HashTag>();
+    d_cachecache = idx.equal_range(qname);
     d_cachecachevalid=true;
   }
   //  else cerr<<"had cache cache hit!"<<endl;
@@ -157,7 +207,7 @@ std::pair<MemRecursorCache::cache_t::const_iterator, MemRecursorCache::cache_t::
   return d_cachecache;
 }
 
-bool MemRecursorCache::entryMatches(cache_t::const_iterator& entry, uint16_t qt, bool requireAuth, const ComboAddress& who)
+bool MemRecursorCache::entryMatches(MemRecursorCache::cache_t::index<MemRecursorCache::HashTag>::type::iterator& entry, uint16_t qt, bool requireAuth, const ComboAddress& who)
 {
   if (requireAuth && !entry->d_auth)
     return false;
@@ -210,10 +260,11 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
   auto entries = getEntries(qname, qt);
 
   if(entries.first!=entries.second) {
-    for(cache_t::const_iterator i=entries.first; i != entries.second; ++i) {
+    for(auto i=entries.first; i != entries.second; ++i) {
 
       if (i->d_ttd <= now) {
-        moveCacheItemToFront(d_cache, i);
+        auto firstIndexIterator = d_cache.project<0>(i);
+        moveCacheItemToFront(d_cache, firstIndexIterator);
         continue;
       }
 
