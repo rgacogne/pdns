@@ -265,14 +265,23 @@ template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::sendEven
 */
 template<class Key, class Val>void MTasker<Key,Val>::makeThread(tfunc_t *start, void* val)
 {
-  auto uc=std::make_shared<pdns_ucontext_t>();
+  std::unique_ptr<std::vector<char, lazy_allocator<char>>> stack = nullptr;
+
+  if (d_freeStacks.empty()) {
+    stack = std::unique_ptr<std::vector<char, lazy_allocator<char>>>(new std::vector<char, lazy_allocator<char>>(d_stacksize));
+  }
+  else {
+    stack = std::move(d_freeStacks.top());
+    d_freeStacks.pop();
+  }
+
+  auto uc=std::make_shared<pdns_ucontext_t>(std::move(stack));
+#ifdef PDNS_USE_VALGRIND
+  uc->valgrind_id = VALGRIND_STACK_REGISTER((*uc->uc_stack)[0],
+                                            (*uc->uc_stack)[d_stacksize]);
+#endif /* PDNS_USE_VALGRIND */
   
   uc->uc_link = &d_kernel; // come back to kernel after dying
-  uc->uc_stack.resize (d_stacksize);
-#ifdef PDNS_USE_VALGRIND
-  uc->valgrind_id = VALGRIND_STACK_REGISTER(&uc->uc_stack[0],
-                                            &uc->uc_stack[uc->uc_stack.size()]);
-#endif /* PDNS_USE_VALGRIND */
 
   auto& thread = d_threads[d_maxtid];
   auto mt = this;
@@ -315,7 +324,12 @@ template<class Key, class Val>bool MTasker<Key,Val>::schedule(struct timeval*  n
     return true;
   }
   if(!d_zombiesQueue.empty()) {
-    d_threads.erase(d_zombiesQueue.front());
+    auto zombi = d_zombiesQueue.front();
+    auto thread = d_threads.find(zombi);
+    if (thread != d_threads.end() && thread->second.context && thread->second.context->uc_stack) {
+      d_freeStacks.push(std::move(thread->second.context->uc_stack));
+    }
+    d_threads.erase(thread);
     d_zombiesQueue.pop();
     return true;
   }

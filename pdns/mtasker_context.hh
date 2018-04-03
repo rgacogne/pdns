@@ -28,14 +28,14 @@
 #include <exception>
 
 struct pdns_ucontext_t {
-    pdns_ucontext_t ();
+    pdns_ucontext_t (std::unique_ptr<std::vector<char, lazy_allocator<char>>> stack=nullptr);
     pdns_ucontext_t (pdns_ucontext_t const&) = delete;
     pdns_ucontext_t& operator= (pdns_ucontext_t const&) = delete;
     ~pdns_ucontext_t ();
 
     void* uc_mcontext;
     pdns_ucontext_t* uc_link;
-    std::vector<char, lazy_allocator<char>> uc_stack;
+    std::unique_ptr<std::vector<char, lazy_allocator<char>>> uc_stack;
     std::exception_ptr exception;
 #ifdef PDNS_USE_VALGRIND
     int valgrind_id;
