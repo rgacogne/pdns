@@ -844,6 +844,7 @@ static void startDoResolve(void *p)
     uint32_t minTTL = dc->d_ttlCap;
 
     SyncRes sr(dc->d_now);
+#if 0
     sr.setAsyncCallback([](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, std::shared_ptr<RemoteLogger> outgoingLogger, LWResult* res) {
 
         //cerr<<"in asyncresolve for "<<domain.toLogString()<<" | "<<QType(type).getName()<<endl;
@@ -856,6 +857,7 @@ static void startDoResolve(void *p)
 
         return 1;
       });
+#endif
     bool DNSSECOK=false;
     if(t_pdl) {
       sr.setLuaEngine(t_pdl);
@@ -1397,7 +1399,9 @@ static void startDoResolve(void *p)
     g_log<<Logger::Error<<"Any other exception in a resolver context "<< makeLoginfo(dc) <<endl;
   }
 
-//  g_stats.maxMThreadStackUsage = max(MT->getMaxStackUsage(), g_stats.maxMThreadStackUsage);
+#if 1
+  g_stats.maxMThreadStackUsage = max(MT->getMaxStackUsage(), g_stats.maxMThreadStackUsage);
+#endif
 }
 
 static void makeControlChannelSocket(int processNum=-1)
