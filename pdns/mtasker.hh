@@ -25,6 +25,7 @@
 #include <queue>
 #include <vector>
 #include <map>
+#include <stack>
 #include <time.h>
 #include <boost/multi_index_container.hpp>
 #include <boost/multi_index/ordered_index.hpp>
@@ -49,7 +50,10 @@ struct KeyTag {};
 
 template<class EventKey=int, class EventVal=int> class MTasker
 {
+  typedef std::unique_ptr<std::vector<char, lazy_allocator<char>>> pdns_mtasker_stack_t;
+
 private:
+  std::stack<pdns_mtasker_stack_t> d_freeStacks;
   pdns_ucontext_t d_kernel;
   std::queue<int> d_runQueue;
   std::queue<int> d_zombiesQueue;

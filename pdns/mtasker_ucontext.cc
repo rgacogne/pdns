@@ -92,9 +92,8 @@ threadWrapper (int const ctx0, int const ctx1, int const fun0, int const fun1) {
 }
 } // extern "C"
 
-pdns_ucontext_t::pdns_ucontext_t() {
+pdns_ucontext_t::pdns_ucontext_t(std::unique_ptr<std::vector<char, lazy_allocator<char>>> stack): uc_link(nullptr), uc_stack(std::move(stack)) {
     uc_mcontext = new ::ucontext_t();
-    uc_link = nullptr;
 #ifdef PDNS_USE_VALGRIND
     valgrind_id = 0;
 #endif /* PDNS_USE_VALGRIND */
