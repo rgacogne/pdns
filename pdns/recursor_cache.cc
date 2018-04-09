@@ -58,7 +58,7 @@ int32_t MemRecursorCache::handleHit(MemRecursorCache::OrderedTagIterator_t& entr
       dr.d_content = k;
       dr.d_ttl = static_cast<uint32_t>(entry->d_ttd);
       dr.d_place = DNSResourceRecord::ANSWER;
-      res->push_back(dr);
+      res->push_back(std::move(dr));
     }
   }
 
