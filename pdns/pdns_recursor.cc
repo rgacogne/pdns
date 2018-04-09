@@ -440,12 +440,10 @@ static void handleGenUDPQueryResponse(int fd, FDMultiplexer::funcparam_t& var)
 
   t_fdm->removeReadFD(fd);
   if(ret >= 0) {
-    string data(resp, (size_t) ret);
-    MT->sendEvent(pident, &data);
+    MT->sendEvent(pident, std::string(resp, static_cast<size_t>(ret)));
   }
   else {
-    string empty;
-    MT->sendEvent(pident, &empty);
+    MT->sendEvent(pident, std::string());
     //    cerr<<"Had some kind of error: "<<ret<<", "<<strerror(errno)<<endl;
   }
 }
@@ -3205,10 +3203,9 @@ static void handleTCPClientReadable(int fd, FDMultiplexer::funcparam_t& var)
     if(!pident->inNeeded || pident->inIncompleteOkay) {
       //      cerr<<"Got entire load of "<<pident->inMSG.size()<<" bytes"<<endl;
       PacketID pid=*pident;
-      string msg=pident->inMSG;
 
       t_fdm->removeReadFD(fd);
-      MT->sendEvent(pid, &msg);
+      MT->sendEvent(pid, std::string(pident->inMSG));
     }
     else {
       //      cerr<<"Still have "<<pident->inNeeded<<" left to go"<<endl;
@@ -3217,8 +3214,7 @@ static void handleTCPClientReadable(int fd, FDMultiplexer::funcparam_t& var)
   else {
     PacketID tmp=*pident;
     t_fdm->removeReadFD(fd); // pident might now be invalid (it isn't, but still)
-    string empty;
-    MT->sendEvent(tmp, &empty); // this conveys error status
+    MT->sendEvent(tmp, std::string()); // this conveys error status
   }
 }
 
@@ -3237,8 +3233,7 @@ static void handleTCPClientWritable(int fd, FDMultiplexer::funcparam_t& var)
   else {  // error or EOF
     PacketID tmp(*pid);
     t_fdm->removeWriteFD(fd);
-    string sent;
-    MT->sendEvent(tmp, &sent);         // we convey error status by sending empty string
+    MT->sendEvent(tmp, std::string());         // we convey error status by sending empty string
   }
 }
 
@@ -3327,7 +3322,7 @@ static void handleUDPServerResponse(int fd, FDMultiplexer::funcparam_t& var)
 
 retryWithName:
 
-  if(!MT->sendEvent(pident, &packet)) {
+    if(!MT->sendEvent(pident, std::move(packet))) {
     /* we did not find a match for this response, something is wrong */
 
     // we do a full scan for outstanding queries on unexpected answers. not too bad since we only accept them on the right port number, which is hard enough to guess

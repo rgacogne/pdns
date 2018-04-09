@@ -123,6 +123,7 @@ public:
   int waitEvent(EventKey&& key, EventVal *val=0, unsigned int timeoutMsec=0, struct timeval* now=nullptr);
   void yield();
   int sendEvent(const EventKey& key, const EventVal* val=nullptr);
+  int sendEvent(const EventKey& key, EventVal&& val);
   void getEvents(std::vector<EventKey>& events);
   void makeThread(tfunc_t *start, void* val);
   bool schedule(struct timeval* now=nullptr);
@@ -133,6 +134,8 @@ public:
   unsigned int getUsec();
 
 private:
+  int sendEvent(typename waiters_t::iterator& waiter);
+
   EventKey d_eventkey;   // for waitEvent, contains exact key it was awoken for
 };
 #include "mtasker.cc"
