@@ -207,7 +207,7 @@ template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::waitEven
   d_threads[d_tid].dt.start();
 #endif
   if(val && d_waitstatus==Answer) 
-    *val=d_waitval;
+    *val=std::move(d_waitval);
   d_tid=w.tid;
   if((char*)&w < d_threads[d_tid].highestStackSeen) {
     d_threads[d_tid].highestStackSeen = (char*)&w;
@@ -247,8 +247,28 @@ template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::sendEven
   d_waitstatus=Answer;
   if(val)
     d_waitval=*val;
-  
-  d_tid=waiter->tid;         // set tid 
+
+  return sendEvent(waiter);
+}
+
+template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::sendEvent(const EventKey& key, EventVal&& val)
+{
+  typename waiters_t::iterator waiter=d_waiters.find(key);
+
+  if(waiter == d_waiters.end()) {
+    //    cout<<"Event sent nobody was waiting for!"<<endl;
+    return 0;
+  }
+
+  d_waitstatus=Answer;
+  d_waitval=std::move(val);
+
+  return sendEvent(waiter);
+}
+
+template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::sendEvent(typename waiters_t::iterator& waiter)
+{
+  d_tid=waiter->tid;         // set tid
   d_eventkey=waiter->key;        // pass waitEvent the exact key it was woken for
   auto userspace=std::move(waiter->context);
   d_waiters.erase(waiter);             // removes the waitpoint
