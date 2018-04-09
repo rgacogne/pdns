@@ -241,9 +241,6 @@ int asyncresolve(const ComboAddress& ip, const DNSName& domain, int type, bool d
       // unexpected count has already been done @ pdns_recursor.cc
       goto out;
     }
-    
-    for(const auto& a : mdp.d_answers)
-      lwr->d_records.push_back(a.first);
 
     EDNSOpts edo;
     if(EDNS0Level > 0 && getEDNSOpts(mdp, &edo)) {
@@ -266,7 +263,13 @@ int asyncresolve(const ComboAddress& ip, const DNSName& domain, int type, bool d
         }
       }
     }
-        
+
+    /* after this you can't use the mdp object anymore */
+    lwr->d_records.reserve(mdp.d_answers.size());
+    for(auto& a : mdp.d_answers) {
+      lwr->d_records.push_back(std::move(a.first));
+    }
+
 #ifdef HAVE_PROTOBUF
     if(outgoingLogger) {
       logIncomingResponse(outgoingLogger, context ? context->d_initialRequestId : boost::none, uuid, ip, domain, type, qid, doTCP, len, lwr->d_rcode, lwr->d_records, queryTime);

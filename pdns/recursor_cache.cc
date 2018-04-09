@@ -48,6 +48,8 @@ int32_t MemRecursorCache::handleHit(cache_t::iterator entry, const DNSName& qnam
 
   // cerr<<"Looking at "<<entry->d_records.size()<<" records for this name"<<endl;
   if (res) {
+    res->reserve(res->size() + entry->d_records.size());
+
     for(const auto& k : entry->d_records) {
       DNSRecord dr;
       dr.d_name = qname;
@@ -56,7 +58,7 @@ int32_t MemRecursorCache::handleHit(cache_t::iterator entry, const DNSName& qnam
       dr.d_content = k;
       dr.d_ttl = static_cast<uint32_t>(entry->d_ttd);
       dr.d_place = DNSResourceRecord::ANSWER;
-      res->push_back(dr);
+      res->push_back(std::move(dr));
     }
   }
 
