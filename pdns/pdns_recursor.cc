@@ -2183,7 +2183,7 @@ static void doBenchmarks()
     DNSName dummyQName("www.powerdns" + std::to_string(idx) + ".com.");
     QType dummyQType(QType::A);
     auto& dummyRecords = foundDomains[dummyQName];
-    addRecordToList(dummyRecords, dummyQName, QType::A, "192.0.2.1", DNSResourceRecord::ANSWER, 3600);
+    addRecordToList(dummyRecords, dummyQName, QType::A, "192.0.2.1", DNSResourceRecord::ANSWER, now + 3600);
   }
   for (size_t idx = 0; idx < numberOfRounds; idx++) {
     DNSName dummyQName("wwwnot.powerdns" + std::to_string(idx) + ".com.");
@@ -2198,7 +2198,10 @@ static void doBenchmarks()
     t_RC->replace(now, domain.first, QType(QType::A), domain.second, signatures, authorityRecs, false);
   }
   g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" insertions into the query cache in "<<std::to_string(sw.udiff())<<endl;
-  _exit(0);
+  if (t_RC->size() < foundDomains.size()) {
+    cerr<<"Error, t_RC size is "<<t_RC->size()<<", should be "<<foundDomains.size()<<endl;
+    _exit(1);
+  }
 
   g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" retrievals (found) from the query cache.."<<endl;
   sw.start();
