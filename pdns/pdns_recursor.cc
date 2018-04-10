@@ -2174,14 +2174,54 @@ static void doBenchmarks()
     }
     g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the packetcache (name NOT parsed)!"<<endl;
   }
-
-  g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to the query cache.."<<endl;
-  for (size_t idx = 0; idx < numberOfRounds; idx++) {
-    vector<DNSRecord> records;
-    t_RC->get(now, DNSName("www.powerdns.com."), QType(QType::A), false, &records, source);
-  }
-  g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to the query cache!"<<endl;
 #endif
+
+  std::unordered_map<DNSName, std::vector<DNSRecord>> foundDomains;
+  std::set<DNSName> notFoundDomains;
+
+  for (size_t idx = 0; idx < numberOfRounds; idx++) {
+    DNSName dummyQName("www.powerdns" + std::to_string(idx) + ".com.");
+    QType dummyQType(QType::A);
+    auto& dummyRecords = foundDomains[dummyQName];
+    addRecordToList(dummyRecords, dummyQName, QType::A, "192.0.2.1", DNSResourceRecord::ANSWER, 3600);
+  }
+  for (size_t idx = 0; idx < numberOfRounds; idx++) {
+    DNSName dummyQName("wwwnot.powerdns" + std::to_string(idx) + ".com.");
+    notFoundDomains.insert(dummyQName);
+  }
+
+  vector<shared_ptr<RRSIGRecordContent>> signatures;
+  vector<shared_ptr<DNSRecord>> authorityRecs;
+  g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" insertions into the query cache.."<<endl;
+  sw.start();
+  for (const auto& domain : foundDomains) {
+    t_RC->replace(now, domain.first, QType(QType::A), domain.second, signatures, authorityRecs, false);
+  }
+  g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" insertions into the query cache in "<<std::to_string(sw.udiff())<<endl;
+
+  g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" retrievals (found) from the query cache.."<<endl;
+  sw.start();
+  for (const auto& domain : foundDomains) {
+    vector<DNSRecord> records;
+    t_RC->get(now, domain.first, QType(QType::A), false, &records, source);
+  }
+  g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" retrievals (found) from the query cache in "<<std::to_string(sw.udiff())<<endl;
+
+  g_log<<Logger::Notice<<"Starting a loop of "<<notFoundDomains.size()<<" retrievals (not found) from the query cache.."<<endl;
+  sw.start();
+  for (const auto& domain : notFoundDomains) {
+    vector<DNSRecord> records;
+    t_RC->get(now, domain, QType(QType::A), false, &records, source);
+  }
+  g_log<<Logger::Notice<<"Done "<<notFoundDomains.size()<<" retrievals (not found) from the query cache in "<<std::to_string(sw.udiff())<<endl;
+
+  g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" deletions from the query cache.."<<endl;
+  sw.start();
+  for (const auto& domain : foundDomains) {
+    t_RC->doWipeCache(domain.first, true);
+  }
+  g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" deletions) from the query cache in "<<std::to_string(sw.udiff())<<endl;
+
   MT = std::unique_ptr<MTasker<PacketID,string> >(new MTasker<PacketID,string>(::arg().asNum("stack-size")));
   SyncRes::setDomainMap(std::make_shared<SyncRes::domainmap_t>());
   SyncRes::clearNegCache();
@@ -2243,6 +2283,7 @@ static void doBenchmarks()
   g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to startDoResolve() in "<<std::to_string(sw.udiff())<<endl;
 #endif
 
+#if 0
   gettimeofday(&g_now, 0);
   g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to doProcessUDPQuestion().."<<endl;
   sw.start();
@@ -2256,6 +2297,7 @@ static void doBenchmarks()
     }    
   }
   g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to doProcessUDPQuestion() in "<<std::to_string(sw.udiff())<<endl;
+#endif
 }
 
 static void handleNewUDPQuestion(int fd, FDMultiplexer::funcparam_t& var)
