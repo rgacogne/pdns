@@ -2198,12 +2198,16 @@ static void doBenchmarks()
     t_RC->replace(now, domain.first, QType(QType::A), domain.second, signatures, authorityRecs, false);
   }
   g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" insertions into the query cache in "<<std::to_string(sw.udiff())<<endl;
+  _exit(0);
 
   g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" retrievals (found) from the query cache.."<<endl;
   sw.start();
   for (const auto& domain : foundDomains) {
     vector<DNSRecord> records;
-    t_RC->get(now, domain.first, QType(QType::A), false, &records, source);
+    if (t_RC->get(now, domain.first, QType(QType::A), false, &records, source) < 0) {
+      cerr<<"Error while retrieving "<<domain.first<<"!"<<endl;
+      _exit(1);
+    }
   }
   g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" retrievals (found) from the query cache in "<<std::to_string(sw.udiff())<<endl;
 
@@ -2211,7 +2215,10 @@ static void doBenchmarks()
   sw.start();
   for (const auto& domain : notFoundDomains) {
     vector<DNSRecord> records;
-    t_RC->get(now, domain, QType(QType::A), false, &records, source);
+    if (t_RC->get(now, domain, QType(QType::A), false, &records, source) != -1) {
+      cerr<<"Error while (not) retrieving "<<domain<<"!"<<endl;
+      _exit(1);
+    }
   }
   g_log<<Logger::Notice<<"Done "<<notFoundDomains.size()<<" retrievals (not found) from the query cache in "<<std::to_string(sw.udiff())<<endl;
 
