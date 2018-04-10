@@ -157,7 +157,8 @@ private:
                                 member<CacheEntry,DNSName,&CacheEntry::d_qname>,
                                 member<CacheEntry,uint16_t,&CacheEntry::d_qtype>,
                                 member<CacheEntry,Netmask,&CacheEntry::d_netmask>
-                                >
+                          >,
+                          composite_key_compare<CanonDNSNameCompare, std::less<uint16_t>, std::less<Netmask> >
                 >,
                 sequenced<tag<SequencedTag> >,
                 hashed_non_unique<tag<NameOnlyHashedTag>,
@@ -184,7 +185,8 @@ private:
           ECSIndexEntry,
           member<ECSIndexEntry,DNSName,&ECSIndexEntry::d_qname>,
           member<ECSIndexEntry,uint16_t,&ECSIndexEntry::d_qtype>
-        >
+        >,
+        composite_key_compare<CanonDNSNameCompare, std::less<uint16_t> >
       >
     >
   > ecsIndex_t;
