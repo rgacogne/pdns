@@ -151,7 +151,7 @@ private:
   typedef multi_index_container<
     CacheEntry,
     indexed_by <
-                ordered_non_unique<tag<OrderedTag>,
+                ordered_unique<tag<OrderedTag>,
                         composite_key<
                                 CacheEntry,
                                 member<CacheEntry,DNSName,&CacheEntry::d_qname>,
@@ -179,7 +179,7 @@ private:
           member<ECSIndexEntry,uint16_t,&ECSIndexEntry::d_qtype>
         >
       >,
-      ordered_non_unique<tag<OrderedTag>,
+      ordered_unique<tag<OrderedTag>,
         composite_key<
           ECSIndexEntry,
           member<ECSIndexEntry,DNSName,&ECSIndexEntry::d_qname>,
