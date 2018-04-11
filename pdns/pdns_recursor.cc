@@ -2232,6 +2232,58 @@ static void doBenchmarks()
   }
   g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" deletions) from the query cache in "<<std::to_string(sw.udiff())<<endl;
 
+  /* =========== NEG =========== */
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" insertions into the neg cache.."<<endl;
+  sw.start();
+  for (const auto& domain : foundDomains) {
+    NegCache::NegCacheEntry ne;
+    ne.d_name = domain.first;
+    ne.d_qtype = QType(0);
+    ne.d_auth = domain.first;
+    ne.d_ttd = now + 3600;
+    SyncRes::t_sstorage.negcache.add(ne);
+  }
+  g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" insertions into the neg cache in "<<std::to_string(sw.udiff())<<endl;
+  if (SyncRes::t_sstorage.negcache.size() < foundDomains.size()) {
+    cerr<<"Error, t_RC size is "<<SyncRes::t_sstorage.negcache.size()<<", should be "<<foundDomains.size()<<endl;
+    _exit(1);
+  }
+
+  g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" retrievals (found) from the neg cache.."<<endl;
+  sw.start();
+  for (const auto& domain : foundDomains) {
+    NegCache::NegCacheEntry ne;
+    if (!SyncRes::t_sstorage.negcache.get(domain.first, QType(QType::A), tv, ne, false)) {
+      cerr<<"Error while retrieving "<<domain.first<<"!"<<endl;
+      _exit(1);
+    }
+  }
+  g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" retrievals (found) from the neg cache in "<<std::to_string(sw.udiff())<<endl;
+
+  g_log<<Logger::Notice<<"Starting a loop of "<<notFoundDomains.size()<<" retrievals (not found) from the neg cache.."<<endl;
+  sw.start();
+  for (const auto& domain : notFoundDomains) {
+    NegCache::NegCacheEntry ne;
+    if (SyncRes::t_sstorage.negcache.get(domain, QType(QType::A), tv, ne, false)) {
+      cerr<<"Error while (not) retrieving "<<domain<<"!"<<endl;
+      _exit(1);
+    }
+  }
+  g_log<<Logger::Notice<<"Done "<<notFoundDomains.size()<<" retrievals (not found) from the neg cache in "<<std::to_string(sw.udiff())<<endl;
+
+  g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" deletions from the neg cache.."<<endl;
+  sw.start();
+  for (const auto& domain : foundDomains) {
+    if (SyncRes::t_sstorage.negcache.wipe(domain.first, true) != 1) {
+      cerr<<"Error while deleting "<<domain.first<<"!"<<endl;
+      _exit(1);
+    }
+  }
+  g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" deletions) from the neg cache in "<<std::to_string(sw.udiff())<<endl;
+
+#if 0
   MT = std::unique_ptr<MTasker<PacketID,string> >(new MTasker<PacketID,string>(::arg().asNum("stack-size")));
   SyncRes::setDomainMap(std::make_shared<SyncRes::domainmap_t>());
   SyncRes::clearNegCache();
@@ -2246,6 +2298,7 @@ static void doBenchmarks()
   ::arg().set("quiet")="no";
   g_quiet=false;
   g_dnssecLOG=true;*/
+#endif /* 0 */
 
 #if 0
   g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to startDoResolve().."<<endl;
