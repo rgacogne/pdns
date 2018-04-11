@@ -2192,6 +2192,8 @@ static void doBenchmarks()
 
   vector<shared_ptr<RRSIGRecordContent>> signatures;
   vector<shared_ptr<DNSRecord>> authorityRecs;
+
+#if 0
   g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" insertions into the query cache.."<<endl;
   sw.start();
   for (const auto& domain : foundDomains) {
@@ -2231,6 +2233,7 @@ static void doBenchmarks()
     t_RC->doWipeCache(domain.first, true);
   }
   g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" deletions) from the query cache in "<<std::to_string(sw.udiff())<<endl;
+#endif
 
   /* =========== NEG =========== */
   struct timeval tv;
@@ -2254,8 +2257,8 @@ static void doBenchmarks()
   g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" retrievals (found) from the neg cache.."<<endl;
   sw.start();
   for (const auto& domain : foundDomains) {
-    NegCache::NegCacheEntry ne;
-    if (!SyncRes::t_sstorage.negcache.get(domain.first, QType(QType::A), tv, ne, false)) {
+    const NegCache::NegCacheEntry* ne = nullptr;
+    if (!SyncRes::t_sstorage.negcache.get(domain.first, QType(QType::A), tv, &ne, false)) {
       cerr<<"Error while retrieving "<<domain.first<<"!"<<endl;
       _exit(1);
     }
@@ -2265,8 +2268,8 @@ static void doBenchmarks()
   g_log<<Logger::Notice<<"Starting a loop of "<<notFoundDomains.size()<<" retrievals (not found) from the neg cache.."<<endl;
   sw.start();
   for (const auto& domain : notFoundDomains) {
-    NegCache::NegCacheEntry ne;
-    if (SyncRes::t_sstorage.negcache.get(domain, QType(QType::A), tv, ne, false)) {
+    const NegCache::NegCacheEntry* ne = nullptr;
+    if (SyncRes::t_sstorage.negcache.get(domain, QType(QType::A), tv, &ne, false)) {
       cerr<<"Error while (not) retrieving "<<domain<<"!"<<endl;
       _exit(1);
     }
