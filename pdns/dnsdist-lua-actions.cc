@@ -19,6 +19,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+
+#include <boost/optional/optional_io.hpp>
+#include <boost/noncopyable.hpp>
+
 #include "dnsdist.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
@@ -29,7 +33,6 @@
 #include "ednsoptions.hh"
 #include "fstrm_logger.hh"
 #include "remote_logger.hh"
-#include "boost/optional/optional_io.hpp"
 
 class DropAction : public DNSAction
 {

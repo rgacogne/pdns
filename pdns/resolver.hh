@@ -36,6 +36,8 @@
 #include <arpa/inet.h>
 #undef res_mkquery
 
+#include <boost/noncopyable.hpp>
+
 #include "pdnsexception.hh"
 #include "dns.hh"
 #include "namespaces.hh"

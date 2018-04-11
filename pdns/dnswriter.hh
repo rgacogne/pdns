@@ -25,6 +25,9 @@
 #include <string>
 #include <vector>
 #include <map>
+
+#include <boost/noncopyable.hpp>
+
 #include "dns.hh"
 #include "dnsname.hh"
 #include "namespaces.hh"

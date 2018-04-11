@@ -32,6 +32,8 @@
 #include <fstrm/tcp_writer.h>
 #endif
 
+#include <boost/noncopyable.hpp>
+
 class FrameStreamLogger : public RemoteLoggerInterface, boost::noncopyable
 {
 public:

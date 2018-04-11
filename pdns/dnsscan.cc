@@ -34,13 +34,8 @@
 
 #include <boost/format.hpp>
 #include <boost/utility.hpp>
-#include <boost/multi_index_container.hpp>
-#include <boost/multi_index/ordered_index.hpp>
-#include <boost/multi_index/key_extractors.hpp>
 #include <cctype>
 
-#include "namespaces.hh"
-using namespace ::boost::multi_index;
 #include "namespaces.hh"
 StatBag S;
 

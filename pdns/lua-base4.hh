@@ -1,6 +1,8 @@
 #pragma once
 #include "namespaces.hh"
+#include <boost/noncopyable.hpp>
 #include <boost/variant/variant.hpp>
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif

@@ -30,7 +30,10 @@
 #ifdef HAVE_EBPF
 
 #include <boost/multi_index_container.hpp>
+#include <boost/multi_index/key_extractors.hpp>
 #include <boost/multi_index/ordered_index.hpp>
+
+using namespace ::boost::multi_index;
 
 class DynBPFFilter
 {

@@ -22,6 +22,8 @@
 #ifndef PACKETCACHE_HH
 #define PACKETCACHE_HH
 
+#include <boost/noncopyable.hpp>
+
 #include "ednsoptions.hh"
 #include "misc.hh"
 #include "iputils.hh"

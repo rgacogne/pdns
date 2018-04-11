@@ -35,6 +35,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <sstream>
+#include <boost/noncopyable.hpp>
 #include <boost/tuple/tuple.hpp>
 #include <boost/tuple/tuple_comparison.hpp>
 

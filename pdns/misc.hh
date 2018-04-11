@@ -28,13 +28,7 @@
 #include <limits.h>
 #include <type_traits>
 #include <boost/algorithm/string.hpp>
-#include <boost/multi_index_container.hpp>
-#include <boost/multi_index/ordered_index.hpp>
 #include <boost/tuple/tuple_comparison.hpp>
-#include <boost/multi_index/key_extractors.hpp>
-#include <boost/multi_index/sequenced_index.hpp>
-
-using namespace ::boost::multi_index;
 
 #include "dns.hh"
 #include <atomic>

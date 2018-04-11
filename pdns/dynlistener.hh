@@ -30,6 +30,7 @@
 #include <iostream>
 #include <sstream>
 #include "iputils.hh"
+#include <boost/noncopyable.hpp>
 #include <boost/utility.hpp>
 #include <unistd.h>
 #include <sys/un.h>

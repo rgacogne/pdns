@@ -22,7 +22,6 @@
 #ifndef PDNS_WSRECURSOR_HH
 #define PDNS_WSRECURSOR_HH
 
-#include <boost/utility.hpp> 
 #include "namespaces.hh"
 #include "mplexer.hh"
 #include "webserver.hh"

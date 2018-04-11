@@ -21,6 +21,8 @@
  */
 #pragma once
 
+#include <boost/multi_index_container.hpp>
+
 #include "lock.hh"
 
 // this function can clean any cache that has a getTTD() method on its entries, a preRemoval() method and a 'sequence' index as its second index

@@ -31,8 +31,10 @@
 // #include <netinet/in.h>
 #include "misc.hh"
 
+#include <boost/noncopyable.hpp>
 #include <boost/tuple/tuple.hpp>
 #include <boost/tuple/tuple_comparison.hpp>
+
 #include "dns.hh"
 #include "dnswriter.hh"
 #include "dnsname.hh"

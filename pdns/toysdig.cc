@@ -1,6 +1,9 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#include <boost/noncopyable.hpp>
+
 #include "dnsparser.hh"
 #include "rec-lua-conf.hh"
 #include "sstuff.hh"

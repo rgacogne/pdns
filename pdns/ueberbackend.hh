@@ -33,6 +33,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <boost/noncopyable.hpp>
 #include <boost/utility.hpp>
 #include "dnspacket.hh"
 #include "dnsbackend.hh"

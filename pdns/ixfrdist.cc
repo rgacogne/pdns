@@ -71,8 +71,6 @@ std::condition_variable g_tcpHandlerCV;
 std::queue<pair<int, ComboAddress>> g_tcpRequestFDs;
 std::mutex g_tcpRequestFDsMutex;
 
-using namespace boost::multi_index;
-
 namespace po = boost::program_options;
 po::variables_map g_vm;
 string g_workdir;

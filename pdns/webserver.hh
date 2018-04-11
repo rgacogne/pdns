@@ -24,6 +24,7 @@
 #include <map>
 #include <string>
 #include <list>
+#include <boost/noncopyable.hpp>
 #include <boost/utility.hpp>
 #include <yahttp/yahttp.hpp>
 #include "json11.hpp"

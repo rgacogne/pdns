@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <stdexcept>
 
+#include <boost/noncopyable.hpp>
 #include <boost/utility.hpp>
 #include <csignal>
 #include "namespaces.hh"

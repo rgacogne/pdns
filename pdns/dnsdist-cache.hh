@@ -23,6 +23,8 @@
 
 #include <atomic>
 #include <unordered_map>
+#include <boost/noncopyable.hpp>
+
 #include "lock.hh"
 
 struct DNSQuestion;
