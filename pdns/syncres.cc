@@ -210,7 +210,7 @@ bool SyncRes::doSpecialNamesResolve(const DNSName &qname, const QType &qtype, co
     for (const auto& ans : answers) {
       dr.d_type = ans.first;
       dr.d_content = DNSRecordContent::mastermake(ans.first, qclass, ans.second);
-      ret.push_back(dr);
+      ret.push_back(std::move(dr));
     }
   }
 
@@ -225,7 +225,7 @@ void SyncRes::AuthDomain::addSOA(std::vector<DNSRecord>& records) const
   if (ziter != d_records.end()) {
     DNSRecord dr = *ziter;
     dr.d_place = DNSResourceRecord::AUTHORITY;
-    records.push_back(dr);
+    records.push_back(std::move(dr));
   }
   else {
     // cerr<<qname<<": can't find SOA record '"<<getName()<<"' in our zone!"<<endl;
@@ -254,7 +254,7 @@ int SyncRes::AuthDomain::getRecords(const DNSName& qname, uint16_t qtype, std::v
       // we hit a delegation point!
       DNSRecord dr = *ziter;
       dr.d_place=DNSResourceRecord::AUTHORITY;
-      records.push_back(dr);
+      records.push_back(std::move(dr));
     }
   }
 
@@ -286,7 +286,7 @@ int SyncRes::AuthDomain::getRecords(const DNSName& qname, uint16_t qtype, std::v
       if(dr.d_type == qtype || qtype == QType::ANY || dr.d_type == QType::CNAME) {
         dr.d_name = qname;
         dr.d_place = DNSResourceRecord::ANSWER;
-        records.push_back(dr);
+        records.push_back(std::move(dr));
       }
     }
 
@@ -308,7 +308,7 @@ int SyncRes::AuthDomain::getRecords(const DNSName& qname, uint16_t qtype, std::v
     for(ziter = range.first; ziter != range.second; ++ziter) {
       DNSRecord dr = *ziter;
       dr.d_place = DNSResourceRecord::AUTHORITY;
-      records.push_back(dr);
+      records.push_back(std::move(dr));
     }
   }
 
@@ -836,12 +836,18 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
 
 SyncRes::domainmap_t::const_iterator SyncRes::getBestAuthZone(DNSName* qname) const
 {
+  if (t_sstorage.domainmap->empty()) {
+    return t_sstorage.domainmap->end();
+  }
+
   SyncRes::domainmap_t::const_iterator ret;
   do {
     ret=t_sstorage.domainmap->find(*qname);
     if(ret!=t_sstorage.domainmap->end())
       break;
-  }while(qname->chopOff());
+  }
+  while(qname->chopOff());
+
   return ret;
 }
 
@@ -1214,13 +1220,13 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
       dr.d_content=signature;
       dr.d_place = DNSResourceRecord::ANSWER;
       dr.d_class=QClass::IN;
-      ret.push_back(dr);
+      ret.push_back(std::move(dr));
     }
 
     for(const auto& rec : authorityRecs) {
       DNSRecord dr(*rec);
       dr.d_ttl=ttl;
-      ret.push_back(dr);
+      ret.push_back(std::move(dr));
     }
 
     LOG(endl);
