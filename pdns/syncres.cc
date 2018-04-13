@@ -210,7 +210,7 @@ bool SyncRes::doSpecialNamesResolve(const DNSName &qname, const QType &qtype, co
     for (const auto& ans : answers) {
       dr.d_type = ans.first;
       dr.d_content = DNSRecordContent::mastermake(ans.first, qclass, ans.second);
-      ret.push_back(dr);
+      ret.push_back(std::move(dr));
     }
   }
 
@@ -225,7 +225,7 @@ void SyncRes::AuthDomain::addSOA(std::vector<DNSRecord>& records) const
   if (ziter != d_records.end()) {
     DNSRecord dr = *ziter;
     dr.d_place = DNSResourceRecord::AUTHORITY;
-    records.push_back(dr);
+    records.push_back(std::move(dr));
   }
   else {
     // cerr<<qname<<": can't find SOA record '"<<getName()<<"' in our zone!"<<endl;
@@ -254,7 +254,7 @@ int SyncRes::AuthDomain::getRecords(const DNSName& qname, uint16_t qtype, std::v
       // we hit a delegation point!
       DNSRecord dr = *ziter;
       dr.d_place=DNSResourceRecord::AUTHORITY;
-      records.push_back(dr);
+      records.push_back(std::move(dr));
     }
   }
 
@@ -286,7 +286,7 @@ int SyncRes::AuthDomain::getRecords(const DNSName& qname, uint16_t qtype, std::v
       if(dr.d_type == qtype || qtype == QType::ANY || dr.d_type == QType::CNAME) {
         dr.d_name = qname;
         dr.d_place = DNSResourceRecord::ANSWER;
-        records.push_back(dr);
+        records.push_back(std::move(dr));
       }
     }
 
@@ -308,7 +308,7 @@ int SyncRes::AuthDomain::getRecords(const DNSName& qname, uint16_t qtype, std::v
     for(ziter = range.first; ziter != range.second; ++ziter) {
       DNSRecord dr = *ziter;
       dr.d_place = DNSResourceRecord::AUTHORITY;
-      records.push_back(dr);
+      records.push_back(std::move(dr));
     }
   }
 
@@ -902,12 +902,12 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
   bool wasAuth;
   if(t_RC->get(d_now.tv_sec, qname, QType(QType::CNAME), d_requireAuthData, &cset, d_cacheRemote, d_doDNSSEC ? &signatures : nullptr, d_doDNSSEC ? &authorityRecs : nullptr, &d_wasVariable, &state, &wasAuth) > 0) {
 
-    for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
-      if (j->d_class != QClass::IN) {
+    for(auto& j : cset) {
+      if (j.d_class != QClass::IN) {
         continue;
       }
 
-      if(j->d_ttl>(unsigned int) d_now.tv_sec) {
+      if(j.d_ttl>(unsigned int) d_now.tv_sec) {
 
         if (!wasAuthZone && shouldValidate() && wasAuth && state == Indeterminate && d_requireAuthData) {
           /* This means we couldn't figure out the state when this entry was cached,
@@ -931,34 +931,36 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
           }
         }
 
-        LOG(prefix<<qname<<": Found cache CNAME hit for '"<< qname << "|CNAME" <<"' to '"<<j->d_content->getZoneRepresentation()<<"', validation state is "<<vStates[state]<<endl);
+        LOG(prefix<<qname<<": Found cache CNAME hit for '"<< qname << "|CNAME" <<"' to '"<<j.d_content->getZoneRepresentation()<<"', validation state is "<<vStates[state]<<endl);
 
-        DNSRecord dr=*j;
-        dr.d_ttl-=d_now.tv_sec;
-        ret.push_back(dr);
+        ret.reserve(ret.size() + 1 + signatures.size() + authorityRecs.size());
+
+        const auto cnameContent = getRR<CNAMERecordContent>(j);
+        uint32_t jttl = j.d_ttl;
+        j.d_ttl-=d_now.tv_sec;
+        ret.push_back(std::move(j));
 
         for(const auto& signature : signatures) {
           DNSRecord sigdr;
           sigdr.d_type=QType::RRSIG;
           sigdr.d_name=qname;
-          sigdr.d_ttl=j->d_ttl - d_now.tv_sec;
+          sigdr.d_ttl=jttl - d_now.tv_sec;
           sigdr.d_content=signature;
           sigdr.d_place=DNSResourceRecord::ANSWER;
           sigdr.d_class=QClass::IN;
-          ret.push_back(sigdr);
+          ret.push_back(std::move(sigdr));
         }
 
         for(const auto& rec : authorityRecs) {
           DNSRecord authDR(*rec);
-          authDR.d_ttl=j->d_ttl - d_now.tv_sec;
-          ret.push_back(authDR);
+          authDR.d_ttl=jttl - d_now.tv_sec;
+          ret.push_back(std::move(authDR));
         }
 
         if(qtype != QType::CNAME) { // perhaps they really wanted a CNAME!
           set<GetBestNSAnswer>beenthere;
 
           vState cnameState = Indeterminate;
-          const auto cnameContent = getRR<CNAMERecordContent>(*j);
           if (cnameContent) {
             res=doResolve(cnameContent->getTarget(), qtype, ret, depth+1, beenthere, cnameState);
             LOG(prefix<<qname<<": updating validation state for response to "<<qname<<" from "<<vStates[state]<<" with the state from the CNAME quest: "<<vStates[cnameState]<<endl);
@@ -1020,7 +1022,7 @@ static void addTTLModifiedRecords(const vector<DNSRecord>& records, const uint32
   for (const auto& rec : records) {
     DNSRecord r(rec);
     r.d_ttl = ttl;
-    ret.push_back(r);
+    ret.push_back(std::move(r));
   }
 }
 
@@ -1184,19 +1186,18 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
       }
     }
 
-    for(auto j=cset.cbegin() ; j != cset.cend() ; ++j) {
+    for(auto& j : cset) {
 
-      LOG(j->d_content->getZoneRepresentation());
+      LOG(j.d_content->getZoneRepresentation());
 
-      if (j->d_class != QClass::IN) {
+      if (j.d_class != QClass::IN) {
         continue;
       }
 
-      if(j->d_ttl>(unsigned int) d_now.tv_sec) {
-        DNSRecord dr=*j;
-        ttl = (dr.d_ttl-=d_now.tv_sec);
-        ret.push_back(dr);
-        LOG("[ttl="<<dr.d_ttl<<"] ");
+      if(j.d_ttl>(unsigned int) d_now.tv_sec) {
+        ttl = (j.d_ttl-=d_now.tv_sec);
+        LOG("[ttl="<<j.d_ttl<<"] ");
+        ret.push_back(std::move(j));
         found=true;
       }
       else {
@@ -1204,6 +1205,8 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
         expired=true;
       }
     }
+
+    ret.reserve(ret.size() + signatures.size() + authorityRecs.size());
 
     for(const auto& signature : signatures) {
       DNSRecord dr;
@@ -1213,13 +1216,13 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
       dr.d_content=signature;
       dr.d_place = DNSResourceRecord::ANSWER;
       dr.d_class=QClass::IN;
-      ret.push_back(dr);
+      ret.push_back(std::move(dr));
     }
 
     for(const auto& rec : authorityRecs) {
       DNSRecord dr(*rec);
       dr.d_ttl=ttl;
-      ret.push_back(dr);
+      ret.push_back(std::move(dr));
     }
 
     LOG(endl);
@@ -2049,7 +2052,7 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
         DNSRecord dr(rec);
         dr.d_ttl += d_now.tv_sec;
         dr.d_place=DNSResourceRecord::ANSWER;
-        tcache[{rec.d_name,rec.d_type,rec.d_place}].records.push_back(dr);
+        tcache[{rec.d_name,rec.d_type,rec.d_place}].records.push_back(std::move(dr));
       }
     }
     else
