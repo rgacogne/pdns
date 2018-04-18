@@ -45,19 +45,15 @@ DNSPacketWriter::DNSPacketWriter(vector<uint8_t>& content, const DNSName& qname,
   : d_content(content), d_qname(qname), d_canonic(false), d_lowerCase(false)
 {
   d_content.clear();
-  dnsheader dnsheader;
+  d_content.reserve(sizeof(dnsheader) + qname.wirelength());
+  d_content.resize(sizeof(dnsheader));
+  dnsheader* dh = getHeader();
 
-  memset(&dnsheader, 0, sizeof(dnsheader));
-  dnsheader.id=0;
-  dnsheader.qdcount=htons(1);
-  dnsheader.opcode=opcode;
+  memset(dh, 0, sizeof(dnsheader));
+  dh->id=0;
+  dh->qdcount=htons(1);
+  dh->opcode=opcode;
 
-  const uint8_t* ptr=(const uint8_t*)&dnsheader;
-  uint32_t len=d_content.size();
-  d_content.resize(len + sizeof(dnsheader));
-  uint8_t* dptr=(&*d_content.begin()) + len;
-
-  memcpy(dptr, ptr, sizeof(dnsheader));
   d_namepositions.reserve(16);
   xfrName(qname, false);
   xfr16BitInt(qtype);
@@ -191,6 +187,9 @@ void DNSPacketWriter::xfrUnquotedText(const string& text, bool lenField)
 static constexpr bool l_verbose=false;
 uint16_t DNSPacketWriter::lookupName(const DNSName& name, uint16_t* matchLen)
 {
+  if (d_namepositions.empty()) {
+    return 0;
+  }
   // iterate over the written labels, see if we find a match
   const auto& raw = name.getStorage();
 
