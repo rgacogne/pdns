@@ -919,16 +919,30 @@ static void startDoResolve(void *p)
     uint32_t minTTL = dc->d_ttlCap;
 
     SyncRes sr(dc->d_now);
-#if 0
+#if 1
     sr.setAsyncCallback([](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, std::shared_ptr<RemoteLogger> outgoingLogger, LWResult* res, bool* chained) {
 
         //cerr<<"in asyncresolve for "<<domain.toLogString()<<" | "<<QType(type).getName()<<endl;
         res->d_rcode = 0;
-        res->d_aabit = true;
         res->d_tcbit = false;
         res->d_haveEDNS = (EDNS0Level != 0);
 
-        addRecordToList(res->d_records, domain, QType::A, "192.0.2.1", DNSResourceRecord::ANSWER, 3600);
+        if (type == QType::NS) {
+          if (domain.isRoot()) {
+            res->d_aabit = true;
+            addRecordToList(res->d_records, domain, QType::NS, "a.root-servers.net.", DNSResourceRecord::ANSWER, 3600);
+            addRecordToList(res->d_records, DNSName("a.root-servers.net."), QType::A, "192.168.0.1", DNSResourceRecord::ADDITIONAL, 3600);
+          }
+          else {
+            res->d_aabit = false;
+            addRecordToList(res->d_records, domain, QType::NS, "pdns-public-ns1.powerdns.com.", DNSResourceRecord::AUTHORITY, 3600);
+            addRecordToList(res->d_records, DNSName("pdns-public-ns1.powerdns.com."), QType::A, "192.168.0.2", DNSResourceRecord::ADDITIONAL, 3600);
+          }
+        }
+        else {
+          res->d_aabit = true;
+          addRecordToList(res->d_records, domain, QType::A, "192.0.2.1", DNSResourceRecord::ANSWER, 3600);
+        }
 
         return 1;
       });
@@ -1475,7 +1489,7 @@ static void startDoResolve(void *p)
     g_log<<Logger::Error<<"Any other exception in a resolver context "<< makeLoginfo(dc) <<endl;
   }
 
-#if 1
+#if 0
   g_stats.maxMThreadStackUsage = max(MT->getMaxStackUsage(), g_stats.maxMThreadStackUsage);
 #endif
 }
@@ -2176,6 +2190,7 @@ static void doBenchmarks()
   }
 #endif
 
+#if 0
   std::unordered_map<DNSName, std::vector<DNSRecord>> foundDomains;
   std::set<DNSName> notFoundDomains;
 
@@ -2192,6 +2207,7 @@ static void doBenchmarks()
 
   vector<shared_ptr<RRSIGRecordContent>> signatures;
   vector<shared_ptr<DNSRecord>> authorityRecs;
+#endif
 
 #if 0
   g_log<<Logger::Notice<<"Starting a loop of "<<foundDomains.size()<<" insertions into the query cache.."<<endl;
@@ -2235,6 +2251,7 @@ static void doBenchmarks()
   g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" deletions) from the query cache in "<<std::to_string(sw.udiff())<<endl;
 #endif
 
+#if 0
   /* =========== NEG =========== */
   struct timeval tv;
   gettimeofday(&tv, nullptr);
@@ -2285,8 +2302,8 @@ static void doBenchmarks()
     }
   }
   g_log<<Logger::Notice<<"Done "<<foundDomains.size()<<" deletions) from the neg cache in "<<std::to_string(sw.udiff())<<endl;
+#endif
 
-#if 0
   MT = std::unique_ptr<MTasker<PacketID,string> >(new MTasker<PacketID,string>(::arg().asNum("stack-size")));
   SyncRes::setDomainMap(std::make_shared<SyncRes::domainmap_t>());
   SyncRes::clearNegCache();
@@ -2296,7 +2313,33 @@ static void doBenchmarks()
   SyncRes::s_rootNXTrust = ::arg().mustDo( "root-nx-trust");
   g_maxMThreads = ::arg().asNum("max-mthreads");  
   g_quiet=::arg().mustDo("quiet");
+  g_udpTruncationThreshold = ::arg().asNum("udp-truncation-threshold");
   SyncRes::s_nopacketcache = ::arg().mustDo("disable-packetcache");
+  if(::arg()["trace"]=="fail") {
+    SyncRes::setDefaultLogMode(SyncRes::Store);
+  }
+  else if(::arg().mustDo("trace")) {
+    SyncRes::setDefaultLogMode(SyncRes::Log);
+    ::arg().set("quiet")="no";
+    g_quiet=false;
+    g_dnssecLOG=true;
+  }
+  SyncRes::s_maxnegttl=::arg().asNum("max-negative-ttl");
+  SyncRes::s_maxcachettl=max(::arg().asNum("max-cache-ttl"), 15);
+  SyncRes::s_packetcachettl=::arg().asNum("packetcache-ttl");
+  // Cap the packetcache-servfail-ttl to the packetcache-ttl
+  uint32_t packetCacheServFailTTL = ::arg().asNum("packetcache-servfail-ttl");
+  SyncRes::s_packetcacheservfailttl=(packetCacheServFailTTL > SyncRes::s_packetcachettl) ? SyncRes::s_packetcachettl : packetCacheServFailTTL;
+  SyncRes::s_serverdownmaxfails=::arg().asNum("server-down-max-fails");
+  SyncRes::s_serverdownthrottletime=::arg().asNum("server-down-throttle-time");
+  SyncRes::s_serverID=::arg()["server-id"];
+  SyncRes::s_maxqperq=::arg().asNum("max-qperq");
+  SyncRes::s_maxtotusec=1000*::arg().asNum("max-total-msec");
+  SyncRes::s_maxdepth=::arg().asNum("max-recursion-depth");
+  SyncRes::s_rootNXTrust = ::arg().mustDo( "root-nx-trust");
+  primeHints();
+
+#if 0
 /*  SyncRes::setDefaultLogMode(SyncRes::Log);
   ::arg().set("quiet")="no";
   g_quiet=false;
@@ -2304,6 +2347,7 @@ static void doBenchmarks()
 #endif /* 0 */
 
 #if 0
+  const dnsheader* dh = reinterpret_cast<const dnsheader*>(question.c_str());
   g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to startDoResolve().."<<endl;
   sw.start();
   for (size_t idx = 0; idx < numberOfRounds; idx++) {
@@ -2325,7 +2369,6 @@ static void doBenchmarks()
     dc->setSocket(-1);
     dc->d_tag=ctag;
     dc->d_qhash=0;
-    dc->d_query = question;
     dc->setRemote(source);
     dc->setSource(source);
     dc->setLocal(destination);
@@ -2349,7 +2392,7 @@ static void doBenchmarks()
   g_log<<Logger::Notice<<"Done "<<numberOfRounds<<" calls to startDoResolve() in "<<std::to_string(sw.udiff())<<endl;
 #endif
 
-#if 0
+#if 1
   gettimeofday(&g_now, 0);
   g_log<<Logger::Notice<<"Starting a loop of "<<numberOfRounds<<" calls to doProcessUDPQuestion().."<<endl;
   sw.start();
