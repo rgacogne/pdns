@@ -44,6 +44,7 @@
 #include "dnsdist.hh"
 #include "dnsdist-cache.hh"
 #include "dnsdist-console.hh"
+#include "dnsdist-dynblocks.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-rings.hh"
@@ -1779,7 +1780,7 @@ void* maintThread()
     }
 
     counter++;
-    if (counter >= g_cacheCleaningDelay) {
+    if (g_cacheCleaningDelay > 0 && (counter % g_cacheCleaningDelay) == 0) {
       auto localPools = g_pools.getLocal();
       std::shared_ptr<DNSDistPacketCache> packetCache = nullptr;
       for (const auto& entry : *localPools) {
@@ -1789,10 +1790,13 @@ void* maintThread()
           packetCache->purgeExpired(upTo);
         }
       }
-      counter = 0;
     }
 
     // ponder pruning g_dynblocks of expired entries here
+    if (g_dynBlockCleaningDelay > 0 && (counter % g_dynBlockCleaningDelay) == 0) {
+      purgeExpiredDynBlockNMGEntries(g_dynblockNMG);
+      purgeExpiredDynBlockSMTEntries(g_dynblockSMT);
+    }
   }
   return 0;
 }

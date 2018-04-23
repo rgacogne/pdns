@@ -329,3 +329,8 @@ private:
   DynBlockRule d_queryRateRule;
   DynBlockRule d_respRateRule;
 };
+
+extern size_t g_dynBlockCleaningDelay;
+
+void purgeExpiredDynBlockNMGEntries(GlobalStateHolder<NetmaskTree<DynBlock>>& dynblockNMG);
+void purgeExpiredDynBlockSMTEntries(GlobalStateHolder<SuffixMatchTree<DynBlock>>& dynblockSMT);
