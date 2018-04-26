@@ -563,6 +563,7 @@ BOOST_AUTO_TEST_CASE(test_suffixmatch_tree) {
   smt.add(examplenet, examplenet);
   smt.add(net, net);
   smt.add(DNSName("news.bbc.co.uk."), DNSName("news.bbc.co.uk."));
+  smt.add(apowerdnscom, apowerdnscom);
 
   BOOST_CHECK_EQUAL(smt.erase(DNSName("not-such-entry.news.bbc.co.uk.")), false);
   BOOST_REQUIRE(smt.lookup(DNSName("news.bbc.co.uk.")));
@@ -595,6 +596,23 @@ BOOST_AUTO_TEST_CASE(test_suffixmatch_tree) {
   BOOST_CHECK(smt.lookup(net) == nullptr);
   BOOST_CHECK(smt.lookup(examplenet) == nullptr);
   BOOST_CHECK_EQUAL(smt.erase(net), false);
+
+  size_t count = 0;
+  smt.visit([apowerdnscom, &count](const SuffixMatchTree<DNSName>& smt) {
+      count++;
+      BOOST_CHECK_EQUAL(smt.d_value, apowerdnscom);
+    });
+  BOOST_CHECK_EQUAL(count, 1);
+
+  BOOST_CHECK_EQUAL(*smt.lookup(apowerdnscom), apowerdnscom);
+  BOOST_CHECK_EQUAL(smt.erase(apowerdnscom), true);
+  BOOST_CHECK(smt.lookup(apowerdnscom) == nullptr);
+
+  count = 0;
+  smt.visit([&count](const SuffixMatchTree<DNSName>& smt) {
+      count++;
+    });
+  BOOST_CHECK_EQUAL(count, 0);
 }
 
 
