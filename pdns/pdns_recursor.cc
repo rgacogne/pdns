@@ -124,6 +124,9 @@ struct ThreadPipeSet
   int readQueriesToThread;
 };
 
+static const int s_handlerThreadID = -1;
+static const int s_distributorThreadID = 0;
+
 typedef vector<int> tcpListenSockets_t;
 typedef map<int, ComboAddress> listenSocketsAddresses_t; // is shared across all threads right now
 typedef vector<pair<int, function< void(int, any&) > > > deferredAdd_t;
@@ -2174,13 +2177,13 @@ static void houseKeeping(void *)
         last_rootupdate=now.tv_sec;
     }
 
-    if (t_id == -1) {
+    if (t_id == s_handlerThreadID) {
       if(g_statisticsInterval > 0 && now.tv_sec - last_stat >= g_statisticsInterval) {
 	doStats();
 	last_stat=time(0);
       }
     }
-    else if(!t_id) {
+    else if(t_id == s_distributorThreadID) {
 
       if(now.tv_sec - last_secpoll >= 3600) {
 	try {
@@ -2250,7 +2253,7 @@ struct ThreadMSG
 void broadcastFunction(const pipefunc_t& func, bool skipSelf)
 {
   /* This function might be called by the worker with t_id 0 during startup */
-  if (t_id != -1 && t_id != 0) {
+  if (t_id != s_handlerThreadID && t_id != s_distributorThreadID) {
     L<<Logger::Error<<"broadcastFunction() has been called by a worker ("<<t_id<<")"<<endl;
     exit(1);
   }
@@ -2285,7 +2288,7 @@ void broadcastFunction(const pipefunc_t& func, bool skipSelf)
 
 void distributeAsyncFunction(const string& packet, const pipefunc_t& func)
 {
-  if (t_id != 0) {
+  if (t_id != s_distributorThreadID) {
     L<<Logger::Error<<"distributeAsyncFunction() has been called by a worker ("<<t_id<<")"<<endl;
     exit(1);
   }
@@ -2377,7 +2380,7 @@ vector<pair<DNSName, uint16_t> >& operator+=(vector<pair<DNSName, uint16_t> >&a,
 
 template<class T> T broadcastAccFunction(const boost::function<T*()>& func, bool skipSelf)
 {
-  if (t_id != -1) {
+  if (t_id != s_handlerThreadID) {
     L<<Logger::Error<<"broadcastFunction has been called by a worker ("<<t_id<<")"<<endl;
     exit(1);
 
@@ -3163,7 +3166,7 @@ static int serviceMain(int argc, char*argv[])
   }
 
   /* This thread handles the web server, carbon, statistics and the control channel */
-  std::thread handlerThread(recursorThread, -1, false);
+  std::thread handlerThread(recursorThread, s_handlerThreadID, false);
 
   const auto cpusMap = parseCPUMap();
 
@@ -3267,7 +3270,7 @@ try
       }
     }
     else {
-      if(!g_weDistributeQueries || !t_id) { // if we distribute queries, only t_id = 0 listens
+      if(!g_weDistributeQueries || t_id == s_distributorThreadID) { // if we distribute queries, only t_id = 0 listens
         for(deferredAdd_t::const_iterator i = deferredAdds[0].cbegin(); i != deferredAdds[0].cend(); ++i) {
           t_fdm->addReadFD(i->first, i->second);
         }
@@ -3323,7 +3326,7 @@ try
     t_fdm->run(&g_now);
     // 'run' updates g_now for us
 
-    if(worker && (!g_weDistributeQueries || !t_id)) { // if pdns distributes queries, only tid 0 should do this
+    if(worker && (!g_weDistributeQueries || t_id == s_distributorThreadID)) { // if pdns distributes queries, only tid 0 should do this
       if(listenOnTCP) {
 	if(TCPConnection::getCurrentConnections() > maxTcpClients) {  // shutdown, too many connections
 	  for(tcpListenSockets_t::iterator i=g_tcpListenSockets.begin(); i != g_tcpListenSockets.end(); ++i)
