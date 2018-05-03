@@ -2250,7 +2250,7 @@ struct ThreadMSG
   bool wantAnswer;
 };
 
-void broadcastFunction(const pipefunc_t& func, bool skipSelf)
+void broadcastFunction(const pipefunc_t& func)
 {
   /* This function might be called by the worker with t_id 0 during startup */
   if (t_id != s_handlerThreadID && t_id != s_distributorThreadID) {
@@ -2258,12 +2258,14 @@ void broadcastFunction(const pipefunc_t& func, bool skipSelf)
     exit(1);
   }
 
+  // call the function ourselves, to update the ACL or domain maps for example
+  func();
+
   int n = 0;
   for(ThreadPipeSet& tps : g_pipes)
   {
     if(n++ == t_id) {
-      if(!skipSelf)
-        func(); // don't write to ourselves!
+      func(); // don't write to ourselves!
       continue;
     }
 
@@ -2378,7 +2380,7 @@ vector<pair<DNSName, uint16_t> >& operator+=(vector<pair<DNSName, uint16_t> >&a,
 }
 
 
-template<class T> T broadcastAccFunction(const boost::function<T*()>& func, bool skipSelf)
+template<class T> T broadcastAccFunction(const boost::function<T*()>& func)
 {
   if (t_id != s_handlerThreadID) {
     L<<Logger::Error<<"broadcastFunction has been called by a worker ("<<t_id<<")"<<endl;
@@ -2411,10 +2413,10 @@ template<class T> T broadcastAccFunction(const boost::function<T*()>& func, bool
   return ret;
 }
 
-template string broadcastAccFunction(const boost::function<string*()>& fun, bool skipSelf); // explicit instantiation
-template uint64_t broadcastAccFunction(const boost::function<uint64_t*()>& fun, bool skipSelf); // explicit instantiation
-template vector<ComboAddress> broadcastAccFunction(const boost::function<vector<ComboAddress> *()>& fun, bool skipSelf); // explicit instantiation
-template vector<pair<DNSName,uint16_t> > broadcastAccFunction(const boost::function<vector<pair<DNSName, uint16_t> > *()>& fun, bool skipSelf); // explicit instantiation
+template string broadcastAccFunction(const boost::function<string*()>& fun); // explicit instantiation
+template uint64_t broadcastAccFunction(const boost::function<uint64_t*()>& fun); // explicit instantiation
+template vector<ComboAddress> broadcastAccFunction(const boost::function<vector<ComboAddress> *()>& fun); // explicit instantiation
+template vector<pair<DNSName,uint16_t> > broadcastAccFunction(const boost::function<vector<pair<DNSName, uint16_t> > *()>& fun); // explicit instantiation
 
 static void handleRCC(int fd, FDMultiplexer::funcparam_t& var)
 {
