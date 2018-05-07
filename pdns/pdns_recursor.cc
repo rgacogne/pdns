@@ -2336,7 +2336,7 @@ static void houseKeeping(void *)
     if(now.tv_sec - last_prune > (time_t)(5 + t_id)) {
       DTime dt;
       dt.setTimeval(now);
-      t_RC->doPrune(g_maxCacheEntries / g_numThreads); // this function is local to a thread, so fine anyhow
+      t_RC->doPrune(g_maxCacheEntries / g_numWorkerThreads); // this function is local to a thread, so fine anyhow
       t_packetCache->doPruneTo(g_maxPacketCacheEntries / g_numWorkerThreads);
 
       SyncRes::pruneNegCache(g_maxCacheEntries / (g_numWorkerThreads * 10));
