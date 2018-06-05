@@ -613,7 +613,7 @@ run "wget http://ppa.launchpad.net/kalon33/gamesgiroll/ubuntu/pool/main/libs/lib
 run "sudo dpkg -i libsodium-dev_1.0.3-1~ppa14.04+1_amd64.deb libsodium13_1.0.3-1~ppa14.04+1_amd64.deb"
 run "cd ${TRAVIS_BUILD_DIR}"
 
-compilerflags="-O1 -Werror=vla"
+compilerflags="-O1 -Werror=vla -D_GLIBCXX_ASSERTIONS"
 sanitizerflags=""
 if [ "$CC" = "clang" ]
 then
