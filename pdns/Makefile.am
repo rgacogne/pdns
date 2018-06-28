@@ -891,6 +891,7 @@ testrunner_SOURCES = \
 	nsecrecords.cc \
 	qtype.cc \
 	rcpgenerator.cc \
+	recursor_cache.cc \
 	responsestats.cc \
 	sillyrecords.cc \
 	statbag.cc \
@@ -906,7 +907,7 @@ testrunner_SOURCES = \
 	test-packetcache_cc.cc \
 	test-rcpgenerator_cc.cc \
 	test-statbag_cc.cc \
-	test-zoneparser_tng_cc.cc \
+	test-recursorcache_cc.cc \
 	testrunner.cc \
 	test-sha_hh.cc \
 	packetcache.cc \

@@ -234,7 +234,7 @@ private:
 class SyncRes : public boost::noncopyable
 {
 public:
-  enum LogMode { LogNone, Log, Store}; 
+  enum LogMode { LogNone, Log, Store};
 
   explicit SyncRes(const struct timeval& now);
 
@@ -414,7 +414,7 @@ public:
   typedef Throttle<boost::tuple<ComboAddress,string,uint16_t> > throttle_t;
 
   typedef Counters<ComboAddress> fails_t;
-  
+
   struct timeval d_now;
   static unsigned int s_maxnegttl;
   static unsigned int s_maxcachettl;
