@@ -81,6 +81,43 @@ static void parseRPZParameters(const std::unordered_map<string,boost::variant<ui
   }
 }
 
+typedef std::unordered_map<std::string, boost::variant<bool, uint64_t, std::string> > protobufOptions_t;
+
+static void parseProtobufOptions(boost::optional<protobufOptions_t> vars, ProtobufExportConfig& config)
+{
+  if (!vars) {
+    return;
+  }
+
+  if (vars->count("timeout")) {
+    config.timeout = boost::get<uint64_t>((*vars)["timeout"]);
+  }
+
+  if (vars->count("maxQueuedEntries")) {
+    config.maxQueuedEntries = boost::get<uint64_t>((*vars)["maxQueuedEntries"]);
+  }
+
+  if (vars->count("reconnectWaitTime")) {
+    config.reconnectWaitTime = boost::get<uint64_t>((*vars)["reconnectWaitTime"]);
+  }
+
+  if (vars->count("asyncConnect")) {
+    config.asyncConnect = boost::get<bool>((*vars)["asyncConnect"]);
+  }
+
+  if (vars->count("taggedOnly")) {
+    config.taggedOnly = boost::get<bool>((*vars)["taggedOnly"]);
+  }
+
+  if (vars->count("logQueries")) {
+    config.logQueries = boost::get<bool>((*vars)["logQueries"]);
+  }
+
+  if (vars->count("logResponses")) {
+    config.logResponses = boost::get<bool>((*vars)["logResponses"]);
+  }
+}
+
 void loadRecursorLuaConfig(const std::string& fname, bool checkOnly)
 {
   LuaConfigItems lci;
@@ -316,42 +353,19 @@ void loadRecursorLuaConfig(const std::string& fname, bool checkOnly)
     });
 
 #if HAVE_PROTOBUF
-  Lua.writeFunction("protobufServer", [&lci, checkOnly](const string& server_, const boost::optional<uint16_t> timeout, const boost::optional<uint64_t> maxQueuedEntries, const boost::optional<uint8_t> reconnectWaitTime, const boost::optional<uint8_t> maskV4, boost::optional<uint8_t> maskV6, boost::optional<bool> asyncConnect, boost::optional<bool> taggedOnly) {
+  Lua.writeFunction("setProtobufMasks", [&lci](const uint8_t maskV4, uint8_t maskV6) {
+      lci.protobufMaskV4 = maskV4;
+      lci.protobufMaskV6 = maskV6;
+    });
+
+  Lua.writeFunction("protobufServer", [&lci](const string& server_, boost::optional<protobufOptions_t> vars) {
       try {
-	ComboAddress server(server_);
+        lci.protobufExportConfig.server = ComboAddress(server_);
+
         if (!lci.protobufExportConfig.enabled) {
 
           lci.protobufExportConfig.enabled = true;
-
-          if (!checkOnly) {
-            lci.protobufExportConfig.server = server;
-
-            if (timeout) {
-              lci.protobufExportConfig.timeout = *timeout;
-            }
-
-            if (maxQueuedEntries) {
-              lci.protobufExportConfig.maxQueuedEntries = *maxQueuedEntries;
-            }
-
-            if (reconnectWaitTime) {
-              lci.protobufExportConfig.reconnectWaitTime = *reconnectWaitTime;
-            }
-
-            if (asyncConnect) {
-              lci.protobufExportConfig.asyncConnect = *asyncConnect;
-            }
-          }
-
-          if (maskV4) {
-            lci.protobufMaskV4 = *maskV4;
-          }
-          if (maskV6) {
-            lci.protobufMaskV6 = *maskV6;
-          }
-          if (taggedOnly) {
-            lci.protobufTaggedOnly = *taggedOnly;
-          }
+          parseProtobufOptions(vars, lci.protobufExportConfig);
         }
         else {
           g_log<<Logger::Error<<"Only one protobuf server can be configured, we already have "<<lci.protobufExportConfig.server.toString()<<endl;
@@ -365,32 +379,14 @@ void loadRecursorLuaConfig(const std::string& fname, bool checkOnly)
       }
     });
 
-  Lua.writeFunction("outgoingProtobufServer", [&lci, checkOnly](const string& server_, const boost::optional<uint16_t> timeout, const boost::optional<uint64_t> maxQueuedEntries, const boost::optional<uint8_t> reconnectWaitTime, boost::optional<bool> asyncConnect) {
+  Lua.writeFunction("outgoingProtobufServer", [&lci](const string& server_, boost::optional<protobufOptions_t> vars) {
       try {
-	ComboAddress server(server_);
+	lci.protobufExportConfig.server = ComboAddress(server_);
+
         if (!lci.outgoingProtobufExportConfig.enabled) {
 
           lci.outgoingProtobufExportConfig.enabled = true;
-
-          if (!checkOnly) {
-            lci.outgoingProtobufExportConfig.server = server;
-
-            if (timeout) {
-              lci.outgoingProtobufExportConfig.timeout = *timeout;
-            }
-
-            if (maxQueuedEntries) {
-              lci.outgoingProtobufExportConfig.maxQueuedEntries = *maxQueuedEntries;
-            }
-
-            if (reconnectWaitTime) {
-              lci.outgoingProtobufExportConfig.reconnectWaitTime = *reconnectWaitTime;
-            }
-
-            if (asyncConnect) {
-              lci.outgoingProtobufExportConfig.asyncConnect = *asyncConnect;
-            }
-          }
+          parseProtobufOptions(vars, lci.protobufExportConfig);
         }
         else {
           g_log<<Logger::Error<<"Only one protobuf server can be configured, we already have "<<lci.outgoingProtobufExportConfig.server.toString()<<endl;
