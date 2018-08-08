@@ -239,17 +239,19 @@ static bool isRootServer(const ComboAddress& ip)
   return false;
 }
 
-static void computeRRSIG(const DNSSECPrivateKey& dpk, const DNSName& signer, const DNSName& signQName, uint16_t signQType, uint32_t signTTL, uint32_t sigValidity, RRSIGRecordContent& rrc, vector<shared_ptr<DNSRecordContent> >& toSign, boost::optional<uint8_t> algo=boost::none, boost::optional<uint32_t> inception=boost::none)
+static void computeRRSIG(const DNSSECPrivateKey& dpk, const DNSName& signer, const DNSName& signQName, uint16_t signQType, uint32_t signTTL, uint32_t sigValidity, RRSIGRecordContent& rrc, vector<shared_ptr<DNSRecordContent> >& toSign, boost::optional<uint8_t> algo=boost::none, boost::optional<uint32_t> inception=boost::none, boost::optional<time_t> now=boost::none)
 {
-  time_t now = time(nullptr);
+  if (!now) {
+    now = time(nullptr);
+  }
   DNSKEYRecordContent drc = dpk.getDNSKEY();
   const std::shared_ptr<DNSCryptoKeyEngine> rc = dpk.getKey();
 
   rrc.d_type = signQType;
   rrc.d_labels = signQName.countLabels() - signQName.isWildcard();
   rrc.d_originalttl = signTTL;
-  rrc.d_siginception = inception ? *inception : (now - 10);
-  rrc.d_sigexpire = now + sigValidity;
+  rrc.d_siginception = inception ? *inception : (*now - 10);
+  rrc.d_sigexpire = *now + sigValidity;
   rrc.d_signer = signer;
   rrc.d_tag = 0;
   rrc.d_tag = drc.getTag();
@@ -262,7 +264,7 @@ static void computeRRSIG(const DNSSECPrivateKey& dpk, const DNSName& signer, con
 
 typedef std::unordered_map<DNSName, std::pair<DNSSECPrivateKey, DSRecordContent> > testkeysset_t;
 
-static bool addRRSIG(const testkeysset_t& keys, std::vector<DNSRecord>& records, const DNSName& signer, uint32_t sigValidity, bool broken=false, boost::optional<uint8_t> algo=boost::none, boost::optional<DNSName> wildcard=boost::none)
+static bool addRRSIG(const testkeysset_t& keys, std::vector<DNSRecord>& records, const DNSName& signer, uint32_t sigValidity, bool broken=false, boost::optional<uint8_t> algo=boost::none, boost::optional<DNSName> wildcard=boost::none, boost::optional<time_t> now=boost::none)
 {
   if (records.empty()) {
     return false;
@@ -285,7 +287,7 @@ static bool addRRSIG(const testkeysset_t& keys, std::vector<DNSRecord>& records,
   }
 
   RRSIGRecordContent rrc;
-  computeRRSIG(it->second.first, signer, wildcard ? *wildcard : records[recordsCount-1].d_name, records[recordsCount-1].d_type, records[recordsCount-1].d_ttl, sigValidity, rrc, recordcontents, algo);
+  computeRRSIG(it->second.first, signer, wildcard ? *wildcard : records[recordsCount-1].d_name, records[recordsCount-1].d_type, records[recordsCount-1].d_ttl, sigValidity, rrc, recordcontents, algo, boost::none, now);
   if (broken) {
     rrc.d_signature[0] ^= 42;
   }
@@ -3692,7 +3694,7 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig) {
   time_t now = time(nullptr);
   RRSIGRecordContent rrc;
   /* this RRSIG is valid for the current second only */
-  computeRRSIG(dpk, qname, qname, QType::A, 600, 0, rrc, recordcontents, boost::none, now);
+  computeRRSIG(dpk, qname, qname, QType::A, 600, 0, rrc, recordcontents, boost::none, now, now);
 
   skeyset_t keyset;
   keyset.insert(std::make_shared<DNSKEYRecordContent>(dpk.getDNSKEY()));
@@ -8955,8 +8957,9 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig_negcache_validity) {
   g_luaconfs.setState(luaconfsCopy);
 
   size_t queriesCount = 0;
+  uint32_t sigValidity = 1;
 
-  sr->setAsyncCallback([target,&queriesCount,keys](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, std::shared_ptr<RemoteLogger> outgoingLogger, LWResult* res, bool* chained) {
+  sr->setAsyncCallback([target,&queriesCount,keys,sigValidity](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, std::shared_ptr<RemoteLogger> outgoingLogger, LWResult* res, bool* chained) {
       queriesCount++;
 
       DNSName auth = domain;
@@ -8970,7 +8973,7 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig_negcache_validity) {
         addRecordToLW(res, domain, QType::SOA, "pdns-public-ns1.powerdns.com. pieter\\.lexis.powerdns.com. 2017032301 10800 3600 604800 3600", DNSResourceRecord::AUTHORITY, 3600);
         addRRSIG(keys, res->d_records, domain, 300);
         addNSECRecordToLW(domain, DNSName("z."), { QType::NSEC, QType::RRSIG }, 600, res->d_records);
-        addRRSIG(keys, res->d_records, domain, 1);
+        addRRSIG(keys, res->d_records, domain, sigValidity, false, boost::none, boost::none, now->tv_sec);
         return 1;
       }
 
@@ -8989,7 +8992,7 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig_negcache_validity) {
   const NegCache::NegCacheEntry* ne = nullptr;
   BOOST_CHECK_EQUAL(SyncRes::t_sstorage.negcache.size(), 1);
   BOOST_REQUIRE_EQUAL(SyncRes::t_sstorage.negcache.get(target, QType(QType::A), sr->getNow(), &ne), true);
-  BOOST_CHECK_EQUAL(ne->d_ttd, now + 1);
+  BOOST_CHECK_EQUAL(ne->d_ttd, now + sigValidity);
   BOOST_CHECK_EQUAL(ne->d_validationState, Secure);
   BOOST_CHECK_EQUAL(ne->authoritySOA.records.size(), 1);
   BOOST_CHECK_EQUAL(ne->authoritySOA.signatures.size(), 1);
@@ -9023,8 +9026,9 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig_cache_validity) {
   g_luaconfs.setState(luaconfsCopy);
 
   size_t queriesCount = 0;
+  uint32_t sigValidity = 1;
 
-  sr->setAsyncCallback([target,targetAddr,&queriesCount,keys](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, std::shared_ptr<RemoteLogger> outgoingLogger, LWResult* res, bool* chained) {
+  sr->setAsyncCallback([target,targetAddr,&queriesCount,keys,sigValidity](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, std::shared_ptr<RemoteLogger> outgoingLogger, LWResult* res, bool* chained) {
       queriesCount++;
 
       DNSName auth = domain;
@@ -9036,7 +9040,7 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig_cache_validity) {
       else {
         setLWResult(res, RCode::NoError, true, false, true);
         addRecordToLW(res, domain, QType::A, targetAddr.toString(), DNSResourceRecord::ANSWER, 3600);
-        addRRSIG(keys, res->d_records, domain, 1);
+        addRRSIG(keys, res->d_records, domain, sigValidity, false, boost::none, boost::none, now->tv_sec);
         return 1;
       }
 
@@ -9055,10 +9059,10 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig_cache_validity) {
   const ComboAddress who;
   vector<DNSRecord> cached;
   vector<std::shared_ptr<RRSIGRecordContent>> signatures;
-  BOOST_REQUIRE_EQUAL(t_RC->get(now, target, QType(QType::A), true, &cached, who, &signatures), 1);
+  BOOST_REQUIRE_EQUAL(t_RC->get(now, target, QType(QType::A), true, &cached, who, &signatures), sigValidity);
   BOOST_REQUIRE_EQUAL(cached.size(), 1);
   BOOST_REQUIRE_EQUAL(signatures.size(), 1);
-  BOOST_CHECK_EQUAL((cached[0].d_ttl - now), 1);
+  BOOST_CHECK_EQUAL((cached[0].d_ttl - now), sigValidity);
 
   /* again, to test the cache */
   ret.clear();
@@ -9606,7 +9610,7 @@ BOOST_AUTO_TEST_CASE(test_dnssec_validation_from_negcache_secure) {
         addRecordToLW(res, domain, QType::SOA, "pdns-public-ns1.powerdns.com. pieter\\.lexis.powerdns.com. 2017032301 10800 3600 604800 3600", DNSResourceRecord::AUTHORITY, 3600);
         addRRSIG(keys, res->d_records, domain, 300);
         addNSECRecordToLW(domain, DNSName("z."), { QType::NSEC, QType::RRSIG }, 600, res->d_records);
-        addRRSIG(keys, res->d_records, domain, 1);
+        addRRSIG(keys, res->d_records, domain, 300);
         return 1;
       }
 
