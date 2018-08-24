@@ -108,7 +108,7 @@ class TestAPIBasics(DNSDistTest):
             self.assertTrue(server['state'] in ['up', 'down', 'UP', 'DOWN'])
 
         for frontend in content['frontends']:
-            for key in ['id', 'address', 'udp', 'tcp', 'queries']:
+            for key in ['id', 'address', 'udp', 'tcp', 'queries', 'type']:
                 self.assertIn(key, frontend)
 
             for key in ['id', 'queries']:

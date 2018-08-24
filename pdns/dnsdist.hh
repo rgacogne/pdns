@@ -473,6 +473,22 @@ struct ClientState
     return udpFD != -1 ? udpFD : tcpFD;
   }
 
+  std::string getType() const
+  {
+    std::string result = udpFD != -1 ? "UDP" : "TCP";
+
+    if (tlsFrontend) {
+      result += " (DNS over TLS)";
+    }
+#ifdef HAVE_DNSCRYPT
+    else if (dnscryptCtx) {
+      result += " (DNSCrypt)";
+    }
+#endif /* HAVE_DNSCRYPT */
+
+    return result;
+  }
+
 #ifdef HAVE_EBPF
   shared_ptr<BPFFilter> d_filter;
 

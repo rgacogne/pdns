@@ -442,6 +442,7 @@ static void connectionThread(int sock, ComboAddress remote, string password, str
           { "address", front->local.toStringWithPort() },
           { "udp", front->udpFD >= 0 },
           { "tcp", front->tcpFD >= 0 },
+          { "type", front->getType() },
           { "queries", (double) front->queries.load() }
         };
         frontends.push_back(frontend);
