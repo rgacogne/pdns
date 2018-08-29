@@ -242,11 +242,9 @@ void* tcpClientThread(int pipefd)
   
   LocalHolders holders;
   auto localRespRulactions = g_resprulactions.getLocal();
-#ifdef HAVE_DNSCRYPT
   /* when the answer is encrypted in place, we need to get a copy
      of the original header before encryption to fill the ring buffer */
   dnsheader dhCopy;
-#endif
 
   map<ComboAddress,int> sockets;
   for(;;) {
@@ -326,7 +324,6 @@ void* tcpClientThread(int pipefd)
 	gettime(&now);
 	gettime(&queryRealTime, true);
 
-#ifdef HAVE_DNSCRYPT
         std::shared_ptr<DNSCryptQuery> dnsCryptQuery = nullptr;
 
         if (ci.cs->dnscryptCtx) {
@@ -343,7 +340,7 @@ void* tcpClientThread(int pipefd)
           }
           qlen = decryptedQueryLen;
         }
-#endif
+
         struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(query);
 
         if (!checkQueryHeaders(dh)) {
@@ -377,11 +374,10 @@ void* tcpClientThread(int pipefd)
             goto drop;
           }
 
-#ifdef HAVE_DNSCRYPT
           if (!encryptResponse(query, &dq.len, dq.size, true, dnsCryptQuery, nullptr, nullptr)) {
             goto drop;
           }
-#endif
+
           handler.writeSizeAndMsg(query, dq.len, g_tcpSendTimeout);
           g_stats.selfAnswered++;
           continue;
@@ -429,11 +425,10 @@ void* tcpClientThread(int pipefd)
               goto drop;
             }
 
-#ifdef HAVE_DNSCRYPT
             if (!encryptResponse(cachedResponse, &cachedResponseSize, sizeof cachedResponse, true, dnsCryptQuery, nullptr, nullptr)) {
               goto drop;
             }
-#endif
+
             handler.writeSizeAndMsg(cachedResponse, cachedResponseSize, g_tcpSendTimeout);
             g_stats.cacheHits++;
             continue;
@@ -459,11 +454,10 @@ void* tcpClientThread(int pipefd)
               goto drop;
             }
 
-#ifdef HAVE_DNSCRYPT
             if (!encryptResponse(query, &dq.len, dq.size, true, dnsCryptQuery, nullptr, nullptr)) {
               goto drop;
             }
-#endif
+
             handler.writeSizeAndMsg(query, dq.len, g_tcpSendTimeout);
 
             // no response-only statistics counter to update.
@@ -561,11 +555,11 @@ void* tcpClientThread(int pipefd)
 
         size_t responseSize = rlen;
         uint16_t addRoom = 0;
-#ifdef HAVE_DNSCRYPT
+
         if (dnsCryptQuery && (UINT16_MAX - rlen) > (uint16_t) DNSCRYPT_MAX_RESPONSE_PADDING_AND_MAC_SIZE) {
           addRoom = DNSCRYPT_MAX_RESPONSE_PADDING_AND_MAC_SIZE;
         }
-#endif
+
         responseSize += addRoom;
         answerBuffer.resize(responseSize);
         char* response = answerBuffer.data();
@@ -604,11 +598,10 @@ void* tcpClientThread(int pipefd)
 	  packetCache->insert(cacheKey, subnet, origFlags, qname, qtype, qclass, response, responseLen, true, dh->rcode, dq.tempFailureTTL);
 	}
 
-#ifdef HAVE_DNSCRYPT
         if (!encryptResponse(response, &responseLen, responseSize, true, dnsCryptQuery, &dh, &dhCopy)) {
           goto drop;
         }
-#endif
+
         if (!handler.writeSizeAndMsg(response, responseLen, g_tcpSendTimeout)) {
           break;
         }

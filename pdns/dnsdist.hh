@@ -416,9 +416,7 @@ struct IDState
   ComboAddress origDest;                                      // 28
   StopWatch sentTime;                                         // 16
   DNSName qname;                                              // 80
-#ifdef HAVE_DNSCRYPT
   std::shared_ptr<DNSCryptQuery> dnsCryptQuery{nullptr};
-#endif
 #ifdef HAVE_PROTOBUF
   boost::optional<boost::uuids::uuid> uniqueId;
 #endif
@@ -459,9 +457,7 @@ struct ClientState
 {
   std::set<int> cpus;
   ComboAddress local;
-#ifdef HAVE_DNSCRYPT
   std::shared_ptr<DNSCryptContext> dnscryptCtx{nullptr};
-#endif
   shared_ptr<TLSFrontend> tlsFrontend;
   std::atomic<uint64_t> queries{0};
   int udpFD{-1};
@@ -480,11 +476,9 @@ struct ClientState
     if (tlsFrontend) {
       result += " (DNS over TLS)";
     }
-#ifdef HAVE_DNSCRYPT
     else if (dnscryptCtx) {
       result += " (DNSCrypt)";
     }
-#endif /* HAVE_DNSCRYPT */
 
     return result;
   }
@@ -921,12 +915,11 @@ bool fixUpResponse(char** response, uint16_t* responseLen, size_t* responseSize,
 void restoreFlags(struct dnsheader* dh, uint16_t origFlags);
 bool checkQueryHeaders(const struct dnsheader* dh);
 
-#ifdef HAVE_DNSCRYPT
 extern std::vector<std::tuple<ComboAddress, std::shared_ptr<DNSCryptContext>, bool, int, std::string, std::set<int> > > g_dnsCryptLocals;
 
 bool encryptResponse(char* response, uint16_t* responseLen, size_t responseSize, bool tcp, std::shared_ptr<DNSCryptQuery> dnsCryptQuery, dnsheader** dh, dnsheader* dhCopy);
 int handleDNSCryptQuery(char* packet, uint16_t len, std::shared_ptr<DNSCryptQuery> query, uint16_t* decryptedQueryLen, bool tcp, time_t now, std::vector<uint8_t>& response);
-#endif
+
 
 bool addXPF(DNSQuestion& dq, uint16_t optionCode);
 

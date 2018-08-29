@@ -47,3 +47,28 @@ int handleDNSCryptQuery(char* packet, uint16_t len, std::shared_ptr<DNSCryptQuer
   return true;
 }
 #endif
+
+bool encryptResponse(char* response, uint16_t* responseLen, size_t responseSize, bool tcp, std::shared_ptr<DNSCryptQuery> dnsCryptQuery, dnsheader** dh, dnsheader* dhCopy)
+{
+  if (dnsCryptQuery) {
+#ifdef HAVE_DNSCRYPT
+    uint16_t encryptedResponseLen = 0;
+
+    /* save the original header before encrypting it in place */
+    if (dh != nullptr && *dh != nullptr && dhCopy != nullptr) {
+      memcpy(dhCopy, *dh, sizeof(dnsheader));
+      *dh = dhCopy;
+    }
+
+    int res = dnsCryptQuery->encryptResponse(response, *responseLen, responseSize, tcp, &encryptedResponseLen);
+    if (res == 0) {
+      *responseLen = encryptedResponseLen;
+    } else {
+      /* dropping response */
+      vinfolog("Error encrypting the response, dropping.");
+      return false;
+    }
+#endif
+  }
+  return true;
+}

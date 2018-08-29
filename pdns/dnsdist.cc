@@ -90,9 +90,7 @@ string g_outputBuffer;
 
 vector<std::tuple<ComboAddress, bool, bool, int, string, std::set<int>>> g_locals;
 std::vector<std::shared_ptr<TLSFrontend>> g_tlslocals;
-#ifdef HAVE_DNSCRYPT
 std::vector<std::tuple<ComboAddress,std::shared_ptr<DNSCryptContext>,bool, int, string, std::set<int> >> g_dnsCryptLocals;
-#endif
 #ifdef HAVE_EBPF
 shared_ptr<BPFFilter> g_defaultBPFFilter;
 std::vector<std::shared_ptr<DynBPFFilter> > g_dynBPFFilters;
@@ -337,31 +335,6 @@ bool fixUpResponse(char** response, uint16_t* responseLen, size_t* responseSize,
   return true;
 }
 
-#ifdef HAVE_DNSCRYPT
-bool encryptResponse(char* response, uint16_t* responseLen, size_t responseSize, bool tcp, std::shared_ptr<DNSCryptQuery> dnsCryptQuery, dnsheader** dh, dnsheader* dhCopy)
-{
-  if (dnsCryptQuery) {
-    uint16_t encryptedResponseLen = 0;
-
-    /* save the original header before encrypting it in place */
-    if (dh != nullptr && *dh != nullptr && dhCopy != nullptr) {
-      memcpy(dhCopy, *dh, sizeof(dnsheader));
-      *dh = dhCopy;
-    }
-
-    int res = dnsCryptQuery->encryptResponse(response, *responseLen, responseSize, tcp, &encryptedResponseLen);
-    if (res == 0) {
-      *responseLen = encryptedResponseLen;
-    } else {
-      /* dropping response */
-      vinfolog("Error encrypting the response, dropping.");
-      return false;
-    }
-  }
-  return true;
-}
-#endif
-
 static bool sendUDPResponse(int origFD, char* response, uint16_t responseLen, int delayMsec, const ComboAddress& origDest, const ComboAddress& origRemote)
 {
   if(delayMsec && g_delay) {
@@ -410,14 +383,10 @@ static void pickBackendSocketsReadyForReceiving(const std::shared_ptr<Downstream
 void* responderThread(std::shared_ptr<DownstreamState> dss)
 try {
   auto localRespRulactions = g_resprulactions.getLocal();
-#ifdef HAVE_DNSCRYPT
   char packet[4096 + DNSCRYPT_MAX_RESPONSE_PADDING_AND_MAC_SIZE];
   /* when the answer is encrypted in place, we need to get a copy
      of the original header before encryption to fill the ring buffer */
   dnsheader dhCopy;
-#else
-  char packet[4096];
-#endif
   static_assert(sizeof(packet) <= UINT16_MAX, "Packet size should fit in a uint16_t");
   vector<uint8_t> rewrittenResponse;
 
@@ -486,11 +455,10 @@ try {
           continue;
         }
 
-#ifdef HAVE_DNSCRYPT
         if (ids->dnsCryptQuery) {
           addRoom = DNSCRYPT_MAX_RESPONSE_PADDING_AND_MAC_SIZE;
         }
-#endif
+
         if (!fixUpResponse(&response, &responseLen, &responseSize, ids->qname, ids->origFlags, ids->ednsAdded, ids->ecsAdded, rewrittenResponse, addRoom)) {
           continue;
         }
@@ -500,11 +468,9 @@ try {
         }
 
         if (ids->cs && !ids->cs->muted) {
-#ifdef HAVE_DNSCRYPT
           if (!encryptResponse(response, &responseLen, responseSize, false, ids->dnsCryptQuery, &dh, &dhCopy)) {
             continue;
           }
-#endif
 
           ComboAddress empty;
           empty.sin4.sin_family = 0;
@@ -531,9 +497,7 @@ try {
         /* if the FD is not -1, the state has been actively reused and we should
            not alter anything */
         if (ids->origFD == -1) {
-#ifdef HAVE_DNSCRYPT
           ids->dnsCryptQuery = nullptr;
-#endif
         }
 
         rewrittenResponse.clear();
@@ -1255,9 +1219,9 @@ static bool isUDPQueryAcceptable(ClientState& cs, LocalHolders& holders, const s
   return true;
 }
 
-#ifdef HAVE_DNSCRYPT
 static bool checkDNSCryptQuery(const ClientState& cs, const char* query, uint16_t& len, std::shared_ptr<DNSCryptQuery>& dnsCryptQuery, const ComboAddress& dest, const ComboAddress& remote, time_t now)
 {
+#ifdef HAVE_DNSCRYPT
   if (cs.dnscryptCtx) {
     vector<uint8_t> response;
     uint16_t decryptedQueryLen = 0;
@@ -1275,9 +1239,9 @@ static bool checkDNSCryptQuery(const ClientState& cs, const char* query, uint16_
 
     len = decryptedQueryLen;
   }
+#endif /* HAVE_DNSCRYPT */
   return true;
 }
-#endif /* HAVE_DNSCRYPT */
 
 bool checkQueryHeaders(const struct dnsheader* dh)
 {
@@ -1331,13 +1295,11 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
     gettime(&now);
     gettime(&queryRealTime, true);
 
-#ifdef HAVE_DNSCRYPT
     std::shared_ptr<DNSCryptQuery> dnsCryptQuery = nullptr;
 
     if (!checkDNSCryptQuery(cs, query, len, dnsCryptQuery, dest, remote, queryRealTime.tv_sec)) {
       return;
     }
-#endif
 
     struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(query);
     queryId = ntohs(dh->id);
@@ -1377,11 +1339,10 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
           return;
         }
 
-#ifdef HAVE_DNSCRYPT
         if (!encryptResponse(response, &responseLen, dq.size, false, dnsCryptQuery, nullptr, nullptr)) {
           return;
         }
-#endif
+
 #if defined(HAVE_RECVMMSG) && defined(HAVE_SENDMMSG) && defined(MSG_WAITFORONE)
         if (delayMsec == 0 && responsesVect != nullptr) {
           queueResponse(cs, response, responseLen, dest, remote, responsesVect[*queuedResponses], respIOV, respCBuf);
@@ -1442,11 +1403,10 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
         }
 
         if (!cs.muted) {
-#ifdef HAVE_DNSCRYPT
           if (!encryptResponse(query, &cachedResponseSize, dq.size, false, dnsCryptQuery, nullptr, nullptr)) {
             return;
           }
-#endif
+
 #if defined(HAVE_RECVMMSG) && defined(HAVE_SENDMMSG) && defined(MSG_WAITFORONE)
           if (delayMsec == 0 && responsesVect != nullptr) {
             queueResponse(cs, query, cachedResponseSize, dest, remote, responsesVect[*queuedResponses], respIOV, respCBuf);
@@ -1487,11 +1447,10 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
           return;
         }
 
-#ifdef HAVE_DNSCRYPT
         if (!encryptResponse(response, &responseLen, dq.size, false, dnsCryptQuery, nullptr, nullptr)) {
           return;
         }
-#endif
+
 #if defined(HAVE_RECVMMSG) && defined(HAVE_SENDMMSG) && defined(MSG_WAITFORONE)
         if (responsesVect != nullptr) {
           queueResponse(cs, response, responseLen, dest, remote, responsesVect[*queuedResponses], respIOV, respCBuf);
@@ -1562,9 +1521,9 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
       ids->origDest = cs.local;
       ids->destHarvested = false;
     }
-#ifdef HAVE_DNSCRYPT
+
     ids->dnsCryptQuery = dnsCryptQuery;
-#endif
+
 #ifdef HAVE_PROTOBUF
     ids->uniqueId = dq.uniqueId;
 #endif
