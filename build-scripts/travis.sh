@@ -329,6 +329,9 @@ install_auth() {
   run "sudo chmod 755 /etc/authbind/byport/53"
 }
 
+install_ixfrdist() {
+}
+
 install_recursor() {
   # recursor test requirements / setup
   # lua-posix is required for the ghost tests
@@ -390,7 +393,6 @@ build_auth() {
     --enable-experimental-pkcs11 \
     --enable-remotebackend-zeromq \
     --enable-tools \
-    --enable-ixfrdist \
     --enable-unit-tests \
     --enable-backend-unit-tests \
     --disable-dependency-tracking \
@@ -399,6 +401,21 @@ build_auth() {
   run "make -k -j3"
   run "make -k install DESTDIR=/tmp/pdns-install-dir"
   run "find /tmp/pdns-install-dir -ls"
+}
+
+build_ixfrdist() {
+  run "autoreconf -vi"
+  run "./configure \
+    ${sanitizerflags} \
+    --with-dynmodules='bind' \
+    --with-modules='' \
+    --enable-ixfrdist \
+    --enable-unit-tests \
+    --disable-dependency-tracking \
+    --disable-silent-rules"
+  run "cd pdns"
+  run "make -k -j3 ixfrdist"
+  run "cd .."
 }
 
 build_recursor() {
@@ -570,6 +587,12 @@ test_auth() {
   run "cd .."
 
   run "rm -f regression-tests/zones/*-slave.*" #FIXME
+}
+
+test_ixfrdist(){
+  run "cd regression-tests.ixfrdist"
+  run "IXFRDISTBIN=${TRAVIS_BUILD_DIR}/pdns/ixfrdist ./runtests -v"
+  run "cd .."
 }
 
 test_recursor() {
