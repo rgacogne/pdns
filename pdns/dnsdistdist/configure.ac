@@ -82,6 +82,7 @@ AS_IF([test "x$enable_hardening" != "xno"], [
 ])
 
 PDNS_ENABLE_SANITIZERS
+PDNS_ENABLE_SAFESTACK
 
 PDNS_CHECK_VIRTUALENV
 
