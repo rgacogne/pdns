@@ -1462,6 +1462,7 @@ void dropCapabilities()
      cap_clear(caps);
 
      if (cap_set_proc(caps) != 0) {
+       cap_free(caps);
        throw std::runtime_error("Unable to drop capabilities: " + std::string(strerror(errno)));
      }
 
