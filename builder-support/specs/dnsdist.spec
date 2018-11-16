@@ -26,6 +26,7 @@ BuildRequires: systemd-devel
 %if 0%{?rhel} >= 7
 BuildRequires: boost-devel
 BuildRequires: gnutls-devel
+BuildRequires: libcap-devel
 BuildRequires: libsodium-devel
 %ifarch aarch64
 BuildRequires: lua-devel
@@ -97,6 +98,7 @@ sed -i '/^ExecStart/ s/dnsdist/dnsdist -u dnsdist -g dnsdist/' dnsdist.service.i
   --enable-gnutls \
   --with-protobuf \
   --with-lua=%{lua_implementation} \
+  --enable-libcap \
   --enable-libsodium \
   --enable-dnscrypt \
   --enable-systemd --with-systemd=/lib/systemd/system \
