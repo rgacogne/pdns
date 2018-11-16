@@ -16,6 +16,7 @@ BuildRequires: boost148-devel
 BuildRequires: lua-devel
 %else
 BuildRequires: boost-devel
+BuildRequires: libcap-devel
 %ifarch aarch64
 BuildRequires: lua-devel
 %define lua_implementation lua
@@ -73,6 +74,7 @@ package if you need a dns cache for your network.
 make %{?_smp_mflags} LIBRARY_PATH=/usr/lib64/boost148
 %else
     --with-lua=%{lua_implementation} \
+    --enable-libcap \
     --enable-systemd --with-systemd=%{_unitdir}
 
 make %{?_smp_mflags}
