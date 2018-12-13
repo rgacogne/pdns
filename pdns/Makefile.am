@@ -154,6 +154,7 @@ pdns_server_SOURCES = \
 	common_startup.cc common_startup.hh \
 	communicator.cc communicator.hh \
 	dbdnsseckeeper.cc \
+	digests.hh \
 	distributor.hh \
 	dns.cc dns.hh \
 	dns_random.cc dns_random.hh \
@@ -183,7 +184,6 @@ pdns_server_SOURCES = \
 	lua-auth4.cc lua-auth4.hh \
 	lua-pdns.cc lua-pdns.hh lua-iputils.cc \
 	mastercommunicator.cc \
-	md5.hh \
 	misc.cc misc.hh \
 	nameserver.cc nameserver.hh \
 	namespaces.hh \
@@ -743,6 +743,7 @@ tsig_tests_SOURCES = \
 	arguments.cc \
 	base32.cc \
 	base64.cc base64.hh \
+	digests.hh \
 	dns.cc \
 	dns_random.cc dns_random.hh \
 	dnslabeltext.cc \
@@ -1174,6 +1175,7 @@ testrunner_SOURCES = \
 	test-common.hh \
 	test-delaypipe_hh.cc \
 	test-dnsrecordcontent.cc \
+	test-digests_hh.cc \
 	test-distributor_hh.cc \
 	test-dns_random_hh.cc \
 	test-dnsname_cc.cc \
@@ -1182,7 +1184,6 @@ testrunner_SOURCES = \
 	test-iputils_hh.cc \
 	test-ixfr_cc.cc \
 	test-lock_hh.cc \
-	test-md5_hh.cc \
 	test-misc_hh.cc \
 	test-nameserver_cc.cc \
 	test-nmtree.cc \

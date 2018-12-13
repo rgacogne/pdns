@@ -25,7 +25,7 @@
 #include "dnssecinfra.hh"
 #include "namespaces.hh"
 
-#include "md5.hh"
+#include "digests.hh"
 #include "dnsseckeeper.hh"
 #include "dns_random.hh"
 #include "lock.hh"
@@ -40,6 +40,16 @@ static int g_cacheweekno;
 
 AtomicCounter* g_signatureCount;
 
+static std::string getLookupKey(const std::string& msg)
+{
+  try {
+    return pdns_md5sum(msg);
+  }
+  catch(const std::runtime_error& e) {
+    return pdns_sha1sum(msg);
+  }
+}
+
 static void fillOutRRSIG(DNSSECPrivateKey& dpk, const DNSName& signQName, RRSIGRecordContent& rrc, vector<shared_ptr<DNSRecordContent> >& toSign)
 {
   if(!g_signatureCount)
@@ -51,7 +61,7 @@ static void fillOutRRSIG(DNSSECPrivateKey& dpk, const DNSName& signQName, RRSIGR
   rrc.d_algorithm = drc.d_algorithm;
 
   string msg=getMessageForRRSET(signQName, rrc, toSign); // this is what we will hash & sign
-  pair<string, string> lookup(rc->getPubKeyHash(), pdns_md5sum(msg));  // this hash is a memory saving exercise
+  pair<string, string> lookup(rc->getPubKeyHash(), getLookupKey(msg));  // this hash is a memory saving exercise
 
   bool doCache=1;
   if(doCache)
