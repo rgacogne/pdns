@@ -3984,6 +3984,14 @@ try
   if(threadInfo.isHandler) {
     t_fdm->addReadFD(s_rcc.d_fd, handleRCC); // control channel
   }
+  else if (threadInfo.isWorker) {
+    MT->makeThread([](void *) {
+                     struct timeval now;
+                     Utility::gettimeofday(&now, nullptr);
+                     SyncRes::getRootNS(now, nullptr);
+                   },
+      nullptr);
+  }
 
   unsigned int maxTcpClients=::arg().asNum("max-tcp-clients");
 
