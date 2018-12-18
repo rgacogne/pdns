@@ -126,7 +126,11 @@ PDNS_CHECK_VIRTUALENV
 PDNS_FROM_GIT
 
 dnl Checks for library functions.
-AC_CHECK_FUNCS_ONCE([strcasestr localtime_r recvmmsg getrandom arc4random])
+AC_CHECK_FUNCS_ONCE([strcasestr localtime_r recvmmsg arc4random])
+AC_SEARCH_LIBS([getrandom], [c],
+  [AC_DEFINE(HAVE_GETRANDOM, [1], [Define to 1 if you have getrandom])],
+  []
+)
 
 AM_CONDITIONAL([HAVE_RECVMMSG], [test "x$ac_cv_func_recvmmsg" = "xyes"])
 
