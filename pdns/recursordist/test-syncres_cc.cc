@@ -901,6 +901,57 @@ BOOST_AUTO_TEST_CASE(test_only_one_ns_up_resolving_itself_with_glue) {
   BOOST_CHECK_EQUAL(ret.size(), 1);
 }
 
+BOOST_AUTO_TEST_CASE(test_ns_loop) {
+  std::unique_ptr<SyncRes> sr;
+  initSR(sr, false, true);
+
+  primeHints();
+
+  DNSName target("www.powerdns.com.");
+  size_t queriesCount = 0;
+
+  sr->setAsyncCallback([target, &queriesCount](const ComboAddress& ip, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, boost::optional<Netmask>& srcmask, boost::optional<const ResolveContext&> context, LWResult* res, bool* chained) {
+
+      queriesCount++;
+
+      if (isRootServer(ip)) {
+        setLWResult(res, 0, false, false, true);
+        if (domain.isPartOf(DNSName("com."))) {
+          addRecordToLW(res, "com.", QType::NS, "ns.", DNSResourceRecord::AUTHORITY, 172800);
+          addRecordToLW(res, "ns.", QType::A, "192.0.2.1", DNSResourceRecord::ADDITIONAL, 172800);
+        }
+        else if (domain.isPartOf(DNSName("org."))) {
+          addRecordToLW(res, "org.", QType::NS, "ns.", DNSResourceRecord::AUTHORITY, 172800);
+          addRecordToLW(res, "ns.", QType::A, "192.0.2.1", DNSResourceRecord::ADDITIONAL, 172800);
+        }
+        else if (domain.isPartOf(DNSName("net."))) {
+          addRecordToLW(res, "net.", QType::NS, "ns.", DNSResourceRecord::AUTHORITY, 172800);
+          addRecordToLW(res, "ns.", QType::A, "192.0.2.1", DNSResourceRecord::ADDITIONAL, 172800);
+        }
+        return 1;
+      }
+      else {
+        if (domain.isPartOf(DNSName("powerdns.com."))) {
+          addRecordToLW(res, "powerdns.com.", QType::NS, "ns.powerdns.org", DNSResourceRecord::AUTHORITY, 172800);
+        }
+        else if (domain.isPartOf(DNSName("ns.powerdns.org."))) {
+          addRecordToLW(res, "powerdns.org.", QType::NS, "ns.powerdns.net", DNSResourceRecord::AUTHORITY, 172800);
+        }
+        else if (domain.isPartOf(DNSName("ns.powerdns.net."))) {
+          addRecordToLW(res, "powerdns.net.", QType::NS, "ns.powerdns.org.", DNSResourceRecord::AUTHORITY, 172800);
+        }
+        return 1;
+      }
+      return 0;
+    });
+
+  vector<DNSRecord> ret;
+  int res = sr->beginResolve(target, QType(QType::A), QClass::IN, ret);
+  BOOST_CHECK_EQUAL(res, RCode::ServFail);
+  BOOST_CHECK_EQUAL(ret.size(), 0);
+  BOOST_CHECK_EQUAL(queriesCount, 4);
+}
+
 BOOST_AUTO_TEST_CASE(test_os_limit_errors) {
   std::unique_ptr<SyncRes> sr;
   initSR(sr);

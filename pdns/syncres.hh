@@ -735,8 +735,9 @@ private:
   struct GetBestNSAnswer
   {
     DNSName qname;
+    // pair of "current auth" -> NS, ie powerdns.com. -> pdns-public-ns1.powerdns.com. or com. -> a.gtld-servers.net.
     set<pair<DNSName,DNSName> > bestns;
-    uint8_t qtype; // only A and AAAA anyhow
+    uint8_t qtype;
     bool operator<(const GetBestNSAnswer &b) const
     {
       return boost::tie(qname, qtype, bestns) <
@@ -801,6 +802,8 @@ private:
   }
 
   zonesStates_t d_cutStates;
+  /* nameservers that we are currently in the process of resolving */
+  std::unordered_set<DNSName> d_inFlight;
   ostringstream d_trace;
   shared_ptr<RecursorLua4> d_pdl;
   boost::optional<Netmask> d_outgoingECSNetwork;

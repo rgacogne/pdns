@@ -1486,7 +1486,9 @@ vector<ComboAddress> SyncRes::retrieveAddressesForNS(const std::string& prefix, 
 
   if(!tns->empty()) {
     LOG(prefix<<qname<<": Trying to resolve NS '"<<*tns<< "' ("<<1+tns-rnameservers.begin()<<"/"<<(unsigned int)rnameservers.size()<<")"<<endl);
+    d_inFlight.insert(*tns);
     result = getAddrs(*tns, depth+2, beenthere, cacheOnly);
+    d_inFlight.erase(*tns);
     pierceDontQuery=false;
   }
   else {
@@ -2748,6 +2750,11 @@ int SyncRes::doResolveAt(NsSet &nameservers, DNSName auth, bool flawedNSSet, con
         }
       }
       else {
+        if (!cacheOnly && d_inFlight.count(*tns) != 0) {
+          LOG(prefix<<qname<<": We are already in the process of getting an IP for NS "<<*tns<<", trying next if available"<<endl);
+          continue;
+        }
+
         /* if tns is empty, retrieveAddressesForNS() knows we have hardcoded servers (i.e. "forwards") */
         remoteIPs = retrieveAddressesForNS(prefix, qname, tns, depth, beenthere, rnameservers, nameservers, sendRDQuery, pierceDontQuery, flawedNSSet, cacheOnly);
 
