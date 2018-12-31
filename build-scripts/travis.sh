@@ -344,7 +344,6 @@ install_recursor() {
     jq \
     libfaketime \
     libsnmp-dev \
-    lua-posix \
     moreutils \
     snmpd"
   run "cd .."
