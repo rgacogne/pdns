@@ -1448,3 +1448,19 @@ std::vector<ComboAddress> getResolvers(const std::string& resolvConfPath)
 
   return results;
 }
+
+int setPipeCapacity(int fd, int newSize)
+{
+#if defined(F_SETPIPE_SZ ) && defined(F_GETPIPE_SZ)
+  int existingSize = fcntl(fd, F_GETPIPE_SZ);
+  if (existingSize >= newSize) {
+    /* not lowering the capacity */
+    cerr<<"not lowering capacity from "<<existingSize<<" to "<<newSize<<endl;
+    return EBUSY;
+  }
+
+  return fcntl(fd, F_SETPIPE_SZ, newSize);
+#else
+  return 0;
+#endif
+}

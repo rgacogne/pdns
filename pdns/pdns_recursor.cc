@@ -2755,6 +2755,16 @@ static void makeThreadPipes()
     if (!setNonBlocking(threadInfos.pipes.writeQueriesToThread)) {
       unixDie("Making pipe for inter-thread communications non-blocking");
     }
+
+    auto capacity = arg().asNum("query-pipe-capacity");
+    if (capacity > 0) {
+      g_log<<Logger::Info<<"Increasing the capacity of distributorr to worker pipe to "<<capacity<<endl;
+
+      int res = setPipeCapacity(threadInfos.pipes.writeQueriesToThread, capacity);
+      if (res == EPERM) {
+        g_log<<Logger::Warning<<"Unable to raise the capacity of the distributor to worker pipe to "<<capacity<<endl;
+      }
+    }
   }
 }
 
@@ -4258,6 +4268,8 @@ int main(int argc, char **argv)
 
     ::arg().set("xpf-allow-from","XPF information is only processed from these subnets")="";
     ::arg().set("xpf-rr-code","XPF option code to use")="0";
+
+    ::arg().set("query-pipe-capacity","Capacity of the distributor to worker pipes, in bytes")="1048576";
 
     ::arg().set("udp-source-port-min", "Minimum UDP port to bind on")="1024";
     ::arg().set("udp-source-port-max", "Maximum UDP port to bind on")="65535";
