@@ -130,7 +130,7 @@ FrameStreamLogger::~FrameStreamLogger()
   this->cleanup();
 }
 
-void FrameStreamLogger::queueData(const std::string& data)
+void FrameStreamLogger::queueData(std::string&& data)
 {
   if (!d_ioqueue || !d_iothr) {
     return;

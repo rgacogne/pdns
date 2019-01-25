@@ -81,14 +81,14 @@ void RemoteLogger::worker()
   }
 }
 
-void RemoteLogger::queueData(const std::string& data)
+void RemoteLogger::queueData(std::string&& data)
 {
   {
     std::lock_guard<std::mutex> lock(d_writeMutex);
     if (d_writeQueue.size() >= d_maxQueuedEntries) {
       d_writeQueue.pop();
     }
-    d_writeQueue.push(data);
+    d_writeQueue.push(std::move(data));
   }
   d_queueCond.notify_one();
 }

@@ -734,7 +734,7 @@ public:
     }
     std::string data;
     message.serialize(data);
-    d_logger->queueData(data);
+    d_logger->queueData(std::move(data));
 #endif /* HAVE_PROTOBUF */
     return Action::None;
   }
@@ -773,7 +773,7 @@ public:
 
     std::string data;
     message.serialize(data);
-    d_logger->queueData(data);
+    d_logger->queueData(std::move(data));
 #endif /* HAVE_PROTOBUF */
     return Action::None;
   }
@@ -854,7 +854,7 @@ public:
     }
     std::string data;
     message.serialize(data);
-    d_logger->queueData(data);
+    d_logger->queueData(std::move(data));
 #endif /* HAVE_PROTOBUF */
     return Action::None;
   }
@@ -893,7 +893,7 @@ public:
 
     std::string data;
     message.serialize(data);
-    d_logger->queueData(data);
+    d_logger->queueData(std::move(data));
 #endif /* HAVE_PROTOBUF */
     return Action::None;
   }

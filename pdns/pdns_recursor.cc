@@ -805,7 +805,7 @@ static void protobufLogQuery(uint8_t maskV4, uint8_t maskV6, const boost::uuids:
   message.serialize(str);
 
   for (auto& server : *t_protobufServers) {
-    server->queueData(str);
+    server->queueData(std::move(str));
   }
 }
 
@@ -820,7 +820,7 @@ static void protobufLogResponse(const RecProtoBufMessage& message)
   message.serialize(str);
 
   for (auto& server : *t_protobufServers) {
-    server->queueData(str);
+    server->queueData(std::move(str));
   }
 }
 #endif
@@ -2160,8 +2160,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
     boost::optional<RecProtoBufMessage> pbMessage(boost::none);
 #ifdef HAVE_PROTOBUF
     if (t_protobufServers) {
-      pbMessage = RecProtoBufMessage(DNSProtoBufMessage::DNSProtoBufMessageType::Response);
-      pbMessage->setServerIdentity(SyncRes::s_serverID);
+      pbMessage = RecProtoBufMessage(RecProtoBufMessage::Response);
       if (logQuery && !(luaconfsLocal->protobufExportConfig.taggedOnly && policyTags.empty())) {
         protobufLogQuery(luaconfsLocal->protobufMaskV4, luaconfsLocal->protobufMaskV6, uniqueId, source, destination, ednssubnet.source, false, dh->id, question.size(), qname, qtype, qclass, policyTags, requestorId, deviceId);
       }
@@ -2209,7 +2208,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
       struct iovec iov;
       char cbuf[256];
       fillMSGHdr(&msgh, &iov, cbuf, 0, (char*)response.c_str(), response.length(), const_cast<ComboAddress*>(&fromaddr));
-      msgh.msg_control=NULL;
+      msgh.msg_control=nullptr;
 
       if(g_fromtosockets.count(fd)) {
 	addCMsgSrcAddr(&msgh, cbuf, &destaddr, 0);

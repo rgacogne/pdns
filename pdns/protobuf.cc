@@ -188,7 +188,7 @@ void DNSProtoBufMessage::addRRsFromPacket(const char* packet, const size_t len, 
         rr->set_type(ah.d_type);
         rr->set_class_(ah.d_class);
         rr->set_ttl(ah.d_ttl);
-        rr->set_rdata(blob.c_str(), blob.length());
+        rr->set_rdata(std::move(blob));
       }
     } else if (ah.d_type == QType::CNAME && includeCNAME) {
       PBDNSMessage_DNSResponse_DNSRR* rr = response->add_rrs();
