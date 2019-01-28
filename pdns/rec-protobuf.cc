@@ -172,6 +172,8 @@ void RecProtoBufMessage::setPolicyTags(const std::vector<std::string>& policyTag
 #ifdef HAVE_PROTOBUF
   PBDNSMessage_DNSResponse* response = d_message.mutable_response();
   if (response) {
+    response->clear_tags();
+
     for (const auto& tag : policyTags) {
       response->add_tags(tag);
     }

@@ -80,6 +80,7 @@ public:
   void setUUID(const boost::uuids::uuid& uuid);
   void setInitialRequestID(const boost::uuids::uuid& uuid);
   void copyFrom(const DNSProtoBufMessage& msg);
+  void copyQuestionAndResponse(const DNSProtoBufMessage& msg);
 
 protected:
   PBDNSMessage d_message;

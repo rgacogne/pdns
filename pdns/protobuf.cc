@@ -342,4 +342,30 @@ void DNSProtoBufMessage::copyFrom(const DNSProtoBufMessage& msg)
   d_message.CopyFrom(msg.d_message);
 }
 
+void DNSProtoBufMessage::copyQuestionAndResponse(const DNSProtoBufMessage& msg)
+{
+  d_message.set_type(msg.d_message.type());
+  setBytes(msg.d_message.inbytes());
+
+  if (msg.d_message.has_question()) {
+    PBDNSMessage_DNSQuestion* question = d_message.mutable_question();
+    if (question) {
+      *question = msg.d_message.question();
+    }
+  }
+  else {
+    d_message.clear_question();
+  }
+
+  if (msg.d_message.has_response()) {
+    PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+    if (response) {
+      *response = msg.d_message.response();
+    }
+  }
+  else {
+    d_message.clear_response();
+  }
+}
+
 #endif /* HAVE_PROTOBUF */

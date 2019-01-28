@@ -58,7 +58,7 @@ void RemoteLogger::worker()
       if (d_exiting) {
         return;
       }
-      data = d_writeQueue.front();
+      data = std::move(d_writeQueue.front());
       d_writeQueue.pop();
     }
 

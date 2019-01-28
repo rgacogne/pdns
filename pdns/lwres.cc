@@ -73,7 +73,7 @@ static void logOutgoingQuery(const std::shared_ptr<std::vector<std::unique_ptr<R
   message.serialize(str);
 
   for (auto& logger : *outgoingLoggers) {
-    logger->queueData(std::move(str));
+    logger->queueData(std::string(str));
   }
 }
 
@@ -96,7 +96,7 @@ static void logIncomingResponse(const std::shared_ptr<std::vector<std::unique_pt
   message.serialize(str);
 
   for (auto& logger : *outgoingLoggers) {
-    logger->queueData(std::move(str));
+    logger->queueData(std::string(str));
   }
 }
 #endif /* HAVE_PROTOBUF */
