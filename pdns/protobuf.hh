@@ -44,9 +44,7 @@ public:
     IncomingResponse
   };
 
-  DNSProtoBufMessage()
-  {
-  }
+  DNSProtoBufMessage();
 
   DNSProtoBufMessage(DNSProtoBufMessage::DNSProtoBufMessageType type);
 
@@ -82,6 +80,6 @@ public:
   void copyFrom(const DNSProtoBufMessage& msg);
 
 protected:
-  PBDNSMessage d_message;
+  PBDNSMessage* d_message{nullptr};
 #endif /* HAVE_PROTOBUF */
 };

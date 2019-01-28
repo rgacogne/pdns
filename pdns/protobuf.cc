@@ -5,21 +5,24 @@
 #include "dnsparser.hh"
 #include "gettime.hh"
 
+#include <google/protobuf/arena.h>
+static google::protobuf::Arena t_pbArena;
+
 void DNSProtoBufMessage::setType(DNSProtoBufMessageType type)
 {
 #ifdef HAVE_PROTOBUF
   switch(type) {
   case DNSProtoBufMessage::DNSProtoBufMessageType::Query:
-    d_message.set_type(PBDNSMessage_Type_DNSQueryType);
+    d_message->set_type(PBDNSMessage_Type_DNSQueryType);
     break;
   case DNSProtoBufMessage::DNSProtoBufMessageType::Response:
-    d_message.set_type(PBDNSMessage_Type_DNSResponseType);
+    d_message->set_type(PBDNSMessage_Type_DNSResponseType);
     break;
   case DNSProtoBufMessage::DNSProtoBufMessageType::OutgoingQuery:
-    d_message.set_type(PBDNSMessage_Type_DNSOutgoingQueryType);
+    d_message->set_type(PBDNSMessage_Type_DNSOutgoingQueryType);
     break;
   case DNSProtoBufMessage::DNSProtoBufMessageType::IncomingResponse:
-    d_message.set_type(PBDNSMessage_Type_DNSIncomingResponseType);
+    d_message->set_type(PBDNSMessage_Type_DNSIncomingResponseType);
     break;
   default:
     throw std::runtime_error("Unsupported protobuf type: "+std::to_string(type));
@@ -27,7 +30,12 @@ void DNSProtoBufMessage::setType(DNSProtoBufMessageType type)
 #endif /* HAVE_PROTOBUF */
 }
 
-DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type)
+DNSProtoBufMessage::DNSProtoBufMessage()
+{
+  d_message = google::protobuf::Arena::CreateMessage<PBDNSMessage>(&t_pbArena);
+}
+
+DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type): DNSProtoBufMessage()
 {
   setType(type);
 }
@@ -35,7 +43,7 @@ DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type)
 void DNSProtoBufMessage::setQuestion(const DNSName& qname, uint16_t qtype, uint16_t qclass)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSQuestion* question = d_message.mutable_question();
+  PBDNSMessage_DNSQuestion* question = d_message->mutable_question();
   if (question) {
     if(!qname.empty())
       question->set_qname(qname.toString());
@@ -48,14 +56,14 @@ void DNSProtoBufMessage::setQuestion(const DNSName& qname, uint16_t qtype, uint1
 void DNSProtoBufMessage::setBytes(size_t bytes)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_inbytes(bytes);
+  d_message->set_inbytes(bytes);
 #endif /* HAVE_PROTOBUF */
 }
 
 void DNSProtoBufMessage::setResponseCode(uint8_t rcode)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (response) {
     response->set_rcode(rcode);
   }
@@ -65,15 +73,15 @@ void DNSProtoBufMessage::setResponseCode(uint8_t rcode)
 void DNSProtoBufMessage::setTime(time_t sec, uint32_t usec)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_timesec(sec);
-  d_message.set_timeusec(usec);
+  d_message->set_timesec(sec);
+  d_message->set_timeusec(usec);
 #endif /* HAVE_PROTOBUF */
 }
 
 void DNSProtoBufMessage::setQueryTime(time_t sec, uint32_t usec)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (response) {
     response->set_querytimesec(sec);
     response->set_querytimeusec(usec);
@@ -88,10 +96,10 @@ void DNSProtoBufMessage::setEDNSSubnet(const Netmask& subnet, uint8_t mask)
     ComboAddress ca(subnet.getNetwork());
     ca.truncate(mask);
     if (ca.sin4.sin_family == AF_INET) {
-      d_message.set_originalrequestorsubnet(&ca.sin4.sin_addr.s_addr, sizeof(ca.sin4.sin_addr.s_addr));
+      d_message->set_originalrequestorsubnet(&ca.sin4.sin_addr.s_addr, sizeof(ca.sin4.sin_addr.s_addr));
     }
     else if (ca.sin4.sin_family == AF_INET6) {
-      d_message.set_originalrequestorsubnet(&ca.sin6.sin6_addr.s6_addr, sizeof(ca.sin6.sin6_addr.s6_addr));
+      d_message->set_originalrequestorsubnet(&ca.sin6.sin6_addr.s6_addr, sizeof(ca.sin6.sin6_addr.s6_addr));
     }
   }
 #endif /* HAVE_PROTOBUF */
@@ -101,7 +109,7 @@ void DNSProtoBufMessage::addTag(const std::string& strValue)
 {
 #ifdef HAVE_PROTOBUF
 
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (!response)
     return;
 
@@ -114,7 +122,7 @@ void DNSProtoBufMessage::addRR(const DNSName& qname, uint16_t uType, uint16_t uC
 {
 #ifdef HAVE_PROTOBUF
 
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (!response)
     return;
   PBDNSMessage_DNSResponse_DNSRR* rr = response->add_rrs();
@@ -143,7 +151,7 @@ void DNSProtoBufMessage::addRRsFromPacket(const char* packet, const size_t len, 
   if (ntohs(dh->qdcount) == 0)
     return;
 
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (!response)
     return;
 
@@ -212,7 +220,7 @@ void DNSProtoBufMessage::addRRsFromPacket(const char* packet, const size_t len, 
 void DNSProtoBufMessage::setRequestor(const std::string& requestor)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_from(requestor);
+  d_message->set_from(requestor);
 #endif /* HAVE_PROTOBUF */
 }
 
@@ -220,10 +228,10 @@ void DNSProtoBufMessage::setRequestor(const ComboAddress& requestor)
 {
 #ifdef HAVE_PROTOBUF
   if (requestor.sin4.sin_family == AF_INET) {
-    d_message.set_from(&requestor.sin4.sin_addr.s_addr, sizeof(requestor.sin4.sin_addr.s_addr));
+    d_message->set_from(&requestor.sin4.sin_addr.s_addr, sizeof(requestor.sin4.sin_addr.s_addr));
   }
   else if (requestor.sin4.sin_family == AF_INET6) {
-    d_message.set_from(&requestor.sin6.sin6_addr.s6_addr, sizeof(requestor.sin6.sin6_addr.s6_addr));
+    d_message->set_from(&requestor.sin6.sin6_addr.s6_addr, sizeof(requestor.sin6.sin6_addr.s6_addr));
   }
 #endif /* HAVE_PROTOBUF */
 }
@@ -231,28 +239,28 @@ void DNSProtoBufMessage::setRequestor(const ComboAddress& requestor)
 void DNSProtoBufMessage::setRequestorId(const std::string& requestorId)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_requestorid(requestorId);
+  d_message->set_requestorid(requestorId);
 #endif /* HAVE_PROTOBUF */
 }
 
 void DNSProtoBufMessage::setDeviceId(const std::string& deviceId)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_deviceid(deviceId);
+  d_message->set_deviceid(deviceId);
 #endif /* HAVE_PROTOBUF */
 }
 
 void DNSProtoBufMessage::setServerIdentity(const std::string& serverId)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_serveridentity(serverId);
+  d_message->set_serveridentity(serverId);
 #endif /* HAVE_PROTOBUF */
 }
 
 void DNSProtoBufMessage::setResponder(const std::string& responder)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_to(responder);
+  d_message->set_to(responder);
 #endif /* HAVE_PROTOBUF */
 }
 
@@ -260,10 +268,10 @@ void DNSProtoBufMessage::setResponder(const ComboAddress& responder)
 {
 #ifdef HAVE_PROTOBUF
   if (responder.sin4.sin_family == AF_INET) {
-    d_message.set_to(&responder.sin4.sin_addr.s_addr, sizeof(responder.sin4.sin_addr.s_addr));
+    d_message->set_to(&responder.sin4.sin_addr.s_addr, sizeof(responder.sin4.sin_addr.s_addr));
   }
   else if (responder.sin4.sin_family == AF_INET6) {
-    d_message.set_to(&responder.sin6.sin6_addr.s6_addr, sizeof(responder.sin6.sin6_addr.s6_addr));
+    d_message->set_to(&responder.sin6.sin6_addr.s6_addr, sizeof(responder.sin6.sin6_addr.s6_addr));
   }
 #endif /* HAVE_PROTOBUF */
 }
@@ -271,14 +279,14 @@ void DNSProtoBufMessage::setResponder(const ComboAddress& responder)
 void DNSProtoBufMessage::serialize(std::string& data) const
 {
 #ifdef HAVE_PROTOBUF
-  d_message.SerializeToString(&data);
+  d_message->SerializeToString(&data);
 #endif /* HAVE_PROTOBUF */
 }
 
 std::string DNSProtoBufMessage::toDebugString() const
 {
 #ifdef HAVE_PROTOBUF
-  return d_message.DebugString();
+  return d_message->DebugString();
 #else
   return std::string();
 #endif /* HAVE_PROTOBUF */
@@ -288,14 +296,14 @@ std::string DNSProtoBufMessage::toDebugString() const
 
 void DNSProtoBufMessage::setUUID(const boost::uuids::uuid& uuid)
 {
-  std::string* messageId = d_message.mutable_messageid();
+  std::string* messageId = d_message->mutable_messageid();
   messageId->resize(uuid.size());
   std::copy(uuid.begin(), uuid.end(), messageId->begin());
 }
 
 void DNSProtoBufMessage::setInitialRequestID(const boost::uuids::uuid& uuid)
 {
-  std::string* messageId = d_message.mutable_initialrequestid();
+  std::string* messageId = d_message->mutable_initialrequestid();
   messageId->resize(uuid.size());
   std::copy(uuid.begin(), uuid.end(), messageId->begin());
 }
@@ -307,16 +315,16 @@ void DNSProtoBufMessage::update(const boost::uuids::uuid& uuid, const ComboAddre
   setTime(ts.tv_sec, ts.tv_nsec / 1000);
 
   setUUID(uuid);
-  d_message.set_id(ntohs(id));
+  d_message->set_id(ntohs(id));
 
   if (requestor) {
-    d_message.set_socketfamily(requestor->sin4.sin_family == AF_INET ? PBDNSMessage_SocketFamily_INET : PBDNSMessage_SocketFamily_INET6);
+    d_message->set_socketfamily(requestor->sin4.sin_family == AF_INET ? PBDNSMessage_SocketFamily_INET : PBDNSMessage_SocketFamily_INET6);
   }
   else if (responder) {
-    d_message.set_socketfamily(responder->sin4.sin_family == AF_INET ? PBDNSMessage_SocketFamily_INET : PBDNSMessage_SocketFamily_INET6);
+    d_message->set_socketfamily(responder->sin4.sin_family == AF_INET ? PBDNSMessage_SocketFamily_INET : PBDNSMessage_SocketFamily_INET6);
   }
 
-  d_message.set_socketprotocol(isTCP ? PBDNSMessage_SocketProtocol_TCP : PBDNSMessage_SocketProtocol_UDP);
+  d_message->set_socketprotocol(isTCP ? PBDNSMessage_SocketProtocol_TCP : PBDNSMessage_SocketProtocol_UDP);
 
   if (responder) {
     setResponder(*responder);
@@ -327,7 +335,7 @@ void DNSProtoBufMessage::update(const boost::uuids::uuid& uuid, const ComboAddre
 }
 
 
-DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type, const boost::uuids::uuid& uuid, const ComboAddress* requestor, const ComboAddress* responder, const DNSName& domain, int qtype, uint16_t qclass, uint16_t qid, bool isTCP, size_t bytes)
+DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type, const boost::uuids::uuid& uuid, const ComboAddress* requestor, const ComboAddress* responder, const DNSName& domain, int qtype, uint16_t qclass, uint16_t qid, bool isTCP, size_t bytes): DNSProtoBufMessage()
 {
   update(uuid, requestor, responder, isTCP, qid);
 
@@ -339,7 +347,7 @@ DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type, const boost:
 
 void DNSProtoBufMessage::copyFrom(const DNSProtoBufMessage& msg)
 {
-  d_message.CopyFrom(msg.d_message);
+  d_message->CopyFrom(*msg.d_message);
 }
 
 #endif /* HAVE_PROTOBUF */

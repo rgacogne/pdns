@@ -21,6 +21,8 @@
  */
 syntax = "proto2";
 
+option cc_enable_arenas = true;
+
 message PBDNSMessage {
   enum Type {
     DNSQueryType = 1;

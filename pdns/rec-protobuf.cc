@@ -6,14 +6,14 @@
 void RecProtoBufMessage::setNOD(bool nod)
 {
 #ifdef HAVE_PROTOBUF
-  d_message.set_newlyobserveddomain(nod);
+  d_message->set_newlyobserveddomain(nod);
 #endif /* HAVE_PROTOBUF */  
 }
 
 void RecProtoBufMessage::clearUDR() 
 {
 #ifdef HAVE_PROTOBUF
-  auto response = d_message.mutable_response();
+  auto response = d_message->mutable_response();
   const int count = response->rrs_size();
   for (int idx = 0; idx < count; idx++) {
     auto rr = response->mutable_rrs(idx);
@@ -30,7 +30,7 @@ void RecProtoBufMessage::addRR(const DNSRecord& record, const std::set<uint16_t>
 #endif /* NOD_ENABLED */
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (!response) {
     return;
   }
@@ -129,7 +129,7 @@ void RecProtoBufMessage::addRRs(const std::vector<DNSRecord>& records, const std
 void RecProtoBufMessage::setAppliedPolicy(const std::string& policy)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (response && !policy.empty()) {
     response->set_appliedpolicy(policy);
   }
@@ -139,7 +139,7 @@ void RecProtoBufMessage::setAppliedPolicy(const std::string& policy)
 void RecProtoBufMessage::setAppliedPolicyType(const DNSFilterEngine::PolicyType& type)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (response) {
     switch(type) {
     case DNSFilterEngine::PolicyType::None:
@@ -170,7 +170,7 @@ void RecProtoBufMessage::setAppliedPolicyType(const DNSFilterEngine::PolicyType&
 void RecProtoBufMessage::setPolicyTags(const std::vector<std::string>& policyTags)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (response) {
     for (const auto& tag : policyTags) {
       response->add_tags(tag);
@@ -182,7 +182,7 @@ void RecProtoBufMessage::setPolicyTags(const std::vector<std::string>& policyTag
 void RecProtoBufMessage::addPolicyTag(const std::string& policyTag)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (response) {
     response->add_tags(policyTag);
   }
@@ -192,7 +192,7 @@ void RecProtoBufMessage::addPolicyTag(const std::string& policyTag)
 void RecProtoBufMessage::removePolicyTag(const std::string& policyTag)
 {
 #ifdef HAVE_PROTOBUF
-  PBDNSMessage_DNSResponse* response = d_message.mutable_response();
+  PBDNSMessage_DNSResponse* response = d_message->mutable_response();
   if (response) {
     const int count = response->tags_size();
     int keep = 0;
@@ -216,7 +216,7 @@ std::string RecProtoBufMessage::getAppliedPolicy() const
 {
   std::string result;
 #ifdef HAVE_PROTOBUF
-  const PBDNSMessage_DNSResponse& response = d_message.response();
+  const PBDNSMessage_DNSResponse& response = d_message->response();
   result = response.appliedpolicy();
 #endif /* HAVE_PROTOBUF */
   return result;
@@ -226,7 +226,7 @@ std::vector<std::string> RecProtoBufMessage::getPolicyTags() const
 {
   std::vector<std::string> result;
 #ifdef HAVE_PROTOBUF
-  const PBDNSMessage_DNSResponse& response = d_message.response();
+  const PBDNSMessage_DNSResponse& response = d_message->response();
   const int count = response.tags_size();
   for (int idx = 0; idx < count; idx++) {
     result.push_back(response.tags(idx));
