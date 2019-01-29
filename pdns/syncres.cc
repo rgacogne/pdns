@@ -805,7 +805,7 @@ void SyncRes::getBestNSFromCache(const DNSName &qname, const QType& qtype, vecto
           const DNSRecord& dr=*k;
 	  auto nrr = getRR<NSRecordContent>(dr);
           if(nrr && (!nrr->getNS().isPartOf(subdomain) || t_RC->get(d_now.tv_sec, nrr->getNS(), s_doIPv6 ? QType(QType::ADDR) : QType(QType::A),
-                                                                    false, doLog() ? &aset : 0, d_cacheRemote) > 5)) {
+                                                                    false, doLog() ? &aset : nullptr, d_cacheRemote) > 5)) {
             bestns.push_back(dr);
             LOG(prefix<<qname<<": NS (with ip, or non-glue) in cache for '"<<subdomain<<"' -> '"<<nrr->getNS()<<"'"<<endl);
             LOG(prefix<<qname<<": within bailiwick: "<< nrr->getNS().isPartOf(subdomain));
@@ -1124,7 +1124,7 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
   QType sqt(qtype);
   uint32_t sttl=0;
   //  cout<<"Lookup for '"<<qname<<"|"<<qtype.getName()<<"' -> "<<getLastLabel(qname)<<endl;
-  vState cachedState;
+  vState cachedState = Indeterminate;
   const NegCache::NegCacheEntry* ne = nullptr;
 
   if(s_rootNXTrust &&

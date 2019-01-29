@@ -38,7 +38,7 @@ unsigned int MemRecursorCache::bytes() const
   return ret;
 }
 
-int32_t MemRecursorCache::handleHit(MemRecursorCache::OrderedTagIterator_t& entry, const DNSName& qname, const ComboAddress& who, vector<DNSRecord>* res, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth)
+int32_t MemRecursorCache::handleHit(bool firstHit, MemRecursorCache::OrderedTagIterator_t& entry, const DNSName& qname, const ComboAddress& who, vector<DNSRecord>* res, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth)
 {
   int32_t ttd = entry->d_ttd;
 
@@ -62,20 +62,38 @@ int32_t MemRecursorCache::handleHit(MemRecursorCache::OrderedTagIterator_t& entr
     }
   }
 
-  if(signatures) { // if you do an ANY lookup you are hosed XXXX
-    *signatures = entry->d_signatures;
+  if(signatures) {
+    signatures->insert(signatures->end(), entry->d_signatures.begin(), entry->d_signatures.end());
   }
 
   if(authorityRecs) {
-    *authorityRecs = entry->d_authorityRecs;
+    authorityRecs->insert(authorityRecs->end(), entry->d_authorityRecs.begin(), entry->d_authorityRecs.end());
   }
 
   if (state) {
-    *state = entry->d_state;
+    if (firstHit) {
+      *state = entry->d_state;
+    }
+    else {
+      if (entry->d_state == Bogus) {
+        *state = Bogus;
+      }
+      /* if we are already Bogus or Indeterminate, it can't get any better */
+      else if (*state != Bogus && *state != Indeterminate) {
+      }
+      else if (
+      WRITE ME
+      }
+    }
   }
 
   if (wasAuth) {
-    *wasAuth = entry->d_auth;
+    if (firstHit) {
+      *wasAuth = entry->d_auth;
+    }
+    else {
+      *wasAuth = *wasAuth && entry->d_auth;
+    }
   }
 
   moveCacheItemToBack(d_cache, entry);
@@ -188,11 +206,11 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
 
       auto entryA = getEntryUsingECSIndex(now, qname, QType::A, requireAuth, who);
       if (entryA != d_cache.end()) {
-        ret = handleHit(entryA, qname, who, res, signatures, authorityRecs, variable, state, wasAuth);
+        ret = handleHit(true, entryA, qname, who, res, signatures, authorityRecs, variable, state, wasAuth);
       }
       auto entryAAAA = getEntryUsingECSIndex(now, qname, QType::AAAA, requireAuth, who);
       if (entryAAAA != d_cache.end()) {
-        int32_t ttdAAAA = handleHit(entryAAAA, qname, who, res, signatures, authorityRecs, variable, state, wasAuth);
+        int32_t ttdAAAA = handleHit(true, entryAAAA, qname, who, res, signatures, authorityRecs, variable, state, wasAuth);
         if (ret > 0) {
           ret = std::min(ret, ttdAAAA);
         } else {
@@ -204,7 +222,7 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
     else {
       auto entry = getEntryUsingECSIndex(now, qname, qtype, requireAuth, who);
       if (entry != d_cache.end()) {
-        return static_cast<int32_t>(handleHit(entry, qname, who, res, signatures, authorityRecs, variable, state, wasAuth) - now);
+        return static_cast<int32_t>(handleHit(true, entry, qname, who, res, signatures, authorityRecs, variable, state, wasAuth) - now);
       }
       return -1;
     }
@@ -213,6 +231,7 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
   auto entries = getEntries(qname, qt);
 
   if(entries.first!=entries.second) {
+    bool firstHit = true;
     for(auto i=entries.first; i != entries.second; ++i) {
 
       auto firstIndexIterator = d_cache.project<OrderedTag>(i);
@@ -224,10 +243,12 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
       if (!entryMatches(firstIndexIterator, qtype, requireAuth, who))
         continue;
 
-      ttd = handleHit(firstIndexIterator, qname, who, res, signatures, authorityRecs, variable, state, wasAuth);
+      ttd = handleHit(firstHit, firstIndexIterator, qname, who, res, signatures, authorityRecs, variable, state, wasAuth);
 
       if(qt.getCode()!=QType::ANY && qt.getCode()!=QType::ADDR) // normally if we have a hit, we are done
         break;
+
+      firstHit = false;
     }
 
     // cerr<<"time left : "<<ttd - now<<", "<< (res ? res->size() : 0) <<"\n";

@@ -901,4 +901,79 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_Wipe) {
   BOOST_CHECK_EQUAL(MRC.ecsIndexSize(), 0);
 }
 
+BOOST_AUTO_TEST_CASE(test_RecursorCacheValidationState) {
+  MemRecursorCache MRC;
+
+  std::vector<DNSRecord> records;
+  std::vector<std::shared_ptr<DNSRecord>> authRecords;
+  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+  time_t now = time(nullptr);
+
+  BOOST_CHECK_EQUAL(MRC.size(), 0);
+
+  /* insert Secure A for name */
+  time_t ttd = now + 30;
+  DNSName name("www.powerdns.com.");
+  DNSRecord rec1;
+  ComboAddress rec1Content("192.0.2.1");
+  rec1.d_name = name;
+  rec1.d_type = QType::A;
+  rec1.d_class = QClass::IN;
+  rec1.d_content = std::make_shared<ARecordContent>(rec1Content);
+  rec1.d_ttl = static_cast<uint32_t>(ttd);
+  rec1.d_place = DNSResourceRecord::ANSWER;
+  records.push_back(rec1);
+  MRC.replace(now, rec1.d_name, QType(rec1.d_type), records, signatures, authRecords, true, boost::none, Secure);
+  BOOST_CHECK_EQUAL(MRC.size(), 1);
+
+  records.clear();
+
+  /* insert Bogus AAAA for name */
+  DNSRecord rec2;
+  ComboAddress rec2Content("2001:db8::1");
+  rec2.d_name = name;
+  rec2.d_type = QType::AAAA;
+  rec2.d_class = QClass::IN;
+  rec2.d_content = std::make_shared<AAAARecordContent>(rec2Content);
+  rec2.d_ttl = static_cast<uint32_t>(ttd);
+  rec2.d_place = DNSResourceRecord::ANSWER;
+  records.push_back(rec2);
+  MRC.replace(now, rec2.d_name, QType(rec2.d_type), records, signatures, authRecords, true, boost::none, Bogus);
+  BOOST_CHECK_EQUAL(MRC.size(), 2);
+
+  {
+    /* the A should be Secure */
+    std::vector<DNSRecord> retrieved;
+    bool wasAuth;
+    vState retrievedState;
+    BOOST_CHECK_EQUAL(MRC.get(now, name, QType(QType::A), false, &retrieved, ComboAddress("192.0.2.2"), nullptr, nullptr, nullptr, &retrievedState, &wasAuth), (ttd-now));
+    BOOST_REQUIRE_EQUAL(retrieved.size(), 1);
+    BOOST_CHECK_EQUAL(wasAuth, true);
+    BOOST_CHECK_EQUAL(retrievedState, Secure);
+  }
+
+  {
+    /* the AAAA should be Bogus */
+    std::vector<DNSRecord> retrieved;
+    bool wasAuth;
+    vState retrievedState;
+    BOOST_CHECK_EQUAL(MRC.get(now, name, QType(QType::AAAA), false, &retrieved, ComboAddress("192.0.2.2"), nullptr, nullptr, nullptr, &retrievedState, &wasAuth), (ttd-now));
+    BOOST_REQUIRE_EQUAL(retrieved.size(), 1);
+    BOOST_CHECK_EQUAL(wasAuth, true);
+    BOOST_CHECK_EQUAL(retrievedState, Bogus);
+  }
+
+  {
+    /* retrieving ANY should get us the A and AAAA, but the state should be Bogus! */
+    std::vector<DNSRecord> retrieved;
+    bool wasAuth;
+    vState retrievedState;
+    BOOST_CHECK_EQUAL(MRC.get(now, name, QType(QType::ANY), false, &retrieved, ComboAddress("192.0.2.2"), nullptr, nullptr, nullptr, &retrievedState, &wasAuth), (ttd-now));
+    BOOST_REQUIRE_EQUAL(retrieved.size(), 2);
+    BOOST_CHECK_EQUAL(wasAuth, true);
+    BOOST_CHECK_EQUAL(retrievedState, Bogus);
+  }
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()
