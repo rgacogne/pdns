@@ -165,6 +165,7 @@ static bool g_useOneSocketPerThread;
 static bool g_gettagNeedsEDNSOptions{false};
 static time_t g_statisticsInterval;
 static bool g_useIncomingECS;
+static bool g_useKernelTimestamp;
 std::atomic<uint32_t> g_maxCacheEntries, g_maxPacketCacheEntries;
 
 RecursorControlChannel s_rcc; // only active in thread 0
@@ -218,6 +219,7 @@ struct DNSComboWriter {
   boost::uuids::uuid d_uuid;
   string d_requestorId;
   string d_deviceId;
+  struct timeval d_kernelTimestamp{0,0};
 #endif
   std::string d_query;
   EDNSSubnetOpts d_ednssubnet;
@@ -1192,7 +1194,12 @@ static void startDoResolve(void *p)
         pbMessage.setAppliedPolicyType(appliedPolicy.d_type);
       }
       pbMessage.setPolicyTags(dc->d_policyTags);
-      pbMessage.setQueryTime(dc->d_now.tv_sec, dc->d_now.tv_usec);
+      if (g_useKernelTimestamp && dc->d_kernelTimestamp.tv_sec) {
+          pbMessage.setQueryTime(dc->d_kernelTimestamp.tv_sec, dc->d_kernelTimestamp.tv_usec);
+      }
+      else {
+        pbMessage.setQueryTime(dc->d_now.tv_sec, dc->d_now.tv_usec);
+      }
       pbMessage.setRequestorId(dq.requestorId);
       pbMessage.setDeviceId(dq.deviceId);
       protobufLogResponse(luaconfsLocal->protobufServer, pbMessage);
@@ -1649,12 +1656,14 @@ static void handleNewTCPQuestion(int fd, FDMultiplexer::funcparam_t& )
 static string* doProcessUDPQuestion(const std::string& question, const ComboAddress& fromaddr, const ComboAddress& destaddr, struct timeval tv, int fd)
 {
   gettimeofday(&g_now, 0);
-  struct timeval diff = g_now - tv;
-  double delta=(diff.tv_sec*1000 + diff.tv_usec/1000.0);
+  if (tv.tv_sec) {
+    struct timeval diff = g_now - tv;
+    double delta=(diff.tv_sec*1000 + diff.tv_usec/1000.0);
 
-  if(tv.tv_sec && delta > 1000.0) {
-    g_stats.tooOldDrops++;
-    return 0;
+    if(delta > 1000.0) {
+      g_stats.tooOldDrops++;
+      return 0;
+    }
   }
 
   ++g_stats.qcounter;
@@ -1762,7 +1771,12 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
         const ComboAddress& requestor = requestorNM.getMaskedNetwork();
         pbMessage.update(uniqueId, &requestor, &destaddr, false, dh->id);
         pbMessage.setEDNSSubnet(ednssubnet.source, ednssubnet.source.isIpv4() ? luaconfsLocal->protobufMaskV4 : luaconfsLocal->protobufMaskV6);
-        pbMessage.setQueryTime(g_now.tv_sec, g_now.tv_usec);
+        if (g_useKernelTimestamp && tv.tv_sec) {
+          pbMessage.setQueryTime(tv.tv_sec, tv.tv_usec);
+        }
+        else {
+          pbMessage.setQueryTime(g_now.tv_sec, g_now.tv_usec);
+        }
         pbMessage.setRequestorId(requestorId);
         pbMessage.setDeviceId(deviceId);
         protobufLogResponse(luaconfsLocal->protobufServer, pbMessage);
@@ -1841,6 +1855,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
   }
   dc->d_requestorId = requestorId;
   dc->d_deviceId = deviceId;
+  dc->d_kernelTimestamp = tv;
 #endif
 
   MT->makeThread(startDoResolve, (void*) dc); // deletes dc
@@ -3238,6 +3253,8 @@ static int serviceMain(int argc, char*argv[])
   g_tcpMaxQueriesPerConn=::arg().asNum("max-tcp-queries-per-connection");
   s_maxUDPQueriesPerRound=::arg().asNum("max-udp-queries-per-round");
 
+  g_useKernelTimestamp = ::arg().mustDo("use-kernel-timestamp");
+
   if (::arg().mustDo("snmp-agent")) {
     g_snmpAgent = std::make_shared<RecursorSNMPAgent>("recursor", ::arg()["snmp-master-socket"]);
     g_snmpAgent->run();
@@ -3556,6 +3573,7 @@ int main(int argc, char **argv)
     ::arg().set("max-total-msec", "Maximum total wall-clock time per query in milliseconds, 0 for unlimited")="7000";
     ::arg().set("max-recursion-depth", "Maximum number of internal recursion calls per query, 0 for unlimited")="40";
     ::arg().set("max-udp-queries-per-round", "Maximum number of UDP queries processed per recvmsg() round, before returning back to normal processing")="10000";
+    ::arg().set("use-kernel-timestamp", "Compute the latency of queries using the timestamp set by the kernel (when available) in protobuf messages")="";
 
     ::arg().set("include-dir","Include *.conf files from this directory")="";
     ::arg().set("security-poll-suffix","Domain name from which to query security update notifications")="secpoll.powerdns.com.";

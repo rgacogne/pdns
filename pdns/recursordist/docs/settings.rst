@@ -1097,6 +1097,18 @@ Maximum value is 65535, but values above 4096 should probably not be attempted.
 Whether to process and pass along a received EDNS Client Subnet to authoritative servers.
 The ECS information will only be sent for netmasks and domains listed in `edns-subnet-whitelist`_ and will be truncated if the received scope exceeds `ecs-ipv4-bits`_ for IPv4 or `ecs-ipv6-bits`_ for IPv6.
 
+.. _setting-use-kernel-timestamp:
+
+``use-kernel-timestamp``
+----------------------------
+.. versionadded:: 4.1.11
+
+-  Boolean
+-  Default: no
+
+Whether to compute the latency of responses in protobuf messages using the timestamp set by the kernel when the query packet was received (when available), instead of computing it
+based on the moment we start processing the query.
+
 .. _setting-version:
 
 ``version``
