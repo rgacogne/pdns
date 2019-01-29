@@ -169,8 +169,11 @@ std::string DNSName::toString(const std::string& separator, const bool trailing)
     return trailing ? separator : "";
 
   std::string ret;
-  for(const auto& s : getRawLabels()) {
-    ret+= escapeLabel(s) + separator;
+  ret.reserve(d_storage.size());
+
+  for (StorageIterator si(d_storage); si.isValid(); ++si) {
+    const char* p = *si;
+    ret+= escapeLabel({p+1, (size_t)*p}) + separator;
   }
 
   return ret.substr(0, ret.size()-!trailing);

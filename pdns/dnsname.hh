@@ -144,6 +144,34 @@ public:
     return d_storage;
   }
 private:
+  struct StorageIterator
+  {
+    StorageIterator(const string_t& storage): d_storage(storage), d_ptr(storage.c_str())
+    {
+    }
+
+    const char* operator*()
+    {
+      return d_ptr + d_position;
+    }
+
+    StorageIterator& operator++()
+    {
+      d_position += ((unsigned char)(d_ptr[d_position])) + 1;
+      return *this;
+    }
+
+    bool isValid() const
+    {
+      return d_position < d_storage.size() && ((unsigned char)(d_ptr[d_position])) != 0;
+    }
+
+  private:
+    const string_t& d_storage;
+    const char * d_ptr{nullptr};
+    size_t d_position{0};
+  };
+
   string_t d_storage;
 
   void packetParser(const char* p, int len, int offset, bool uncompress, uint16_t* qtype, uint16_t* qclass, unsigned int* consumed, int depth, uint16_t minOffset);
