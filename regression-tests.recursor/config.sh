@@ -586,10 +586,10 @@ cat > recursor-service3/config.lua <<EOF
 rpzFile("$(pwd)/recursor-service3/rpz.zone", {policyName="myRPZ"})
 rpzFile("$(pwd)/recursor-service3/rpz2.zone", {policyName="mySecondRPZ"})
 rpzFile("$(pwd)/recursor-service3/rpz3.zone", {policyName="cappedTTLRPZ", maxTTL=5})
-rpzFile("$(pwd)/recursor-service3/rpz4.zone", {policyName="defPolicyTTL", defpol=Policy.Custom, defcontent="default.example.net", defttl=10, maxTTL=20})
-rpzFile("$(pwd)/recursor-service3/rpz5.zone", {policyName="defPolicyCappedTTL", defpol=Policy.Custom, defcontent="default.example.net", defttl=50, maxTTL=20})
-rpzFile("$(pwd)/recursor-service3/rpz6.zone", {policyName="defPolicyWithoutTTL", defpol=Policy.Custom, defcontent="default.example.net"})
-rpzFile("$(pwd)/recursor-service3/rpz7.zone", {policyName="defPolicyWithoutTTLCapped", defpol=Policy.Custom, defcontent="default.example.net", maxTTL=50})
+rpzFile("$(pwd)/recursor-service3/rpz4.zone", {policyName="defPolicyTTL", defpol=Policy.Custom, defcontent="default.example.net", defttl=10, maxTTL=20, defpolOverrideLocalData=true })
+rpzFile("$(pwd)/recursor-service3/rpz5.zone", {policyName="defPolicyCappedTTL", defpol=Policy.Custom, defcontent="default.example.net", defttl=50, maxTTL=20, defpolOverrideLocalData=true })
+rpzFile("$(pwd)/recursor-service3/rpz6.zone", {policyName="defPolicyWithoutTTL", defpol=Policy.Custom, defcontent="default.example.net", defpolOverrideLocalData=true })
+rpzFile("$(pwd)/recursor-service3/rpz7.zone", {policyName="defPolicyWithoutTTLCapped", defpol=Policy.Custom, defcontent="default.example.net", maxTTL=50, defpolOverrideLocalData=true })
 EOF
 
 IFS=. read REV_PREFIX1 REV_PREFIX2 REV_PREFIX3 <<< $(echo $PREFIX) # This will bite us in the ass if we ever test on IPv6
