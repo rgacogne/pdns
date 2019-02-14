@@ -5,10 +5,10 @@ compiler:
   - gcc
   - clang
 env:
-  - PDNS_BUILD_PRODUCT=auth
-  - PDNS_BUILD_PRODUCT=recursor
+#  - PDNS_BUILD_PRODUCT=auth
+#  - PDNS_BUILD_PRODUCT=recursor
   - PDNS_BUILD_PRODUCT=dnsdist
-  - PDNS_BUILD_PRODUCT=ixfrdist
+#  - PDNS_BUILD_PRODUCT=ixfrdist
 
 cache:
   - pip

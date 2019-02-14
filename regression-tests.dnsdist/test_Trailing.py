@@ -278,9 +278,9 @@ class TestTrailingDataToDnsdist(DNSDistTest):
 
         for method in ("sendUDPQuery", "sendTCPQuery"):
             sender = getattr(self, method)
-            # (receivedQuery, receivedResponse) = self.sendUDPQuery(raw, response, rawQuery=True)
-            # (receivedQuery, receivedResponse) = self.sendTCPQuery(raw, response, rawQuery=True)
             (receivedQuery, receivedResponse) = sender(raw, response, rawQuery=True)
+            print(receivedQuery)
+            print(receivedResponse)
             self.assertTrue(receivedQuery)
             self.assertTrue(receivedResponse)
             receivedQuery.id = query.id
