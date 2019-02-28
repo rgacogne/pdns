@@ -260,6 +260,91 @@ static void cleanupClosedTCPConnections(std::map<ComboAddress,int>& sockets)
 
 std::shared_ptr<TCPClientCollection> g_tcpclientthreads;
 
+class IncomingTCPConnectionionState
+{
+public:
+  IncomingTCPConnectionionState(ConnectionInfo&& ci, TCPClientThreadData& threadData, time_t now): d_buffer(4096), d_threadData(threadData), d_ci(std::move(ci)), d_handler(d_ci.fd, g_tcpRecvTimeout, d_ci.cs->tlsFrontend ? d_ci.cs->tlsFrontend->getContext() : nullptr, now), connectionStartTime(now)
+  {
+    d_dest.reset();
+    d_dest.sin4.sin_family = d_ci.remote.sin4.sin_family;
+    socklen_t socklen = d_dest.getSocklen();
+    if (getsockname(d_ci.fd, reinterpret_cast<sockaddr*>(&d_dest), &socklen)) {
+      d_dest = d_ci.cs->local;
+    }
+  }
+
+  enum class State { readingQuery, sendingQueryToBackend, readingResponseFromBackend, sendingResponse };
+
+  std::vector<uint8_t> d_buffer;
+  TCPClientThreadData& d_threadData;
+  IDState d_ids;
+  ConnectionInfo d_ci;
+  TCPIOHandler d_handler;
+  ComboAddress d_dest;
+  shared_ptr<DownstreamState> ds{nullptr};
+  size_t d_currentPos{0};
+  size_t queriesCount{0};
+  size_t downstreamFailures{0};
+  time_t connectionStartTime;
+  unsigned int remainingTime{0};
+  State d_state{readingQuery};
+  bool freshDownstreamConnection{false};
+};
+
+class TCPClientThreadData
+{
+public:
+  TCPClientThreadData(): localRespRulactions(g_resprulactions.getLocal()), mplexer(std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent()))
+  {
+  }
+                                                                                 
+  LocalHolders holders;
+  LocalStateHolder<vector<DNSDistResponseRuleAction> > localRespRulactions;
+  std::unique_ptr<FDMultiplexer> mplexer{nullptr};
+};
+
+static void handleIncomingQuerySizeReady(int fd, FDMultiplexer::funcparam_t& param)
+{
+  auto state = boost::any_cast<std::shared_ptr<IncomingTCPConnectionionState>>(param);
+  
+    if (d_handler.tryRead(d_buffer.at(0), sizeof(uint16_t))) {
+    uint16_t querySize = d_buffer.at(0) * 256 + d_buffer.at(1);
+    /* allocate a bit more memory to be able to spoof the content,
+       or to add ECS without allocating a new buffer */
+    d_buffer.resize(sizeof(uint16_t) + querySize + 512);
+    if (d_handler.tryRead(d_buffer.at(sizeof(uint16_t)), querySize)) {
+      // process query
+      // if it turned into a response, next state is sendingResponse
+      // otherwise the next state is sendingQueryToBackend
+      
+
+    }
+    
+
+static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param)
+{
+  auto threadData = boost::any_cast<TCPClientThreadData*>(param);
+
+  ConnectionInfo* citmp{nullptr};
+
+  try {
+    readn2(pipefd, &citmp, sizeof(citmp));
+  }
+  catch(const std::runtime_error& e) {
+    throw std::runtime_error("Error reading from TCP acceptor pipe (" + std::to_string(pipefd) + ") in " + std::string(isNonBlocking(pipefd) ? "non-blocking" : "blocking") + " mode: " + e.what());
+  }
+
+  g_tcpclientthreads->decrementQueuedCount();
+  auto ci = std::move(*citmp);
+  delete citmp;
+  citmp = nullptr;
+
+  #warning could perhaps be unique?
+  auto state = std::make_shared<IncomingTCPConnectionionState>(std::move(ci), *threadData, time(nullptr));
+  /* we could try reading right away, but let's not for now */
+  threadData.mplexer.addReadFD(state.d_ci.fd, handleIncomingQuerySizeReady, state);
+}
+
 void tcpClientThread(int pipefd)
 {
   /* we get launched with a pipe on which we receive file descriptors from clients that we own
@@ -267,29 +352,12 @@ void tcpClientThread(int pipefd)
 
   setThreadName("dnsdist/tcpClie");
 
-  bool outstanding = false;
+  TCPClientThreadData data;
+
+  data.mplexer->addReadFD(pipefd, handleIncomingTCPQuery, &data);
   time_t lastTCPCleanup = time(nullptr);
-  
-  LocalHolders holders;
-  auto localRespRulactions = g_resprulactions.getLocal();
-  /* when the answer is encrypted in place, we need to get a copy
-     of the original header before encryption to fill the ring buffer */
-  dnsheader cleartextDH;
 
-  map<ComboAddress,int> sockets;
   for(;;) {
-    ConnectionInfo* citmp, ci;
-
-    try {
-      readn2(pipefd, &citmp, sizeof(citmp));
-    }
-    catch(const std::runtime_error& e) {
-      throw std::runtime_error("Error reading from TCP acceptor pipe (" + std::to_string(pipefd) + ") in " + std::string(isNonBlocking(pipefd) ? "non-blocking" : "blocking") + " mode: " + e.what());
-    }
-
-    g_tcpclientthreads->decrementQueuedCount();
-    ci=std::move(*citmp);
-    delete citmp;
 
     uint16_t qlen, rlen;
     vector<uint8_t> rewrittenResponse;
