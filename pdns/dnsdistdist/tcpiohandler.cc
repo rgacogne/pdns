@@ -250,6 +250,7 @@ public:
 
     int res = 0;
     do {
+#warning fixme / todo: this needs to be moved outside of the constructor so we can handle the blocking in the multiplexer
       res = SSL_accept(d_conn.get());
       if (res < 0) {
         handleIORequest(res, timeout);
@@ -280,6 +281,16 @@ public:
     else {
       throw std::runtime_error("Error writing to TLS connection");
     }
+  }
+
+  IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite) override
+  {
+    throw std::runtime_error("tryWrite is not implemented");
+  }
+
+  IOState tryRead(std::vector<uint8_t>& buffer, size_t& pos, size_t toRead) override
+  {
+    throw std::runtime_error("tryRead is not implemented");
   }
 
   size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout) override
@@ -688,9 +699,20 @@ public:
 
     int ret = 0;
     do {
+#warning fixme / todo: this needs to be moved outside of the constructor so we can handle the blocking in the multiplexer
       ret = gnutls_handshake(d_conn.get());
     }
     while (ret < 0 && gnutls_error_is_fatal(ret) == 0);
+  }
+
+  IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite) override
+  {
+    throw std::runtime_error("tryWrite is not implemented");
+  }
+
+  IOState tryRead(std::vector<uint8_t>& buffer, size_t& pos, size_t toRead) override
+  {
+    throw std::runtime_error("tryRead is not implemented");
   }
 
   size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout) override
