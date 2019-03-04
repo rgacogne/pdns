@@ -211,6 +211,7 @@ public:
         }
       }
 
+      fprintf(stderr, "written %zd bytes from %p\n", res, &buffer.at(pos));
       pos += static_cast<size_t>(res);
       got += static_cast<size_t>(res);
     }
@@ -233,6 +234,7 @@ public:
 
     size_t sent = 0;
     do {
+      fprintf(stderr, "reading %zu bytes from %p\n", toWrite - sent, &buffer.at(pos));
       ssize_t res = ::write(d_socket, reinterpret_cast<char*>(&buffer.at(pos)), toWrite - sent);
       if (res == 0) {
         throw runtime_error("EOF while sending message");
