@@ -269,7 +269,7 @@ void ComboAddress::truncate(unsigned int bits) noexcept
   *place &= (~((1<<bitsleft)-1));
 }
 
-ssize_t sendMsgWithTimeout(int fd, const char* buffer, size_t len, int idleTimeout, ComboAddress& dest, const ComboAddress& local, unsigned int localItf, int totalTimeout, int flags)
+size_t sendMsgWithTimeout(int fd, const char* buffer, size_t len, int idleTimeout, const ComboAddress* dest, const ComboAddress* local, unsigned int localItf, int totalTimeout, int flags)
 {
   int remainingTime = totalTimeout;
   time_t start = 0;
@@ -306,7 +306,7 @@ ssize_t sendMsgWithTimeout(int fd, const char* buffer, size_t len, int idleTimeo
 
   iov.iov_base = reinterpret_cast<void*>(const_cast<char*>(buffer));
   iov.iov_len = len;
-  msgh.msg_iov  = iov;
+  msgh.msg_iov = &iov;
   msgh.msg_iovlen = 1;
   msgh.msg_flags = 0;
 
@@ -332,8 +332,8 @@ ssize_t sendMsgWithTimeout(int fd, const char* buffer, size_t len, int idleTimeo
       }
 
       /* partial write */
-      iov[pos].iov_len -= written;
-      iov[pos].iov_base = reinterpret_cast<void*>(reinterpret_cast<char*>(iov[pos].iov_base) + written);
+      iov.iov_len -= written;
+      iov.iov_base = reinterpret_cast<void*>(reinterpret_cast<char*>(iov.iov_base) + written);
       written = 0;
     }
     else if (res == -1) {
@@ -343,7 +343,7 @@ ssize_t sendMsgWithTimeout(int fd, const char* buffer, size_t len, int idleTimeo
       else if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS) {
         /* EINPROGRESS might happen with non blocking socket,
            especially with TCP Fast Open */
-        if (timeout <= 0) {
+        if (totalTimeout <= 0 && idleTimeout <= 0) {
           return sent;
         }
 
@@ -364,7 +364,7 @@ ssize_t sendMsgWithTimeout(int fd, const char* buffer, size_t len, int idleTimeo
         }
       }
       else {
-        unixDie("failed in write2WithTimeout");
+        unixDie("failed in sendMsgWithTimeout");
       }
     }
     if (totalTimeout) {
