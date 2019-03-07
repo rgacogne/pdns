@@ -367,6 +367,7 @@ public:
   bool d_freshDownstreamConnection{false};
   bool d_readingFirstQuery{true};
   bool d_outstanding{false};
+  bool d_firstResponsePacket{true};
 };
 
 static void handleIOCallback(int fd, FDMultiplexer::funcparam_t& param);
@@ -411,6 +412,17 @@ static void handleResponse(std::shared_ptr<IncomingTCPConnectionState>& state)
   }
 
   auto response = reinterpret_cast<char*>(&state->d_responseBuffer.at(0));
+  unsigned int consumed;
+  if (state->d_firstResponsePacket && !responseContentMatches(response, state->d_responseBuffer.size(), state->d_ids.qname, state->d_ids.qtype, state->d_ids.qclass, state->d_ds->remote, consumed)) {
+    return;
+  }
+  state->d_firstResponsePacket = false;
+
+  if (state->d_outstanding) {
+    --state->d_ds->outstanding;
+    state->d_outstanding = false;
+  }
+
   auto dh = reinterpret_cast<struct dnsheader*>(response);
   uint16_t addRoom = 0;
   DNSResponse dr = makeDNSResponseFromIDState(state->d_ids, dh, state->d_responseBuffer.size(), state->d_responseSize, true);
@@ -429,9 +441,11 @@ static void handleResponse(std::shared_ptr<IncomingTCPConnectionState>& state)
 
   if (!rewrittenResponse.empty()) {
     state->d_responseBuffer = std::move(rewrittenResponse);
+  } else {
+    /* the size might have been updated (shrinked) if we removed the whole OPT RR, for example) */
+    state->d_responseBuffer.resize(dr.len);
   }
 
-  //state->d_responseBuffer.resize(dr.len);
   state->d_responseSize = state->d_responseBuffer.size();
   sendResponse(state);
 
@@ -512,6 +526,8 @@ static void handleNewIOState(std::shared_ptr<IncomingTCPConnectionState>& state,
   }
 }
 
+static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>&state);
+
 static void handleDownstreamIOCallback(int fd, FDMultiplexer::funcparam_t& param)
 {
   auto state = boost::any_cast<std::shared_ptr<IncomingTCPConnectionState>>(param);
@@ -523,6 +539,7 @@ static void handleDownstreamIOCallback(int fd, FDMultiplexer::funcparam_t& param
   }
 
   IOState iostate = IOState::Done;
+  bool connectionDied = false;
 
   cerr<<"in "<<__func__<<", existing state is "<<(int)state->d_lastIOState<<endl;
 
@@ -582,8 +599,6 @@ static void handleDownstreamIOCallback(int fd, FDMultiplexer::funcparam_t& param
       if (iostate == IOState::Done) {
         cerr<<"got response"<<endl;
         //XX we should either keep reading in case of XFR, or queue the connection for reuse
-        --state->d_ds->outstanding;
-        state->d_outstanding = false;
 
         state->d_threadData.mplexer->removeReadFD(fd);
 
@@ -609,10 +624,19 @@ static void handleDownstreamIOCallback(int fd, FDMultiplexer::funcparam_t& param
     #warning FIXME we will need to RETRY!!
     vinfolog("Got an exception while handling (%s backend) TCP query from %s: %s", (state->d_lastIOState == IOState::NeedRead ? "reading from" : "writing to"), state->d_ci.remote.toStringWithPort(), e.what());
     /* remove this FD from the IO multiplexer */
+    ++state->d_downstreamFailures;
+    if (state->d_outstanding && state->d_ds != nullptr) {
+      --state->d_ds->outstanding;
+    }
     iostate = IOState::Done;
+    connectionDied = true;
   }
 
   handleNewIOState(state, iostate, fd, handleDownstreamIOCallback);
+
+  if (connectionDied) {
+    sendQueryToBackend(state);
+  }
 }
 
 static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>&state)
@@ -620,7 +644,8 @@ static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>&state
   auto ds = state->d_ds;
   state->d_state = IncomingTCPConnectionState::State::sendingQueryToBackend;
 
-  do {
+  while (state->d_downstreamFailures < state->d_ds->retries)
+  {
     state->d_downstreamSocket = getConnectionToDownstream(ds, state->d_downstreamFailures, state->d_freshDownstreamConnection);
 
     if (!state->d_downstreamSocket) {
@@ -632,7 +657,6 @@ static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>&state
     state->d_threadData.mplexer->addWriteFD(state->d_downstreamSocket->getHandle(), handleDownstreamIOCallback, state);
     return;
   }
-  while (state->d_downstreamFailures < state->d_ds->retries);
 
   vinfolog("Downstream connection to %s failed %u times in a row, giving up.", ds->getName(), state->d_downstreamFailures);
 }
@@ -677,6 +701,11 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state)
   DNSName qname(query, state->d_querySize, sizeof(dnsheader), false, &qtype, &qclass, &consumed);
   DNSQuestion dq(&qname, qtype, qclass, consumed, &state->d_ids.origDest, &state->d_ci.remote, reinterpret_cast<dnsheader*>(query), state->d_buffer.size(), state->d_querySize, true, &queryRealTime);
   dq.dnsCryptQuery = std::move(dnsCryptQuery);
+
+  bool isXFR = (dq.qtype == QType::AXFR || dq.qtype == QType::IXFR);
+  if (isXFR) {
+    dq.skipCache = true;
+  }
 
   state->d_ds.reset();
   auto result = processQuery(dq, *state->d_ci.cs, state->d_threadData.holders, state->d_ds);
@@ -769,7 +798,7 @@ static void handleIOCallback(int fd, FDMultiplexer::funcparam_t& param)
        Let's just drop the connection
     */
     if (state->d_lastIOState == IOState::NeedWrite || state->d_readingFirstQuery) {
-      vinfolog("Got exception while handling (%s) TCP query from %s: %s", (state->d_lastIOState == IOState::NeedRead ? "reading" : "writing"), state->d_ci.remote.toStringWithPort(), e.what());
+      vinfolog("Got an exception while handling (%s) TCP query from %s: %s", (state->d_lastIOState == IOState::NeedRead ? "reading" : "writing"), state->d_ci.remote.toStringWithPort(), e.what());
     }
     else {
       vinfolog("Closing TCP client connection with %s", state->d_ci.remote.toStringWithPort());
