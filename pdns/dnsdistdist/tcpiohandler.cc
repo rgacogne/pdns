@@ -232,7 +232,7 @@ private:
 class OpenSSLTLSConnection: public TLSConnection
 {
 public:
-  OpenSSLTLSConnection(int socket, unsigned int timeout, SSL_CTX* tlsCtx): d_conn(std::unique_ptr<SSL, void(*)(SSL*)>(SSL_new(tlsCtx), SSL_free))
+  OpenSSLTLSConnection(int socket, unsigned int timeout, SSL_CTX* tlsCtx): d_conn(std::unique_ptr<SSL, void(*)(SSL*)>(SSL_new(tlsCtx), SSL_free)), d_timeout(timeout)
   {
     d_socket = socket;
 
@@ -246,20 +246,6 @@ public:
 
     if (!SSL_set_fd(d_conn.get(), d_socket)) {
       throw std::runtime_error("Error assigning socket");
-    }
-
-    int res = 0;
-    do {
-#warning fixme / todo: this needs to be moved outside of the constructor so we can handle the blocking in the multiplexer
-      res = SSL_accept(d_conn.get());
-      if (res < 0) {
-        handleIORequest(res, timeout);
-      }
-    }
-    while (res < 0);
-
-    if (res != 1) {
-      throw std::runtime_error("Error accepting TLS connection");
     }
   }
 
@@ -294,6 +280,35 @@ public:
     }
     else {
       throw std::runtime_error("Error writing to TLS connection");
+    }
+  }
+
+  IOState tryHandshake()
+  {
+    int res = SSL_accept(d_conn.get());
+    if (res == 0) {
+      return IOState::Done;
+    }
+    else if (res < 0) {
+      return convertIORequestToIOState(res);
+    }
+
+    throw std::runtime_error("Error accepting TLS connection");
+  }
+
+  void doHandshake()
+  {
+    int res = 0;
+    do {
+      res = SSL_accept(d_conn.get());
+      if (res < 0) {
+        handleIORequest(res, d_timeout);
+      }
+    }
+    while (res < 0);
+
+    if (res != 1) {
+      throw std::runtime_error("Error accepting TLS connection");
     }
   }
 
@@ -397,6 +412,7 @@ public:
 
 private:
   std::unique_ptr<SSL, void(*)(SSL*)> d_conn;
+  unsigned int d_timeout;
 };
 
 class OpenSSLTLSIOCtx: public TLSCtx
@@ -736,13 +752,38 @@ public:
     /* timeouts are in milliseconds */
     gnutls_handshake_set_timeout(d_conn.get(), timeout * 1000);
     gnutls_record_set_timeout(d_conn.get(), timeout * 1000);
+  }
 
+  void doHandshake()
+  {
     int ret = 0;
     do {
-#warning fixme / todo: this needs to be moved outside of the constructor so we can handle the blocking in the multiplexer
       ret = gnutls_handshake(d_conn.get());
+      if (gnutls_error_is_fatal(ret) || ret == GNUTLS_E_WARNING_ALERT_RECEIVED) {
+        throw std::runtime_error("Error accepting a new connection");
+      }
     }
-    while (ret < 0 && gnutls_error_is_fatal(ret) == 0);
+    while (ret < 0 && ret == GNUTLS_E_INTERRUPTED);
+  }
+
+  IOState tryHandshake()
+  {
+    int ret = 0;
+
+    do {
+      ret = gnutls_handshake(d_conn.get());
+      if (ret == GNUTLS_E_SUCCESS) {
+        return IOState::Done;
+      }
+      else if (ret == GNUTLS_E_AGAIN) {
+        return IOState::NeedRead;
+      }
+      else if (gnutls_error_is_fatal(ret) || ret == GNUTLS_E_WARNING_ALERT_RECEIVED) {
+        throw std::runtime_error("Error accepting a new connection");
+      }
+    } while (ret == GNUTLS_E_INTERRUPTED);
+
+    throw std::runtime_error("Error accepting a new connection");
   }
 
   IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite) override

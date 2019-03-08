@@ -10,6 +10,8 @@ class TLSConnection
 {
 public:
   virtual ~TLSConnection() { }
+  virtual void doHandshake() = 0;
+  virtual IOState tryHandshake() = 0;
   virtual size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout=0) = 0;
   virtual size_t write(const void* buffer, size_t bufferSize, unsigned int writeTimeout) = 0;
   virtual IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite) = 0;
@@ -173,6 +175,14 @@ public:
     else if (d_socket != -1) {
       shutdown(d_socket, SHUT_RDWR);
     }
+  }
+
+  IOState tryHandshake()
+  {
+    if (d_conn) {
+      return d_conn->tryHandshake();
+    }
+    return IOState::Done;
   }
 
   size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout=0)

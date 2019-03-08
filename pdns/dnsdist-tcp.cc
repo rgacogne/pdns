@@ -451,7 +451,7 @@ public:
     return res;
   }
 
-  enum class State { readingQuerySize, readingQuery, sendingQueryToBackend, readingResponseSizeFromBackend, readingResponseFromBackend, sendingResponse };
+  enum class State { doingHandshake, readingQuerySize, readingQuery, sendingQueryToBackend, readingResponseSizeFromBackend, readingResponseFromBackend, sendingResponse };
 
   std::vector<uint8_t> d_buffer;
   std::vector<uint8_t> d_responseBuffer;
@@ -468,7 +468,7 @@ public:
   uint16_t d_querySize{0};
   uint16_t d_responseSize{0};
   uint16_t d_downstreamFailures{0};
-  State d_state{State::readingQuerySize};
+  State d_state{State::doingHandshake};
   IOState d_lastIOState{IOState::Done};
   bool d_freshDownstreamConnection{false};
   bool d_readingFirstQuery{true};
@@ -919,6 +919,15 @@ static void handleIOCallback(int fd, FDMultiplexer::funcparam_t& param)
   cerr<<"in "<<__func__<<", existing state is "<<(int)state->d_lastIOState<<endl;
 
   try {
+    if (state->d_state == IncomingTCPConnectionState::State::doingHandshake) {
+      cerr<<"state is doingHandshake"<<endl;
+      iostate = state->d_handler.tryHandshake();
+      if (iostate == IOState::Done) {
+        cerr<<"handkshake done!"<<endl;
+        state->d_state = IncomingTCPConnectionState::State::readingQuerySize;
+      }
+    }
+    
     if (state->d_state == IncomingTCPConnectionState::State::readingQuerySize) {
       cerr<<"state is readingQuerySize"<<endl;
       iostate = state->d_handler.tryRead(state->d_buffer, state->d_currentPos, sizeof(uint16_t) - state->d_currentPos);
@@ -959,7 +968,8 @@ static void handleIOCallback(int fd, FDMultiplexer::funcparam_t& param)
       }
     }
 
-    if (state->d_state != IncomingTCPConnectionState::State::readingQuerySize &&
+    if (state->d_state != IncomingTCPConnectionState::State::doingHandshake &&
+        state->d_state != IncomingTCPConnectionState::State::readingQuerySize &&
         state->d_state != IncomingTCPConnectionState::State::readingQuery &&
         state->d_state != IncomingTCPConnectionState::State::sendingResponse) {
       vinfolog("Unexpected state %d in handleIOCallback", static_cast<int>(state->d_state));
