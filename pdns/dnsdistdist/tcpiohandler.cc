@@ -283,14 +283,54 @@ public:
     }
   }
 
+  IOState convertIORequestToIOState(int res) const
+  {
+    int error = SSL_get_error(d_conn.get(), res);
+    if (error == SSL_ERROR_WANT_READ) {
+      return IOState::NeedRead;
+    }
+    else if (error == SSL_ERROR_WANT_WRITE) {
+      return IOState::NeedWrite;
+    }
+    else {
+      throw std::runtime_error("Error writing to TLS connection");
+    }
+  }
+
   IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite) override
   {
-    throw std::runtime_error("tryWrite is not implemented");
+    do {
+      int res = SSL_write(d_conn.get(), reinterpret_cast<const char *>(&buffer.at(pos)), static_cast<int>(toWrite - pos));
+      if (res == 0) {
+        throw std::runtime_error("Error writing to TLS connection");
+      }
+      else if (res < 0) {
+        return convertIORequestToIOState(res);
+      }
+      else {
+        pos += static_cast<size_t>(res);
+      }
+    }
+    while (pos < toWrite);
+    return IOState::Done;
   }
 
   IOState tryRead(std::vector<uint8_t>& buffer, size_t& pos, size_t toRead) override
   {
-    throw std::runtime_error("tryRead is not implemented");
+    do {
+      int res = SSL_read(d_conn.get(), reinterpret_cast<char *>(&buffer.at(pos)), static_cast<int>(toRead - pos));
+      if (res == 0) {
+        throw std::runtime_error("Error reading from TLS connection");
+      }
+      else if (res < 0) {
+        return convertIORequestToIOState(res);
+      }
+      else {
+        pos += static_cast<size_t>(res);
+      }
+    }
+    while (pos < toRead);
+    return IOState::Done;
   }
 
   size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout) override
@@ -311,7 +351,7 @@ public:
         handleIORequest(res, readTimeout);
       }
       else {
-        got += (size_t) res;
+        got += static_cast<size_t>(res);
       }
 
       if (totalTimeout) {
@@ -341,7 +381,7 @@ public:
         handleIORequest(res, writeTimeout);
       }
       else {
-        got += (size_t) res;
+        got += static_cast<size_t>(res);
       }
     }
     while (got < bufferSize);
@@ -661,7 +701,7 @@ public:
 
   GnuTLSConnection(int socket, unsigned int timeout, const gnutls_certificate_credentials_t creds, const gnutls_priority_t priorityCache, std::shared_ptr<GnuTLSTicketsKey>& ticketsKey, bool enableTickets): d_conn(std::unique_ptr<gnutls_session_int, void(*)(gnutls_session_t)>(nullptr, gnutls_deinit)), d_ticketsKey(ticketsKey)
   {
-    unsigned int sslOptions = GNUTLS_SERVER;
+    unsigned int sslOptions = GNUTLS_SERVER | GNUTLS_NONBLOCK;
 #ifdef GNUTLS_NO_SIGNAL
     sslOptions |= GNUTLS_NO_SIGNAL;
 #endif
@@ -707,12 +747,50 @@ public:
 
   IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite) override
   {
-    throw std::runtime_error("tryWrite is not implemented");
+    do {
+      ssize_t res = gnutls_record_send(d_conn.get(), reinterpret_cast<const char *>(&buffer.at(pos)), toWrite - pos);
+      if (res == 0) {
+        throw std::runtime_error("Error writing to TLS connection");
+      }
+      else if (res > 0) {
+        pos += static_cast<size_t>(res);
+      }
+      else if (res < 0) {
+        if (gnutls_error_is_fatal(res)) {
+          throw std::runtime_error("Error writing to TLS connection");
+        }
+        else if (res == GNUTLS_E_AGAIN) {
+          return IOState::NeedWrite;
+        }
+        warnlog("Warning, non-fatal error while writing to TLS connection: %s", gnutls_strerror(res));
+      }
+    }
+    while (pos < toWrite);
+    return IOState::Done;
   }
 
   IOState tryRead(std::vector<uint8_t>& buffer, size_t& pos, size_t toRead) override
   {
-    throw std::runtime_error("tryRead is not implemented");
+    do {
+      ssize_t res = gnutls_record_recv(d_conn.get(), reinterpret_cast<char *>(&buffer.at(pos)), toRead - pos);
+      if (res == 0) {
+        throw std::runtime_error("Error reading from TLS connection");
+      }
+      else if (res > 0) {
+        pos += static_cast<size_t>(res);
+      }
+      else if (res < 0) {
+        if (gnutls_error_is_fatal(res)) {
+          throw std::runtime_error("Error reading from TLS connection");
+        }
+        else if (res == GNUTLS_E_AGAIN) {
+          return IOState::NeedRead;
+        }
+        warnlog("Warning, non-fatal error while writing to TLS connection: %s", gnutls_strerror(res));
+      }
+    }
+    while (pos < toRead);
+    return IOState::Done;
   }
 
   size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout) override
@@ -730,7 +808,7 @@ public:
         throw std::runtime_error("Error reading from TLS connection");
       }
       else if (res > 0) {
-        got += (size_t) res;
+        got += static_cast<size_t>(res);
       }
       else if (res < 0) {
         if (gnutls_error_is_fatal(res)) {
@@ -764,7 +842,7 @@ public:
         throw std::runtime_error("Error writing to TLS connection");
       }
       else if (res > 0) {
-        got += (size_t) res;
+        got += static_cast<size_t>(res);
       }
       else if (res < 0) {
         if (gnutls_error_is_fatal(res)) {
