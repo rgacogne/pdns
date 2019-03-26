@@ -1116,6 +1116,7 @@ DNSPacket *PacketHandler::doQuestion(DNSPacket *p)
 
   vector<DNSZoneRecord> rrset;
   bool weDone=0, weRedirected=0, weHaveUnauth=0;
+  bool haveENTOnly = true;
   DNSName haveAlias;
   uint8_t aliasScopeMask;
 
@@ -1419,6 +1420,10 @@ DNSPacket *PacketHandler::doQuestion(DNSPacket *p)
       if(rr.dr.d_type == QType::SOA)
         continue;
 
+      if (rr.dr.d_type != 0) {
+        haveENTOnly = false;
+      }
+
       rrset.push_back(rr);
     }
 
@@ -1448,7 +1453,7 @@ DNSPacket *PacketHandler::doQuestion(DNSPacket *p)
       return 0;
     }
 
-    if(rrset.empty()) {
+    if (rrset.empty() || haveENTOnly) {
       DLOG(g_log<<"checking if qtype is DS"<<endl);
       if(p->qtype.getCode() == QType::DS)
       {
@@ -1459,8 +1464,9 @@ DNSPacket *PacketHandler::doQuestion(DNSPacket *p)
           goto sendit;
         }
       }
+    }
 
-
+    if(rrset.empty()) {
       DLOG(g_log<<Logger::Warning<<"Found nothing in the by-name ANY, but let's try wildcards.."<<endl);
       bool wereRetargeted(false), nodata(false);
       DNSName wildcard;
