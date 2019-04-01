@@ -24,6 +24,7 @@
 #endif
 
 #include <netdb.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -2133,6 +2134,22 @@ static void usr2Handler(int)
   g_quiet= !g_quiet;
   SyncRes::setDefaultLogMode(g_quiet ? SyncRes::LogNone : SyncRes::Log);
   ::arg().set("quiet")=g_quiet ? "" : "no";
+}
+
+uint64_t* pleaseGetThreadCPUMsec(int threadIdx)
+{
+  auto ret = new uint64_t(0);
+
+#ifdef RUSAGE_THREAD
+  if (t_id == threadIdx) {
+    struct rusage ru;
+    getrusage(RUSAGE_THREAD, &ru);
+    *ret = (ru.ru_utime.tv_sec*1000ULL + ru.ru_utime.tv_usec/1000);
+    *ret += (ru.ru_stime.tv_sec*1000ULL + ru.ru_stime.tv_usec/1000);
+  }
+#endif
+
+  return ret;
 }
 
 static void doStats(void)

@@ -657,6 +657,11 @@ static uint64_t getUserTimeMsec()
   return (ru.ru_utime.tv_sec*1000ULL + ru.ru_utime.tv_usec/1000);
 }
 
+static uint64_t doGetThreadCPUMsec(unsigned int n)
+{
+  return broadcastAccFunction<uint64_t>(boost::bind(pleaseGetThreadCPUMsec, n));
+}
+
 static uint64_t calculateUptime()
 {
   return time(0) - g_stats.startupTime;
@@ -968,6 +973,9 @@ void registerAllStats()
   //  addGetStat("query-rate", getQueryRate);
   addGetStat("user-msec", getUserTimeMsec);
   addGetStat("sys-msec", getSysTimeMsec);
+
+  for(unsigned int n=0; n < g_numThreads; ++n)
+    addGetStat("cpu-msec-thread-"+std::to_string(n), boost::bind(&doGetThreadCPUMsec, n));
 
 #ifdef MALLOC_TRACE
   addGetStat("memory-allocs", boost::bind(&MallocTracer::getAllocs, g_mtracer, string()));

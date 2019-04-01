@@ -989,6 +989,7 @@ uint64_t* pleaseGetPacketCacheSize();
 uint64_t* pleaseWipeCache(const DNSName& canon, bool subtree=false);
 uint64_t* pleaseWipePacketCache(const DNSName& canon, bool subtree);
 uint64_t* pleaseWipeAndCountNegCache(const DNSName& canon, bool subtree=false);
+uint64_t* pleaseGetThreadCPUMsec(int threadIdx);
 void doCarbonDump(void*);
 void primeHints(void);
 
