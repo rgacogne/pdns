@@ -2209,9 +2209,14 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
            synthetized from the wildcard. Note that the difference might
            be > 1. */
         if (rec.d_name == qname && rrsig->d_labels < labelCount) {
-          LOG(prefix<<qname<<": RRSIG indicates the name was synthetized from a wildcard, we need a wildcard proof"<<endl);
-          needWildcardProof = true;
-          wildcardLabelsCount = rrsig->d_labels;
+          if (rec.d_name.isWildcard() && (labelCount - 1) == rrsig->d_labels) {
+            /* this is actually a non-expanded wildcard! */
+          }
+          else {
+            LOG(prefix<<qname<<": RRSIG indicates the name was synthetized from a wildcard, we need a wildcard proof"<<endl);
+            needWildcardProof = true;
+            wildcardLabelsCount = rrsig->d_labels;
+          }
         }
 
         //	    cerr<<"Got an RRSIG for "<<DNSRecordContent::NumberToType(rrsig->d_type)<<" with name '"<<rec.d_name<<"'"<<endl;

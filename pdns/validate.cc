@@ -121,6 +121,10 @@ static bool isWildcardExpanded(const DNSName& owner, const std::vector<std::shar
   const auto& sign = signatures.at(0);
   unsigned int labelsCount = owner.countLabels();
   if (sign && sign->d_labels < labelsCount) {
+    if (owner.isWildcard() && (labelsCount - 1) == sign->d_labels) {
+      /* this is actually a non-expanded wildcard! */
+      return false;
+    }
     return true;
   }
 
