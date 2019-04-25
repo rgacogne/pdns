@@ -255,13 +255,20 @@ GlobalStateHolder<NetmaskGroup> g_dontThrottleNetmasks;
 #define BAD_NETS   "0.0.0.0/8, 192.0.0.0/24, 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 240.0.0.0/4, ::/96, ::ffff:0:0/96, 100::/64, 2001:db8::/32"
 #define DONT_QUERY LOCAL_NETS ", " BAD_NETS
 
+struct TimingInfos
+{
+  struct timeval d_kernel{0,0};
+  struct timeval d_received{0,0};
+  struct timeval d_distributed{0,0};
+};
+
 //! used to send information to a newborn mthread
 struct DNSComboWriter {
-  DNSComboWriter(const std::string& query, const struct timeval& now): d_mdp(true, query), d_now(now), d_query(query)
+  DNSComboWriter(const std::string& query, const struct TimingInfos& timing): d_mdp(true, query), d_timing(timing), d_query(query)
   {
   }
 
-  DNSComboWriter(const std::string& query, const struct timeval& now, std::vector<std::string>&& policyTags, LuaContext::LuaObject&& data): d_mdp(true, query), d_now(now), d_query(query), d_policyTags(std::move(policyTags)), d_data(std::move(data))
+  DNSComboWriter(const std::string& query, const struct TimingInfos& timing, std::vector<std::string>&& policyTags, LuaContext::LuaObject&& data): d_mdp(true, query), d_timing(timing), d_query(query), d_policyTags(std::move(policyTags)), d_data(std::move(data))
   {
   }
 
@@ -299,7 +306,6 @@ struct DNSComboWriter {
   }
 
   MOADNSParser d_mdp;
-  struct timeval d_now;
   /* Remote client, might differ from d_source
      in case of XPF, in which case d_source holds
      the IP of the client and d_remote of the proxy
@@ -312,11 +318,11 @@ struct DNSComboWriter {
      d_local holds our own. */
   ComboAddress d_local;
   ComboAddress d_destination;
-#ifdef HAVE_PROTOBUF
-  boost::uuids::uuid d_uuid;
   string d_requestorId;
   string d_deviceId;
-  struct timeval d_kernelTimestamp{0,0};
+  struct TimingInfos d_timing;
+#ifdef HAVE_PROTOBUF
+  boost::uuids::uuid d_uuid;
 #endif
   std::string d_query;
   std::vector<std::string> d_policyTags;
@@ -1108,7 +1114,7 @@ static void startDoResolve(void *p)
        cap no matter what. */
     uint32_t minTTL = dc->d_ttlCap;
 
-    SyncRes sr(dc->d_now);
+    SyncRes sr(g_now);
 
     bool DNSSECOK=false;
     if(t_pdl) {
@@ -1167,10 +1173,8 @@ static void startDoResolve(void *p)
     dq.currentRecords = &ret;
     dq.dh = &dc->d_mdp.d_header;
     dq.data = dc->d_data;
-#ifdef HAVE_PROTOBUF
     dq.requestorId = dc->d_requestorId;
     dq.deviceId = dc->d_deviceId;
-#endif
 
     if(ednsExtRCode != 0) {
       goto sendit;
@@ -1543,11 +1547,11 @@ static void startDoResolve(void *p)
         pbMessage->setAppliedPolicyType(appliedPolicy.d_type);
       }
       pbMessage->setPolicyTags(dc->d_policyTags);
-      if (g_useKernelTimestamp && dc->d_kernelTimestamp.tv_sec) {
-        pbMessage->setQueryTime(dc->d_kernelTimestamp.tv_sec, dc->d_kernelTimestamp.tv_usec);
+      if (g_useKernelTimestamp && dc->d_timing.d_kernel.tv_sec) {
+        pbMessage->setQueryTime(dc->d_timing.d_kernel.tv_sec, dc->d_timing.d_kernel.tv_usec);
       }
       else {
-        pbMessage->setQueryTime(dc->d_now.tv_sec, dc->d_now.tv_usec);
+        pbMessage->setQueryTime(dc->d_timing.d_received.tv_sec, dc->d_timing.d_received.tv_usec);
       }
       pbMessage->setRequestorId(dq.requestorId);
       pbMessage->setDeviceId(dq.deviceId);
@@ -1647,7 +1651,7 @@ static void startDoResolve(void *p)
         }
       }
     }
-    float spent=makeFloat(sr.getNow()-dc->d_now);
+    float spent=makeFloat(sr.getNow()-dc->d_timing.d_received);
     if(!g_quiet) {
       g_log<<Logger::Error<<t_id<<" ["<<MT->getTid()<<"/"<<MT->numProcesses()<<"] answer to "<<(dc->d_mdp.d_header.rd?"":"non-rd ")<<"question '"<<dc->d_mdp.d_qname<<"|"<<DNSRecordContent::NumberToType(dc->d_mdp.d_qtype);
       g_log<<"': "<<ntohs(pw.getHeader()->ancount)<<" answers, "<<ntohs(pw.getHeader()->arcount)<<" additional, took "<<sr.d_outqueries<<" packets, "<<
@@ -1884,7 +1888,9 @@ static void handleRunningTCPQuestion(int fd, FDMultiplexer::funcparam_t& var)
 
       std::unique_ptr<DNSComboWriter> dc;
       try {
-        dc=std::unique_ptr<DNSComboWriter>(new DNSComboWriter(conn->data, g_now));
+        struct TimingInfos timing;
+        timing.d_distributed = g_now;
+        dc=std::unique_ptr<DNSComboWriter>(new DNSComboWriter(conn->data, timing));
       }
       catch(const MOADNSException &mde) {
         g_stats.clientParseError++;
@@ -2071,11 +2077,12 @@ static void handleNewTCPQuestion(int fd, FDMultiplexer::funcparam_t& )
   }
 }
 
-static string* doProcessUDPQuestion(const std::string& question, const ComboAddress& fromaddr, const ComboAddress& destaddr, struct timeval tv, int fd)
+static string* doProcessUDPQuestion(const std::string& question, const ComboAddress& fromaddr, const ComboAddress& destaddr, struct TimingInfos timing, int fd)
 {
   gettimeofday(&g_now, 0);
-  if (tv.tv_sec) {
-    struct timeval diff = g_now - tv;
+  timing.d_distributed = g_now;
+  if (timing.d_kernel.tv_sec) {
+    struct timeval diff = g_now - timing.d_kernel;
     double delta=(diff.tv_sec*1000 + diff.tv_usec/1000.0);
 
     if(delta > 1000.0) {
@@ -2211,8 +2218,8 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
         const ComboAddress& requestor = requestorNM.getMaskedNetwork();
         pbMessage->update(uniqueId, &requestor, &destination, false, dh->id);
         pbMessage->setEDNSSubnet(ednssubnet.source, ednssubnet.source.isIpv4() ? luaconfsLocal->protobufMaskV4 : luaconfsLocal->protobufMaskV6);
-        if (g_useKernelTimestamp && tv.tv_sec) {
-          pbMessage->setQueryTime(tv.tv_sec, tv.tv_usec);
+        if (g_useKernelTimestamp && timing.d_kernel.tv_sec) {
+          pbMessage->setQueryTime(timing.d_kernel.tv_sec, timing.d_kernel.tv_usec);
         }
         else {
           pbMessage->setQueryTime(g_now.tv_sec, g_now.tv_usec);
@@ -2272,7 +2279,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
     return 0;
   }
 
-  auto dc = std::unique_ptr<DNSComboWriter>(new DNSComboWriter(question, g_now, std::move(policyTags), std::move(data)));
+  auto dc = std::unique_ptr<DNSComboWriter>(new DNSComboWriter(question, timing, std::move(policyTags), std::move(data)));
   dc->setSocket(fd);
   dc->d_tag=ctag;
   dc->d_qhash=qhash;
@@ -2292,10 +2299,9 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
   if (t_protobufServers || t_outgoingProtobufServers) {
     dc->d_uuid = std::move(uniqueId);
   }
+#endif
   dc->d_requestorId = requestorId;
   dc->d_deviceId = deviceId;
-  dc->d_kernelTimestamp = tv;
-#endif
 
   MT->makeThread(startDoResolve, (void*) dc.release()); // deletes dc
   return 0;
@@ -2383,8 +2389,9 @@ static void handleNewUDPQuestion(int fd, FDMultiplexer::funcparam_t& var)
           }
         }
         else {
-          struct timeval tv={0,0};
-          HarvestTimestamp(&msgh, &tv);
+          struct TimingInfos timing;
+          timing.d_received = g_now;
+          HarvestTimestamp(&msgh, &timing.d_kernel);
           ComboAddress dest;
           dest.reset(); // this makes sure we ignore this address if not returned by recvmsg above
           auto loc = rplookup(g_listenSocketsAddresses, fd);
@@ -2406,11 +2413,11 @@ static void handleNewUDPQuestion(int fd, FDMultiplexer::funcparam_t& var)
           }
 
           if(g_weDistributeQueries) {
-            distributeAsyncFunction(data, boost::bind(doProcessUDPQuestion, data, fromaddr, dest, tv, fd));
+            distributeAsyncFunction(data, boost::bind(doProcessUDPQuestion, data, fromaddr, dest, timing, fd));
           }
           else {
             ++s_threadInfos[t_id].numberOfDistributedQueries;
-            doProcessUDPQuestion(data, fromaddr, dest, tv, fd);
+            doProcessUDPQuestion(data, fromaddr, dest, timing, fd);
           }
         }
       }
