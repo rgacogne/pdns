@@ -10,6 +10,7 @@ class TLSConnection
 {
 public:
   virtual ~TLSConnection() { }
+  virtual IOState tryConnect(bool fastOpen, const ComboAddress& remote) = 0;
   virtual void doHandshake() = 0;
   virtual IOState tryHandshake() = 0;
   virtual size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout=0) = 0;
@@ -31,6 +32,7 @@ public:
   }
   virtual ~TLSCtx() {}
   virtual std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout, time_t now) = 0;
+  virtual std::unique_ptr<TLSConnection> getClientConnection(int socket, unsigned int timeout) = 0;
   virtual void rotateTicketsKey(time_t now) = 0;
   virtual void loadTicketsKeys(const std::string& file)
   {
@@ -174,6 +176,18 @@ public:
     }
   }
 
+  IOState tryConnect(bool fastOpen, const ComboAddress& remote)
+  {
+    /* yes, this is only the TLS connect not the socket one,
+       sorry about that */
+    if (d_conn) {
+      return d_conn->tryConnect(fastOpen, remote);
+    }
+    d_fastOpen = true;
+
+    return IOState::Done;
+  }
+
   IOState tryHandshake()
   {
     if (d_conn) {
@@ -289,7 +303,18 @@ public:
     }
   }
 
+  int getHandle() const
+  {
+    return d_socket;
+  }
+
+  bool doesFilter() const
+  {
+    return d_conn != nullptr;
+  }
+
 private:
   std::unique_ptr<TLSConnection> d_conn{nullptr};
   int d_socket{-1};
+  bool d_fastOpen = false;
 };
