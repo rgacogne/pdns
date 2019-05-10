@@ -84,7 +84,7 @@ static std::unique_ptr<Socket> setupTCPDownstream(shared_ptr<DownstreamState>& d
       }
       result->setNonBlocking();
 #ifdef MSG_FASTOPEN
-      if (!ds->tcpFastOpen) {
+      if (!ds->tcpFastOpen || (ds->tlsCtx != nullptr && !ds->tlsCtx->supportFastOpen())) {
         SConnectWithTimeout(result->getHandle(), ds->remote, /* no timeout, we will handle it ourselves */ 0);
       }
 #else
@@ -107,15 +107,16 @@ static std::unique_ptr<Socket> setupTCPDownstream(shared_ptr<DownstreamState>& d
 class TCPConnectionToBackend
 {
 public:
-  TCPConnectionToBackend(std::shared_ptr<DownstreamState>& ds, uint16_t& downstreamFailures, const struct timeval& now): d_ds(ds), d_connectionStartTime(now)
+  TCPConnectionToBackend(std::shared_ptr<DownstreamState>& ds, uint16_t& downstreamFailures, const struct timeval& now): d_ds(ds), d_connectionStartTime(now), d_fastOpen(ds->tcpFastOpen)
   {
-    d_socket = setupTCPDownstream(d_ds, downstreamFailures);
+    auto socket = setupTCPDownstream(d_ds, downstreamFailures);
+    d_handler = std::unique_ptr<TCPIOHandler>(new TCPIOHandler(TCPIOHandler::Type::Client, socket->releaseHandle(), 0, ds->tlsCtx, time(nullptr)));
     ++d_ds->tcpCurrentConnections;
   }
 
   ~TCPConnectionToBackend()
   {
-    if (d_ds && d_socket) {
+    if (d_ds && d_handler) {
       --d_ds->tcpCurrentConnections;
       struct timeval now;
       gettimeofday(&now, nullptr);
@@ -127,16 +128,64 @@ public:
 
   int getHandle() const
   {
-    if (!d_socket) {
+    if (!d_handler) {
       throw std::runtime_error("Attempt to get the socket handle from a non-established TCP connection");
     }
 
-    return d_socket->getHandle();
+    return d_handler->getHandle();
+  }
+
+  bool isUsable() const
+  {
+    return isTCPSocketUsable(d_handler->getHandle());
   }
 
   const ComboAddress& getRemote() const
   {
     return d_ds->remote;
+  }
+
+  IOState tryRead(std::vector<uint8_t>& buffer, size_t& pos, size_t toRead)
+  {
+    return d_handler->tryRead(buffer, pos, toRead);
+  }
+
+  IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite)
+  {
+    setReused();
+
+    if (!d_handler->doesFilter() &&
+        ((d_firstWrite && d_fastOpen) /* first write on a fast open enabled connection */ ||
+         d_ds->sourceItf != 0  /* a speficic outgoing interface has been specified */
+          )) {
+      int socketFlags = 0;
+#ifdef MSG_FASTOPEN
+      if (d_fastOpen && d_firstWrite) {
+        socketFlags |= MSG_FASTOPEN;
+      }
+#endif /* MSG_FASTOPEN */
+
+      size_t sent = sendMsgWithOptions(getHandle(), reinterpret_cast<const char *>(&buffer.at(pos)), toWrite, &d_ds->remote, &d_ds->sourceAddr, d_ds->sourceItf, socketFlags);
+      pos += sent;
+      d_firstWrite = false;
+
+      if (sent == toWrite) {
+        return IOState::Done;
+      }
+      else {
+        return IOState::NeedWrite;
+      }
+    }
+    else {
+      d_firstWrite = false;
+
+      return d_handler->tryWrite(buffer, pos, toWrite);
+    }
+  }
+
+  IOState tryConnect()
+  {
+    return d_handler->tryConnect(d_fastOpen, d_ds->remote);
   }
 
   bool isFresh() const
@@ -155,11 +204,13 @@ public:
   }
 
 private:
-  std::unique_ptr<Socket> d_socket{nullptr};
+  std::unique_ptr<TCPIOHandler> d_handler{nullptr};
   std::shared_ptr<DownstreamState> d_ds{nullptr};
   struct timeval d_connectionStartTime;
   uint64_t d_queries{0};
   bool d_fresh{true};
+  bool d_firstWrite{true};
+  bool d_fastOpen{false};
 };
 
 static thread_local map<ComboAddress, std::deque<std::unique_ptr<TCPConnectionToBackend>>> t_downstreamConnections;
@@ -324,7 +375,7 @@ static void cleanupClosedTCPConnections()
 {
   for(auto dsIt = t_downstreamConnections.begin(); dsIt != t_downstreamConnections.end(); ) {
     for (auto connIt = dsIt->second.begin(); connIt != dsIt->second.end(); ) {
-      if (*connIt && isTCPSocketUsable((*connIt)->getHandle())) {
+      if (*connIt && (*connIt)->isUsable()) {
         ++connIt;
       }
       else {
@@ -339,42 +390,6 @@ static void cleanupClosedTCPConnections()
       dsIt = t_downstreamConnections.erase(dsIt);
     }
   }
-}
-
-/* Tries to read exactly toRead bytes into the buffer, starting at position pos.
-   Updates pos everytime a successful read occurs,
-   throws an std::runtime_error in case of IO error,
-   return Done when toRead bytes have been read, needRead or needWrite if the IO operation
-   would block.
-*/
-// XXX could probably be implemented as a TCPIOHandler
-IOState tryRead(int fd, std::vector<uint8_t>& buffer, size_t& pos, size_t toRead)
-{
-  if (buffer.size() < (pos + toRead)) {
-    throw std::out_of_range("Calling tryRead() with a too small buffer (" + std::to_string(buffer.size()) + ") for a read of " + std::to_string(toRead) + " bytes starting at " + std::to_string(pos));
-  }
-
-  size_t got = 0;
-  do {
-    ssize_t res = ::read(fd, reinterpret_cast<char*>(&buffer.at(pos)), toRead - got);
-    if (res == 0) {
-      throw runtime_error("EOF while reading message");
-    }
-    if (res < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        return IOState::NeedRead;
-      }
-      else {
-        throw std::runtime_error(std::string("Error while reading message: ") + strerror(errno));
-      }
-    }
-
-    pos += static_cast<size_t>(res);
-    got += static_cast<size_t>(res);
-  }
-  while (got < toRead);
-
-  return IOState::Done;
 }
 
 std::unique_ptr<TCPClientCollection> g_tcpclientthreads;
@@ -396,7 +411,7 @@ static void handleDownstreamIOCallback(int fd, FDMultiplexer::funcparam_t& param
 class IncomingTCPConnectionState
 {
 public:
-  IncomingTCPConnectionState(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_buffer(4096), d_responseBuffer(4096), d_threadData(threadData), d_ci(std::move(ci)), d_handler(d_ci.fd, g_tcpRecvTimeout, d_ci.cs->tlsFrontend ? d_ci.cs->tlsFrontend->getContext() : nullptr, now.tv_sec), d_connectionStartTime(now)
+  IncomingTCPConnectionState(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_buffer(4096), d_responseBuffer(4096), d_threadData(threadData), d_ci(std::move(ci)), d_handler(TCPIOHandler::Type::Server, d_ci.fd, g_tcpRecvTimeout, d_ci.cs->tlsFrontend ? d_ci.cs->tlsFrontend->getContext() : nullptr, now.tv_sec), d_connectionStartTime(now)
   {
     d_ids.origDest.reset();
     d_ids.origDest.sin4.sin_family = d_ci.remote.sin4.sin_family;
@@ -600,7 +615,7 @@ public:
     }
   }
 
-  enum class State { doingHandshake, readingQuerySize, readingQuery, sendingQueryToBackend, readingResponseSizeFromBackend, readingResponseFromBackend, sendingResponse };
+  enum class State { doingHandshake, readingQuerySize, readingQuery, connectingToBackend, sendingQueryToBackend, readingResponseSizeFromBackend, readingResponseFromBackend, sendingResponse };
 
   std::vector<uint8_t> d_buffer;
   std::vector<uint8_t> d_responseBuffer;
@@ -739,7 +754,7 @@ static void handleResponse(std::shared_ptr<IncomingTCPConnectionState>& state, s
 static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>& state, struct timeval& now)
 {
   auto ds = state->d_ds;
-  state->d_state = IncomingTCPConnectionState::State::sendingQueryToBackend;
+  state->d_state = IncomingTCPConnectionState::State::connectingToBackend;
   state->d_currentPos = 0;
   state->d_firstResponsePacket = true;
   state->d_downstreamConnection.reset();
@@ -759,6 +774,10 @@ static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>& stat
       ++state->d_ci.cs->tcpGaveUp;
       vinfolog("Downstream connection to %s failed %d times in a row, giving up.", ds->getName(), state->d_downstreamFailures);
       return;
+    }
+
+    if (!state->d_downstreamConnection->isFresh()) {
+      state->d_state = IncomingTCPConnectionState::State::sendingQueryToBackend;
     }
 
     handleDownstreamIO(state, now);
@@ -898,16 +917,17 @@ static void handleDownstreamIO(std::shared_ptr<IncomingTCPConnectionState>& stat
   bool connectionDied = false;
 
   try {
-    if (state->d_state == IncomingTCPConnectionState::State::sendingQueryToBackend) {
-      int socketFlags = 0;
-#ifdef MSG_FASTOPEN
-      if (state->d_ds->tcpFastOpen && state->d_downstreamConnection->isFresh()) {
-        socketFlags |= MSG_FASTOPEN;
+    if (state->d_state == IncomingTCPConnectionState::State::connectingToBackend) {
+      iostate = state->d_downstreamConnection->tryConnect();
+      if (iostate == IOState::Done) {
+        state->d_state = IncomingTCPConnectionState::State::sendingQueryToBackend;
       }
-#endif /* MSG_FASTOPEN */
+    }
 
-      size_t sent = sendMsgWithOptions(fd, reinterpret_cast<const char *>(&state->d_buffer.at(state->d_currentPos)), state->d_buffer.size() - state->d_currentPos, &state->d_ds->remote, &state->d_ds->sourceAddr, state->d_ds->sourceItf, socketFlags);
-      if (sent == state->d_buffer.size()) {
+    if (state->d_state == IncomingTCPConnectionState::State::sendingQueryToBackend) {
+      iostate = state->d_downstreamConnection->tryWrite(state->d_buffer, state->d_currentPos, state->d_buffer.size() - state->d_currentPos);
+
+      if (iostate == IOState::Done) {
         /* request sent ! */
         state->d_downstreamConnection->incQueries();
         state->d_state = IncomingTCPConnectionState::State::readingResponseSizeFromBackend;
@@ -920,12 +940,6 @@ static void handleDownstreamIO(std::shared_ptr<IncomingTCPConnectionState>& stat
           state->d_outstanding = true;
         }
       }
-      else {
-        state->d_currentPos += sent;
-        iostate = IOState::NeedWrite;
-        /* disable fast open on partial write */
-        state->d_downstreamConnection->setReused();
-      }
     }
 
     if (state->d_state == IncomingTCPConnectionState::State::readingResponseSizeFromBackend) {
@@ -933,7 +947,7 @@ static void handleDownstreamIO(std::shared_ptr<IncomingTCPConnectionState>& stat
       // backend dies on us
       // We also might need to read and send to the client more than one response in case of XFR (yeah!)
       // should very likely be a TCPIOHandler d_downstreamHandler
-      iostate = tryRead(fd, state->d_responseBuffer, state->d_currentPos, sizeof(uint16_t) - state->d_currentPos);
+      iostate = state->d_downstreamConnection->tryRead(state->d_responseBuffer, state->d_currentPos, sizeof(uint16_t) - state->d_currentPos);
       if (iostate == IOState::Done) {
         state->d_state = IncomingTCPConnectionState::State::readingResponseFromBackend;
         state->d_responseSize = state->d_responseBuffer.at(0) * 256 + state->d_responseBuffer.at(1);
@@ -943,7 +957,7 @@ static void handleDownstreamIO(std::shared_ptr<IncomingTCPConnectionState>& stat
     }
 
     if (state->d_state == IncomingTCPConnectionState::State::readingResponseFromBackend) {
-      iostate = tryRead(fd, state->d_responseBuffer, state->d_currentPos, state->d_responseSize - state->d_currentPos);
+      iostate = state->d_downstreamConnection->tryRead(state->d_responseBuffer, state->d_currentPos, state->d_responseSize - state->d_currentPos);
       if (iostate == IOState::Done) {
         handleNewIOState(state, IOState::Done, fd, handleDownstreamIOCallback);
 
@@ -962,7 +976,8 @@ static void handleDownstreamIO(std::shared_ptr<IncomingTCPConnectionState>& stat
       }
     }
 
-    if (state->d_state != IncomingTCPConnectionState::State::sendingQueryToBackend &&
+    if (state->d_state != IncomingTCPConnectionState::State::connectingToBackend &&
+        state->d_state != IncomingTCPConnectionState::State::sendingQueryToBackend &&
         state->d_state != IncomingTCPConnectionState::State::readingResponseSizeFromBackend &&
         state->d_state != IncomingTCPConnectionState::State::readingResponseFromBackend) {
       vinfolog("Unexpected state %d in handleDownstreamIOCallback", static_cast<int>(state->d_state));

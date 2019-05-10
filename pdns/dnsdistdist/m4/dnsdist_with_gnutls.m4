@@ -18,7 +18,7 @@ AC_DEFUN([DNSDIST_WITH_GNUTLS], [
         save_LIBS=$LIBS
         CFLAGS="$GNUTLS_CFLAGS $CFLAGS"
         LIBS="$GNUTLS_LIBS $LIBS"
-        AC_CHECK_FUNCS([gnutls_memset])
+        AC_CHECK_FUNCS([gnutls_memset gnutls_transport_set_fastopen])
         CFLAGS=$save_CFLAGS
         LIBS=$save_LIBS
 
