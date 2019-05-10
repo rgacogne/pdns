@@ -354,7 +354,14 @@ public:
   {
     return d_socket;
   }
-  
+
+  int releaseHandle()
+  {
+    int old = d_socket;
+    d_socket = -1;
+    return old;
+  }
+
 private:
   static const size_t s_buflen{4096};
   std::string d_buffer;

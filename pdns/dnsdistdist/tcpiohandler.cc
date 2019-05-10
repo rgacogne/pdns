@@ -210,6 +210,7 @@ public:
       throw std::runtime_error("Error while processing TLS connection: " + std::string(strerror(errno)));
     }
     else {
+      ERR_print_errors_fp(stderr);
       throw std::runtime_error("Error while processing TLS connection: " + std::to_string(error));
     }
   }
@@ -235,6 +236,23 @@ public:
         throw std::runtime_error("Error waiting to write to TLS connection");
       }
     }
+  }
+
+  IOState tryConnect(bool fastOpen, const ComboAddress& remote) override
+  {
+    /* sorry */
+    (void) fastOpen;
+    (void) remote;
+
+    int res = SSL_connect(d_conn.get());
+    if (res == 1) {
+      return IOState::Done;
+    }
+    else if (res < 0) {
+      return convertIORequestToIOState(res);
+    }
+
+    throw std::runtime_error("Error establishing a TLS connection");
   }
 
   IOState tryHandshake() override
@@ -399,7 +417,11 @@ public:
       }
     }
 
+#ifdef HAVE_TLS_SERVER_METHOD
+    d_tlsCtx = std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(SSL_CTX_new(TLS_server_method()), SSL_CTX_free);
+#else
     d_tlsCtx = std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(SSL_CTX_new(SSLv23_server_method()), SSL_CTX_free);
+#endif
     if (!d_tlsCtx) {
       ERR_print_errors_fp(stderr);
       throw std::runtime_error("Error creating TLS context on " + fe.d_addr.toStringWithPort());
@@ -462,6 +484,58 @@ public:
     }
   }
 
+  OpenSSLTLSIOCtx(const std::string& ciphers, const std::string& ciphers13): d_ticketKeys(0), d_tlsCtx(std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(nullptr, SSL_CTX_free))
+  {
+    int sslOptions =
+      SSL_OP_NO_SSLv2 |
+      SSL_OP_NO_SSLv3 |
+      SSL_OP_NO_COMPRESSION |
+      SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION |
+      SSL_OP_SINGLE_DH_USE |
+      SSL_OP_SINGLE_ECDH_USE |
+      SSL_OP_CIPHER_SERVER_PREFERENCE;
+
+    if (s_users.fetch_add(1) == 0) {
+      registerOpenSSLUser();
+
+      s_ticketsKeyIndex = SSL_CTX_get_ex_new_index(0, nullptr, nullptr, nullptr, nullptr);
+
+      if (s_ticketsKeyIndex == -1) {
+        throw std::runtime_error("Error getting an index for tickets key");
+      }
+    }
+
+#ifdef HAVE_TLS_CLIENT_METHOD
+    d_tlsCtx = std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(SSL_CTX_new(TLS_client_method()), SSL_CTX_free);
+#else
+    d_tlsCtx = std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(SSL_CTX_new(SSLv23_client_method()), SSL_CTX_free);
+#endif
+    if (!d_tlsCtx) {
+      ERR_print_errors_fp(stderr);
+      throw std::runtime_error("Error creating TLS context");
+    }
+
+    SSL_CTX_set_options(d_tlsCtx.get(), sslOptions);
+#if defined(SSL_CTX_set_ecdh_auto)
+    SSL_CTX_set_ecdh_auto(d_tlsCtx.get(), 1);
+#endif
+
+    if (!ciphers.empty()) {
+      if (SSL_CTX_set_cipher_list(d_tlsCtx.get(), ciphers.c_str()) != 1) {
+        ERR_print_errors_fp(stderr);
+        throw std::runtime_error("Error setting the cipher list to '" + ciphers + "' for the TLS context");
+      }
+    }
+#ifdef HAVE_SSL_CTX_SET_CIPHERSUITES
+    if (!ciphers13.empty()) {
+      if (SSL_CTX_set_ciphersuites(d_tlsCtx.get(), ciphers13.c_str()) != 1) {
+        ERR_print_errors_fp(stderr);
+        throw std::runtime_error("Error setting the TLS 1.3 cipher list to '" + ciphers13 + "' for the TLS context");
+      }
+    }
+#endif /* HAVE_SSL_CTX_SET_CIPHERSUITES */
+  }
+
   virtual ~OpenSSLTLSIOCtx() override
   {
     d_tlsCtx.reset();
@@ -519,6 +593,11 @@ public:
     return std::unique_ptr<OpenSSLTLSConnection>(new OpenSSLTLSConnection(socket, timeout, d_tlsCtx.get()));
   }
 
+  std::unique_ptr<TLSConnection> getClientConnection(int socket, unsigned int timeout) override
+  {
+    return std::unique_ptr<OpenSSLTLSConnection>(new OpenSSLTLSConnection(socket, timeout, d_tlsCtx.get()));
+  }
+
   void rotateTicketsKey(time_t now) override
   {
     auto newKey = std::make_shared<OpenSSLTLSTicketKey>();
@@ -560,6 +639,11 @@ public:
     return d_ticketKeys.getKeysCount();
   }
 
+  bool supportFastOpen() const
+  {
+    return false;
+  }
+
 private:
   OpenSSLTLSTicketKeysRing d_ticketKeys;
   std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)> d_tlsCtx;
@@ -573,6 +657,10 @@ std::atomic<uint64_t> OpenSSLTLSIOCtx::s_users(0);
 #ifdef HAVE_GNUTLS
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
+
+#ifdef HAVE_GNUTLS_TRANSPORT_SET_FASTOPEN
+#include <gnutls/socket.h>
+#endif
 
 void safe_memory_lock(void* data, size_t size)
 {
@@ -706,6 +794,65 @@ public:
     gnutls_record_set_timeout(d_conn.get(), timeout * 1000);
   }
 
+  GnuTLSConnection(int socket, unsigned int timeout, const gnutls_certificate_credentials_t creds, const gnutls_priority_t priorityCache): d_conn(std::unique_ptr<gnutls_session_int, void(*)(gnutls_session_t)>(nullptr, gnutls_deinit))
+  {
+    unsigned int sslOptions = GNUTLS_CLIENT | GNUTLS_NONBLOCK;
+#ifdef GNUTLS_NO_SIGNAL
+    sslOptions |= GNUTLS_NO_SIGNAL;
+#endif
+
+    d_socket = socket;
+
+    gnutls_session_t conn;
+    if (gnutls_init(&conn, sslOptions) != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error creating TLS connection");
+    }
+
+    d_conn = std::unique_ptr<gnutls_session_int, void(*)(gnutls_session_t)>(conn, gnutls_deinit);
+    conn = nullptr;
+
+    if (gnutls_credentials_set(d_conn.get(), GNUTLS_CRD_CERTIFICATE, creds) != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error setting certificate and key to TLS connection");
+    }
+
+    if (gnutls_priority_set(d_conn.get(), priorityCache) != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error setting ciphers to TLS connection");
+    }
+
+    gnutls_transport_set_int(d_conn.get(), d_socket);
+
+    /* timeouts are in milliseconds */
+    gnutls_handshake_set_timeout(d_conn.get(), timeout * 1000);
+    gnutls_record_set_timeout(d_conn.get(), timeout * 1000);
+  }
+
+  IOState tryConnect(bool fastOpen, const ComboAddress& remote) override
+  {
+    int ret = 0;
+
+    if (fastOpen) {
+#ifdef HAVE_GNUTLS_TRANSPORT_SET_FASTOPEN
+      gnutls_transport_set_fastopen(d_conn.get(), d_socket, const_cast<struct sockaddr*>(reinterpret_cast<const struct sockaddr*>(&remote)), remote.getSocklen(), 0);
+#endif
+    }
+
+    do {
+      ret = gnutls_handshake(d_conn.get());
+      if (ret == GNUTLS_E_SUCCESS) {
+        return IOState::Done;
+      }
+      else if (ret == GNUTLS_E_AGAIN) {
+        int direction = gnutls_record_get_direction(d_conn.get());
+        return direction == 0 ? IOState::NeedRead : IOState::NeedWrite;
+      }
+      else if (gnutls_error_is_fatal(ret) || ret == GNUTLS_E_WARNING_ALERT_RECEIVED) {
+        throw std::runtime_error("Error establishing a new connection: " + std::string(gnutls_strerror(ret)));
+      }
+    } while (ret == GNUTLS_E_INTERRUPTED);
+
+    throw std::runtime_error("Error establishing a new connection: " + std::string(gnutls_strerror(ret)));
+  }
+
   void doHandshake() override
   {
     int ret = 0;
@@ -728,7 +875,8 @@ public:
         return IOState::Done;
       }
       else if (ret == GNUTLS_E_AGAIN) {
-        return IOState::NeedRead;
+        int direction = gnutls_record_get_direction(d_conn.get());
+        return direction == 0 ? IOState::NeedRead : IOState::NeedWrite;
       }
       else if (gnutls_error_is_fatal(ret) || ret == GNUTLS_E_WARNING_ALERT_RECEIVED) {
         throw std::runtime_error("Error accepting a new connection");
@@ -946,6 +1094,27 @@ public:
     }
   }
 
+  GnuTLSIOCtx(const std::string& ciphers): d_creds(std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)>(nullptr, gnutls_certificate_free_credentials)), d_enableTickets(true)
+  {
+    int rc = 0;
+
+    gnutls_certificate_credentials_t creds;
+    rc = gnutls_certificate_allocate_credentials(&creds);
+    if (rc != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error allocating credentials for TLS context: " + std::string(gnutls_strerror(rc)));
+    }
+
+    d_creds = std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)>(creds, gnutls_certificate_free_credentials);
+    creds = nullptr;
+
+    rc = gnutls_priority_init(&d_priorityCache, ciphers.empty() ? "NORMAL" : ciphers.c_str(), nullptr);
+    if (rc != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error setting up TLS cipher preferences to 'NORMAL' (" + std::string(gnutls_strerror(rc)) + ")");
+    }
+
+    pthread_rwlock_init(&d_lock, nullptr);
+  }
+
   virtual ~GnuTLSIOCtx() override
   {
     pthread_rwlock_destroy(&d_lock);
@@ -968,6 +1137,11 @@ public:
     }
 
     return std::unique_ptr<GnuTLSConnection>(new GnuTLSConnection(socket, timeout, d_creds.get(), d_priorityCache, ticketsKey, d_enableTickets));
+  }
+
+  std::unique_ptr<TLSConnection> getClientConnection(int socket, unsigned int timeout) override
+  {
+    return std::unique_ptr<GnuTLSConnection>(new GnuTLSConnection(socket, timeout, d_creds.get(), d_priorityCache));
   }
 
   void rotateTicketsKey(time_t now) override
@@ -1011,6 +1185,15 @@ public:
     return d_ticketsKey != nullptr ? 1 : 0;
   }
 
+  bool supportFastOpen() const
+  {
+#ifdef HAVE_GNUTLS_TRANSPORT_SET_FASTOPEN
+    return true;
+#else
+    return false;
+#endif
+  }
+
 private:
   std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)> d_creds;
   gnutls_priority_t d_priorityCache{nullptr};
@@ -1051,4 +1234,32 @@ bool TLSFrontend::setupTLS()
 
 #endif /* HAVE_DNS_OVER_TLS */
   return true;
+}
+
+std::shared_ptr<TLSCtx> getTLSContext(const std::string& provider, const std::string& ciphers, const std::string& ciphers13)
+{
+#ifdef HAVE_DNS_OVER_TLS
+  /* get the "best" available provider */
+  if (!provider.empty()) {
+#ifdef HAVE_GNUTLS
+    if (provider == "gnutls") {
+      return std::make_shared<GnuTLSIOCtx>(ciphers);
+    }
+#endif /* HAVE_GNUTLS */
+#ifdef HAVE_LIBSSL
+    if (provider == "openssl") {
+      return std::make_shared<OpenSSLTLSIOCtx>(ciphers, ciphers13);
+    }
+#endif /* HAVE_LIBSSL */
+  }
+#ifdef HAVE_GNUTLS
+  return std::make_shared<GnuTLSIOCtx>(ciphers);
+#else /* HAVE_GNUTLS */
+#ifdef HAVE_LIBSSL
+  return std::make_shared<OpenSSLTLSIOCtx>(ciphers, ciphers13);
+#endif /* HAVE_LIBSSL */
+#endif /* HAVE_GNUTLS */
+
+#endif /* HAVE_DNS_OVER_TLS */
+  return nullptr;
 }
