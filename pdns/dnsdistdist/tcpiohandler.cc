@@ -837,7 +837,8 @@ public:
         return IOState::Done;
       }
       else if (ret == GNUTLS_E_AGAIN) {
-        return IOState::NeedRead;
+        int direction = gnutls_record_get_direction(d_conn.get());
+        return direction == 0 ? IOState::NeedRead : IOState::NeedWrite;
       }
       else if (gnutls_error_is_fatal(ret) || ret == GNUTLS_E_WARNING_ALERT_RECEIVED) {
         throw std::runtime_error("Error establishing a new connection: " + std::string(gnutls_strerror(ret)));
@@ -869,7 +870,8 @@ public:
         return IOState::Done;
       }
       else if (ret == GNUTLS_E_AGAIN) {
-        return IOState::NeedRead;
+        int direction = gnutls_record_get_direction(d_conn.get());
+        return direction == 0 ? IOState::NeedRead : IOState::NeedWrite;
       }
       else if (gnutls_error_is_fatal(ret) || ret == GNUTLS_E_WARNING_ALERT_RECEIVED) {
         throw std::runtime_error("Error accepting a new connection");
