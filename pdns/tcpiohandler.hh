@@ -31,6 +31,7 @@ public:
     d_rotatingTicketsKey.clear();
   }
   virtual ~TLSCtx() {}
+  virtual bool supportFastOpen() const = 0;
   virtual std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout, time_t now) = 0;
   virtual std::unique_ptr<TLSConnection> getClientConnection(int socket, unsigned int timeout) = 0;
   virtual void rotateTicketsKey(time_t now) = 0;
@@ -316,5 +317,7 @@ public:
 private:
   std::unique_ptr<TLSConnection> d_conn{nullptr};
   int d_socket{-1};
-  bool d_fastOpen = false;
+  bool d_fastOpen{false};
 };
+
+std::shared_ptr<TLSCtx> getTLSContext(const std::string& provider, const std::string& ciphers, const std::string& ciphers13);

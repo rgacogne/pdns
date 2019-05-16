@@ -208,10 +208,10 @@ public:
       return IOState::NeedWrite;
     }
     else if (error == SSL_ERROR_SYSCALL) {
-      throw std::runtime_error("Error while processing TLS connection:" + std::string(strerror(errno)));
+      throw std::runtime_error("Error while processing TLS connection: " + std::string(strerror(errno)));
     }
     else {
-      throw std::runtime_error("Error while processing TLS connection:" + std::to_string(error));
+      throw std::runtime_error("Error while processing TLS connection: " + std::to_string(error));
     }
   }
 
@@ -236,7 +236,7 @@ public:
   {
     /* sorry */
     (void) fastOpen;
-    (void) remote;    
+    (void) remote;
 
     int res = SSL_connect(d_conn.get());
     if (res == 1) {
@@ -478,7 +478,7 @@ public:
     }
   }
 
-  OpenSSLTLSIOCtx(): d_ticketKeys(0), d_tlsCtx(std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(nullptr, SSL_CTX_free))
+  OpenSSLTLSIOCtx(const std::string& ciphers, const std::string& ciphers13): d_ticketKeys(0), d_tlsCtx(std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(nullptr, SSL_CTX_free))
   {
     int sslOptions =
       SSL_OP_NO_SSLv2 |
@@ -514,23 +514,20 @@ public:
     SSL_CTX_set_ecdh_auto(d_tlsCtx.get(), 1);
 #endif
 
-#warning FIXME / TODO ciphers
-#if 0
-    if (!fe.d_ciphers.empty()) {
-      if (SSL_CTX_set_cipher_list(d_tlsCtx.get(), fe.d_ciphers.c_str()) != 1) {
+    if (!ciphers.empty()) {
+      if (SSL_CTX_set_cipher_list(d_tlsCtx.get(), ciphers.c_str()) != 1) {
         ERR_print_errors_fp(stderr);
-        throw std::runtime_error("Error setting the cipher list to '" + fe.d_ciphers + "' for the TLS context on " + fe.d_addr.toStringWithPort());
+        throw std::runtime_error("Error setting the cipher list to '" + ciphers + "' for the TLS context");
       }
     }
 #ifdef HAVE_SSL_CTX_SET_CIPHERSUITES
-    if (!fe.d_ciphers13.empty()) {
-      if (SSL_CTX_set_ciphersuites(d_tlsCtx.get(), fe.d_ciphers13.c_str()) != 1) {
+    if (!ciphers13.empty()) {
+      if (SSL_CTX_set_ciphersuites(d_tlsCtx.get(), ciphers13.c_str()) != 1) {
         ERR_print_errors_fp(stderr);
-        throw std::runtime_error("Error setting the TLS 1.3 cipher list to '" + fe.d_ciphers13 + "' for the TLS context on " + fe.d_addr.toStringWithPort());
+        throw std::runtime_error("Error setting the TLS 1.3 cipher list to '" + ciphers13 + "' for the TLS context");
       }
     }
 #endif /* HAVE_SSL_CTX_SET_CIPHERSUITES */
-#endif
   }
 
   virtual ~OpenSSLTLSIOCtx() override
@@ -634,6 +631,11 @@ public:
   size_t getTicketsKeysCount() override
   {
     return d_ticketKeys.getKeysCount();
+  }
+
+  bool supportFastOpen() const
+  {
+    return false;
   }
 
 private:
@@ -1063,12 +1065,11 @@ public:
     }
   }
 
-  GnuTLSIOCtx(): d_creds(std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)>(nullptr, gnutls_certificate_free_credentials)), d_enableTickets(true)
+  GnuTLSIOCtx(const std::string& ciphers): d_creds(std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)>(nullptr, gnutls_certificate_free_credentials)), d_enableTickets(true)
   {
     int rc = 0;
 
-#warning handle custom ciphers
-    rc = gnutls_priority_init(&d_priorityCache, "NORMAL", nullptr);
+    rc = gnutls_priority_init(&d_priorityCache, ciphers.empty() ? "NORMAL" : ciphers.c_str(), nullptr);
     if (rc != GNUTLS_E_SUCCESS) {
       throw std::runtime_error("Error setting up TLS cipher preferences to 'NORMAL' (" + std::string(gnutls_strerror(rc)) + ")");
     }
@@ -1146,6 +1147,15 @@ public:
     return d_ticketsKey != nullptr ? 1 : 0;
   }
 
+  bool supportFastOpen() const
+  {
+#ifdef HAVE_GNUTLS_TRANSPORT_SET_FASTOPEN
+    return true;
+#else
+    return false;
+#endif
+  }
+
 private:
   std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)> d_creds;
   gnutls_priority_t d_priorityCache{nullptr};
@@ -1186,4 +1196,32 @@ bool TLSFrontend::setupTLS()
 
 #endif /* HAVE_DNS_OVER_TLS */
   return true;
+}
+
+std::shared_ptr<TLSCtx> getTLSContext(const std::string& provider, const std::string& ciphers, const std::string& ciphers13)
+{
+#ifdef HAVE_DNS_OVER_TLS
+  /* get the "best" available provider */
+  if (!provider.empty()) {
+#ifdef HAVE_GNUTLS
+    if (provider == "gnutls") {
+      return std::make_shared<GnuTLSIOCtx>(ciphers);
+    }
+#endif /* HAVE_GNUTLS */
+#ifdef HAVE_LIBSSL
+    if (provider == "openssl") {
+      return std::make_shared<OpenSSLTLSIOCtx>(ciphers, ciphers13);
+    }
+#endif /* HAVE_LIBSSL */
+  }
+#ifdef HAVE_GNUTLS
+  return std::make_shared<GnuTLSIOCtx>(ciphers);
+#else /* HAVE_GNUTLS */
+#ifdef HAVE_LIBSSL
+  return std::make_shared<OpenSSLTLSIOCtx>(ciphers, ciphers13);
+#endif /* HAVE_LIBSSL */
+#endif /* HAVE_GNUTLS */
+
+#endif /* HAVE_DNS_OVER_TLS */
+  return nullptr;
 }

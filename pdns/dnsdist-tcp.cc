@@ -84,7 +84,7 @@ static std::unique_ptr<Socket> setupTCPDownstream(shared_ptr<DownstreamState>& d
       }
       result->setNonBlocking();
 #ifdef MSG_FASTOPEN
-      if (!ds->tcpFastOpen) {
+      if (!ds->tcpFastOpen || (ds->tlsCtx != nullptr && !ds->tlsCtx->supportFastOpen())) {
         SConnectWithTimeout(result->getHandle(), ds->remote, /* no timeout, we will handle it ourselves */ 0);
       }
 #else
@@ -107,10 +107,10 @@ static std::unique_ptr<Socket> setupTCPDownstream(shared_ptr<DownstreamState>& d
 class TCPConnectionToBackend
 {
 public:
-  TCPConnectionToBackend(std::shared_ptr<DownstreamState>& ds, uint16_t& downstreamFailures, const struct timeval& now): d_ds(ds), d_connectionStartTime(now)
+  TCPConnectionToBackend(std::shared_ptr<DownstreamState>& ds, uint16_t& downstreamFailures, const struct timeval& now): d_ds(ds), d_connectionStartTime(now), d_fastOpen(ds->tcpFastOpen)
   {
     auto socket = setupTCPDownstream(d_ds, downstreamFailures);
-    d_handler = std::unique_ptr<TCPIOHandler>(new TCPIOHandler(socket->releaseHandle(), 0, nullptr, time(nullptr)));
+    d_handler = std::unique_ptr<TCPIOHandler>(new TCPIOHandler(socket->releaseHandle(), 0, ds->tlsCtx, time(nullptr)));
     ++d_ds->tcpCurrentConnections;
   }
 
@@ -918,7 +918,7 @@ static void handleDownstreamIO(std::shared_ptr<IncomingTCPConnectionState>& stat
         state->d_state = IncomingTCPConnectionState::State::sendingQueryToBackend;
       }
     }
-    
+
     if (state->d_state == IncomingTCPConnectionState::State::sendingQueryToBackend) {
       iostate = state->d_downstreamConnection->tryWrite(state->d_buffer, state->d_currentPos, state->d_buffer.size() - state->d_currentPos);
 
