@@ -159,11 +159,17 @@ private:
 class TCPIOHandler
 {
 public:
+  enum class Type { Client, Server };
 
-  TCPIOHandler(int socket, unsigned int timeout, std::shared_ptr<TLSCtx> ctx, time_t now): d_socket(socket)
+  TCPIOHandler(Type type, int socket, unsigned int timeout, std::shared_ptr<TLSCtx> ctx, time_t now): d_socket(socket)
   {
     if (ctx) {
-      d_conn = ctx->getConnection(d_socket, timeout, now);
+      if (type == Type::Server) {
+        d_conn = ctx->getConnection(d_socket, timeout, now);
+      }
+      else {
+        d_conn = ctx->getClientConnection(d_socket, timeout);
+      }
     }
   }
 

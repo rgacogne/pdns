@@ -211,6 +211,7 @@ public:
       throw std::runtime_error("Error while processing TLS connection: " + std::string(strerror(errno)));
     }
     else {
+      ERR_print_errors_fp(stderr);
       throw std::runtime_error("Error while processing TLS connection: " + std::to_string(error));
     }
   }
@@ -788,7 +789,7 @@ public:
     gnutls_record_set_timeout(d_conn.get(), timeout * 1000);
   }
 
-  GnuTLSConnection(int socket, unsigned int timeout, const gnutls_priority_t priorityCache): d_conn(std::unique_ptr<gnutls_session_int, void(*)(gnutls_session_t)>(nullptr, gnutls_deinit))
+  GnuTLSConnection(int socket, unsigned int timeout, const gnutls_certificate_credentials_t creds, const gnutls_priority_t priorityCache): d_conn(std::unique_ptr<gnutls_session_int, void(*)(gnutls_session_t)>(nullptr, gnutls_deinit))
   {
     unsigned int sslOptions = GNUTLS_CLIENT | GNUTLS_NONBLOCK;
 #ifdef GNUTLS_NO_SIGNAL
@@ -804,6 +805,10 @@ public:
 
     d_conn = std::unique_ptr<gnutls_session_int, void(*)(gnutls_session_t)>(conn, gnutls_deinit);
     conn = nullptr;
+
+    if (gnutls_credentials_set(d_conn.get(), GNUTLS_CRD_CERTIFICATE, creds) != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error setting certificate and key to TLS connection");
+    }
 
     if (gnutls_priority_set(d_conn.get(), priorityCache) != GNUTLS_E_SUCCESS) {
       throw std::runtime_error("Error setting ciphers to TLS connection");
@@ -835,11 +840,11 @@ public:
         return IOState::NeedRead;
       }
       else if (gnutls_error_is_fatal(ret) || ret == GNUTLS_E_WARNING_ALERT_RECEIVED) {
-        throw std::runtime_error("Error establishing a new connection");
+        throw std::runtime_error("Error establishing a new connection: " + std::string(gnutls_strerror(ret)));
       }
     } while (ret == GNUTLS_E_INTERRUPTED);
 
-    throw std::runtime_error("Error establishing a new connection");
+    throw std::runtime_error("Error establishing a new connection: " + std::string(gnutls_strerror(ret)));
   }
 
   void doHandshake() override
@@ -1069,6 +1074,15 @@ public:
   {
     int rc = 0;
 
+    gnutls_certificate_credentials_t creds;
+    rc = gnutls_certificate_allocate_credentials(&creds);
+    if (rc != GNUTLS_E_SUCCESS) {
+      throw std::runtime_error("Error allocating credentials for TLS context: " + std::string(gnutls_strerror(rc)));
+    }
+
+    d_creds = std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)>(creds, gnutls_certificate_free_credentials);
+    creds = nullptr;
+
     rc = gnutls_priority_init(&d_priorityCache, ciphers.empty() ? "NORMAL" : ciphers.c_str(), nullptr);
     if (rc != GNUTLS_E_SUCCESS) {
       throw std::runtime_error("Error setting up TLS cipher preferences to 'NORMAL' (" + std::string(gnutls_strerror(rc)) + ")");
@@ -1103,7 +1117,7 @@ public:
 
   std::unique_ptr<TLSConnection> getClientConnection(int socket, unsigned int timeout) override
   {
-    return std::unique_ptr<GnuTLSConnection>(new GnuTLSConnection(socket, timeout, d_priorityCache));
+    return std::unique_ptr<GnuTLSConnection>(new GnuTLSConnection(socket, timeout, d_creds.get(), d_priorityCache));
   }
 
   void rotateTicketsKey(time_t now) override

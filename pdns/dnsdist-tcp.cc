@@ -110,7 +110,7 @@ public:
   TCPConnectionToBackend(std::shared_ptr<DownstreamState>& ds, uint16_t& downstreamFailures, const struct timeval& now): d_ds(ds), d_connectionStartTime(now), d_fastOpen(ds->tcpFastOpen)
   {
     auto socket = setupTCPDownstream(d_ds, downstreamFailures);
-    d_handler = std::unique_ptr<TCPIOHandler>(new TCPIOHandler(socket->releaseHandle(), 0, ds->tlsCtx, time(nullptr)));
+    d_handler = std::unique_ptr<TCPIOHandler>(new TCPIOHandler(TCPIOHandler::Type::Client, socket->releaseHandle(), 0, ds->tlsCtx, time(nullptr)));
     ++d_ds->tcpCurrentConnections;
   }
 
@@ -411,7 +411,7 @@ static void handleDownstreamIOCallback(int fd, FDMultiplexer::funcparam_t& param
 class IncomingTCPConnectionState
 {
 public:
-  IncomingTCPConnectionState(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_buffer(4096), d_responseBuffer(4096), d_threadData(threadData), d_ci(std::move(ci)), d_handler(d_ci.fd, g_tcpRecvTimeout, d_ci.cs->tlsFrontend ? d_ci.cs->tlsFrontend->getContext() : nullptr, now.tv_sec), d_connectionStartTime(now)
+  IncomingTCPConnectionState(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_buffer(4096), d_responseBuffer(4096), d_threadData(threadData), d_ci(std::move(ci)), d_handler(TCPIOHandler::Type::Server, d_ci.fd, g_tcpRecvTimeout, d_ci.cs->tlsFrontend ? d_ci.cs->tlsFrontend->getContext() : nullptr, now.tv_sec), d_connectionStartTime(now)
   {
     d_ids.origDest.reset();
     d_ids.origDest.sin4.sin_family = d_ci.remote.sin4.sin_family;
