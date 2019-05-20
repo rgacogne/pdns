@@ -264,11 +264,11 @@ struct TimingInfos
 
 //! used to send information to a newborn mthread
 struct DNSComboWriter {
-  DNSComboWriter(const std::string& query, const struct TimingInfos& timing): d_mdp(true, query), d_timing(timing), d_query(query)
+  DNSComboWriter(const std::string& query, const struct TimingInfos& timing): d_mdp(true, query), d_timing(std::move(timing)), d_query(query)
   {
   }
 
-  DNSComboWriter(const std::string& query, const struct TimingInfos& timing, std::vector<std::string>&& policyTags, LuaContext::LuaObject&& data): d_mdp(true, query), d_timing(timing), d_query(query), d_policyTags(std::move(policyTags)), d_data(std::move(data))
+  DNSComboWriter(const std::string& query, const struct TimingInfos& timing, std::vector<std::string>&& policyTags, LuaContext::LuaObject&& data): d_mdp(true, query), d_timing(std::move(timing)), d_query(query), d_policyTags(std::move(policyTags)), d_data(std::move(data))
   {
   }
 
