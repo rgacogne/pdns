@@ -798,7 +798,7 @@ catch(...)
 }
 
 #ifdef HAVE_PROTOBUF
-static void protobufLogQuery(uint8_t maskV4, uint8_t maskV6, const boost::uuids::uuid& uniqueId, const ComboAddress& remote, const ComboAddress& local, const Netmask& ednssubnet, bool tcp, uint16_t id, size_t len, const DNSName& qname, uint16_t qtype, uint16_t qclass, const std::vector<std::string>& policyTags, const std::string& requestorId, const std::string& deviceId)
+static void protobufLogQuery(uint8_t maskV4, uint8_t maskV6, const boost::uuids::uuid& uniqueId, const ComboAddress& remote, const ComboAddress& local, const Netmask& ednssubnet, bool tcp, uint16_t id, size_t len, const DNSName& qname, uint16_t qtype, uint16_t qclass, const std::vector<std::string>& policyTags, const std::string& requestorId, const std::string& deviceId, const struct TimingInfos& timing)
 {
   if (!t_protobufServers) {
     return;
@@ -811,6 +811,7 @@ static void protobufLogQuery(uint8_t maskV4, uint8_t maskV6, const boost::uuids:
   message.setEDNSSubnet(ednssubnet, ednssubnet.isIpv4() ? maskV4 : maskV6);
   message.setRequestorId(requestorId);
   message.setDeviceId(deviceId);
+  message.setLatencies(timing.d_kernel, timing.d_received, timing.d_distributed);
 
   if (!policyTags.empty()) {
     message.setPolicyTags(policyTags);
@@ -1553,6 +1554,7 @@ static void startDoResolve(void *p)
       else {
         pbMessage->setQueryTime(dc->d_timing.d_received.tv_sec, dc->d_timing.d_received.tv_usec);
       }
+      pbMessage->setLatencies(dc->d_timing.d_kernel, dc->d_timing.d_received, dc->d_timing.d_distributed);
       pbMessage->setRequestorId(dq.requestorId);
       pbMessage->setDeviceId(dq.deviceId);
 #ifdef NOD_ENABLED
@@ -1672,6 +1674,8 @@ static void startDoResolve(void *p)
     else {
       t_RC->cacheHits++;
     }
+
+    cerr<<"reporting latency of "<<(spent*1000.0)<<" ms"<<endl;
 
     if(spent < 0.001)
       g_stats.answers0_1++;
@@ -1972,7 +1976,7 @@ static void handleRunningTCPQuestion(int fd, FDMultiplexer::funcparam_t& var)
         try {
 
           if (logQuery && !(luaconfsLocal->protobufExportConfig.taggedOnly && dc->d_policyTags.empty())) {
-              protobufLogQuery(luaconfsLocal->protobufMaskV4, luaconfsLocal->protobufMaskV6, dc->d_uuid, dc->d_source, dc->d_destination, dc->d_ednssubnet.source, true, dh->id, conn->qlen, qname, qtype, qclass, dc->d_policyTags, dc->d_requestorId, dc->d_deviceId);
+            protobufLogQuery(luaconfsLocal->protobufMaskV4, luaconfsLocal->protobufMaskV6, dc->d_uuid, dc->d_source, dc->d_destination, dc->d_ednssubnet.source, true, dh->id, conn->qlen, qname, qtype, qclass, dc->d_policyTags, dc->d_requestorId, dc->d_deviceId, dc->d_timing);
           }
         }
         catch(std::exception& e) {
@@ -2188,7 +2192,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
       pbMessage = RecProtoBufMessage(DNSProtoBufMessage::DNSProtoBufMessageType::Response);
       pbMessage->setServerIdentity(SyncRes::s_serverID);
       if (logQuery && !(luaconfsLocal->protobufExportConfig.taggedOnly && policyTags.empty())) {
-        protobufLogQuery(luaconfsLocal->protobufMaskV4, luaconfsLocal->protobufMaskV6, uniqueId, source, destination, ednssubnet.source, false, dh->id, question.size(), qname, qtype, qclass, policyTags, requestorId, deviceId);
+        protobufLogQuery(luaconfsLocal->protobufMaskV4, luaconfsLocal->protobufMaskV6, uniqueId, source, destination, ednssubnet.source, false, dh->id, question.size(), qname, qtype, qclass, policyTags, requestorId, deviceId, timing);
       }
     }
 #endif /* HAVE_PROTOBUF */
@@ -2226,6 +2230,7 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
         }
         pbMessage->setRequestorId(requestorId);
         pbMessage->setDeviceId(deviceId);
+        pbMessage->setLatencies(timing.d_kernel, timing.d_received, timing.d_distributed);
         protobufLogResponse(*pbMessage);
       }
 #endif /* HAVE_PROTOBUF */

@@ -268,6 +268,32 @@ void DNSProtoBufMessage::setResponder(const ComboAddress& responder)
 #endif /* HAVE_PROTOBUF */
 }
 
+static uint32_t getUsecDiff(const struct timespec& now, const struct timeval& older)
+{
+  return ((now.tv_sec - older.tv_sec) * 1000 * 1000) + ((now .tv_nsec / 1000) - older.tv_usec);
+}
+
+void DNSProtoBufMessage::setLatencies(const struct timeval& kernel, const struct timeval& received, const struct timeval& distributed)
+{
+#ifdef HAVE_PROTOBUF
+  struct timespec ts;
+  gettime(&ts, true);
+  setTime(ts.tv_sec, ts.tv_nsec / 1000);
+
+  if (kernel.tv_sec > 0) {
+    d_message.set_latencykernelusec(getUsecDiff(ts, kernel));
+  }
+
+  if (received.tv_sec > 0) {
+    d_message.set_latencydistributorusec(getUsecDiff(ts, received));
+  }
+
+  if (distributed.tv_sec > 0) {
+    d_message.set_latencyworkerusec(getUsecDiff(ts, distributed));
+  }
+#endif /* HAVE_PROTOBUF */
+}
+
 void DNSProtoBufMessage::serialize(std::string& data) const
 {
 #ifdef HAVE_PROTOBUF

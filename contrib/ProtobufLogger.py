@@ -191,6 +191,7 @@ class PDNSPBConnHandler(object):
                                                     deviceId,
                                                     serveridstr,
                                                     nod))
+        print('%d %d %d' % (msg.latencyKernelUsec, msg.latencyDistributorUsec, msg.latencyWorkerUsec))
 
     def getRequestorSubnet(self, msg):
         requestorstr = None
