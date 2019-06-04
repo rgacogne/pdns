@@ -241,6 +241,7 @@ try
   desc.add_options()
     ("help,h", "Show this helpful message")
     ("version", "Show the version number")
+    ("dnssec-ok", po::value<bool>()->default_value(true), "Set the DNSSEC OK bit to 1 for half the queries")
     ("ecs", po::value<string>(), "Add EDNS Client Subnet option to outgoing queries using random addresses from the specified range (IPv4 only)")
     ("ecs-from-file", "Read IP or subnet values from the query file and add them as EDNS Client Subnet options to outgoing queries")
     ("increment", po::value<float>()->default_value(1.1),  "Set the factor to increase the QPS load per run")
@@ -291,6 +292,7 @@ try
 
   bool wantRecursion = g_vm.count("want-recursion");
   bool useECSFromFile = g_vm.count("ecs-from-file");
+  bool dnssecOK = g_vm.count("dnssec-ok");
   g_quiet = g_vm.count("quiet");
 
   double hitrate = g_vm["hitrate"].as<double>();
@@ -386,7 +388,7 @@ try
     }
 
     if(!ednsOptions.empty() || pw.getHeader()->id % 2) {
-      pw.addOpt(1500, 0, EDNSOpts::DNSSECOK, ednsOptions);
+      pw.addOpt(1500, 0, dnssecOK ? EDNSOpts::DNSSECOK : 0, ednsOptions);
       pw.commit();
     }
     unknown.emplace_back(std::make_shared<vector<uint8_t>>(packet));
