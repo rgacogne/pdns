@@ -795,6 +795,9 @@ catch(...)
 }
 
 #ifdef HAVE_PROTOBUF
+#include <stack>
+static thread_local std::stack<std::unique_ptr<RecProtoBufMessage>> s_pbCache;
+
 static void protobufLogQuery(uint8_t maskV4, uint8_t maskV6, const boost::uuids::uuid& uniqueId, const ComboAddress& remote, const ComboAddress& local, const Netmask& ednssubnet, bool tcp, uint16_t id, size_t len, const DNSName& qname, uint16_t qtype, uint16_t qclass, const std::vector<std::string>& policyTags, const std::string& requestorId, const std::string& deviceId)
 {
   if (!t_protobufServers) {
@@ -803,23 +806,34 @@ static void protobufLogQuery(uint8_t maskV4, uint8_t maskV6, const boost::uuids:
 
   Netmask requestorNM(remote, remote.sin4.sin_family == AF_INET ? maskV4 : maskV6);
   const ComboAddress& requestor = requestorNM.getMaskedNetwork();
-  RecProtoBufMessage message(DNSProtoBufMessage::Query, uniqueId, &requestor, &local, qname, qtype, qclass, id, tcp, len);
-  message.setServerIdentity(SyncRes::s_serverID);
-  message.setEDNSSubnet(ednssubnet, ednssubnet.isIpv4() ? maskV4 : maskV6);
-  message.setRequestorId(requestorId);
-  message.setDeviceId(deviceId);
+
+  std::unique_ptr<RecProtoBufMessage> message;
+  if (s_pbCache.empty()) {
+    message = make_unique<RecProtoBufMessage>(DNSProtoBufMessage::Query, uniqueId, &requestor, &local, qname, qtype, qclass, id, tcp, len);
+  }
+  else {
+    message = std::move(s_pbCache.top());
+    s_pbCache.pop();
+    message->reset(DNSProtoBufMessage::Query, uniqueId, &requestor, &local, qname, qtype, qclass, id, tcp, len);
+  }
+
+  message->setServerIdentity(SyncRes::s_serverID);
+  message->setEDNSSubnet(ednssubnet, ednssubnet.isIpv4() ? maskV4 : maskV6);
+  message->setRequestorId(requestorId);
+  message->setDeviceId(deviceId);
 
   if (!policyTags.empty()) {
-    message.setPolicyTags(policyTags);
+    message->setPolicyTags(policyTags);
   }
 
 //  cerr <<message.toDebugString()<<endl;
   std::string str;
-  message.serialize(str);
+  message->serialize(str);
 
   for (auto& server : *t_protobufServers) {
     server->queueData(str);
   }
+  s_pbCache.push(std::move(message));
 }
 
 static void protobufLogResponse(const RecProtoBufMessage& message)

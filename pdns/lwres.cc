@@ -55,7 +55,6 @@
 #ifdef HAVE_FSTRM
 #include "rec-dnstap.hh"
 #include "fstrm_logger.hh"
-bool g_syslog;
 
 static bool isEnabledForQueries(const std::shared_ptr<std::vector<std::unique_ptr<FrameStreamLogger>>>& fstreamLoggers)
 {
@@ -118,29 +117,43 @@ static void logFstreamResponse(const std::shared_ptr<std::vector<std::unique_ptr
 
 #endif // HAVE_FSTRM
 
+#include <stack>
+static thread_local std::stack<std::unique_ptr<RecProtoBufMessage>> s_pbCache;
+
 static void logOutgoingQuery(const std::shared_ptr<std::vector<std::unique_ptr<RemoteLogger>>>& outgoingLoggers, boost::optional<const boost::uuids::uuid&> initialRequestId, const boost::uuids::uuid& uuid, const ComboAddress& ip, const DNSName& domain, int type, uint16_t qid, bool doTCP, size_t bytes, boost::optional<Netmask>& srcmask)
 {
   if(!outgoingLoggers)
     return;
 
-  RecProtoBufMessage message(DNSProtoBufMessage::OutgoingQuery, uuid, nullptr, &ip, domain, type, QClass::IN, qid, doTCP, bytes);
-  message.setServerIdentity(SyncRes::s_serverID);
+  std::unique_ptr<RecProtoBufMessage> message;
+  if (s_pbCache.empty()) {
+    message = make_unique<RecProtoBufMessage>(DNSProtoBufMessage::OutgoingQuery, uuid, nullptr, &ip, domain, type, QClass::IN, qid, doTCP, bytes);
+  }
+  else {
+    message = std::move(s_pbCache.top());
+    s_pbCache.pop();
+    message->reset(DNSProtoBufMessage::OutgoingQuery, uuid, nullptr, &ip, domain, type, QClass::IN, qid, doTCP, bytes);
+  }
+
+  message->setServerIdentity(SyncRes::s_serverID);
 
   if (initialRequestId) {
-    message.setInitialRequestID(*initialRequestId);
+    message->setInitialRequestID(*initialRequestId);
   }
 
   if (srcmask) {
-    message.setEDNSSubnet(*srcmask);
+    message->setEDNSSubnet(*srcmask);
   }
 
 //  cerr <<message.toDebugString()<<endl;
   std::string str;
-  message.serialize(str);
+  message->serialize(str);
 
   for (auto& logger : *outgoingLoggers) {
     logger->queueData(str);
   }
+
+  s_pbCache.push(std::move(message));
 }
 
 static void logIncomingResponse(const std::shared_ptr<std::vector<std::unique_ptr<RemoteLogger>>>& outgoingLoggers, boost::optional<const boost::uuids::uuid&> initialRequestId, const boost::uuids::uuid& uuid, const ComboAddress& ip, const DNSName& domain, int type, uint16_t qid, bool doTCP, size_t bytes, int rcode, const std::vector<DNSRecord>& records, const struct timeval& queryTime, const std::set<uint16_t>& exportTypes)
@@ -148,22 +161,33 @@ static void logIncomingResponse(const std::shared_ptr<std::vector<std::unique_pt
   if(!outgoingLoggers)
     return;
 
-  RecProtoBufMessage message(DNSProtoBufMessage::IncomingResponse, uuid, nullptr, &ip, domain, type, QClass::IN, qid, doTCP, bytes);
-  message.setServerIdentity(SyncRes::s_serverID);
-  if (initialRequestId) {
-    message.setInitialRequestID(*initialRequestId);
+  std::unique_ptr<RecProtoBufMessage> message;
+  if (s_pbCache.empty()) {
+    message = make_unique<RecProtoBufMessage>(DNSProtoBufMessage::IncomingResponse, uuid, nullptr, &ip, domain, type, QClass::IN, qid, doTCP, bytes);
   }
-  message.setQueryTime(queryTime.tv_sec, queryTime.tv_usec);
-  message.setResponseCode(rcode);
-  message.addRRs(records, exportTypes);
+  else {
+    message = std::move(s_pbCache.top());
+    s_pbCache.pop();
+    message->reset(DNSProtoBufMessage::IncomingResponse, uuid, nullptr, &ip, domain, type, QClass::IN, qid, doTCP, bytes);
+  }
+
+  message->setServerIdentity(SyncRes::s_serverID);
+  if (initialRequestId) {
+    message->setInitialRequestID(*initialRequestId);
+  }
+  message->setQueryTime(queryTime.tv_sec, queryTime.tv_usec);
+  message->setResponseCode(rcode);
+  message->addRRs(records, exportTypes);
 
 //  cerr <<message.toDebugString()<<endl;
   std::string str;
-  message.serialize(str);
+  message->serialize(str);
 
   for (auto& logger : *outgoingLoggers) {
     logger->queueData(str);
   }
+
+  s_pbCache.push(std::move(message));
 }
 #endif /* HAVE_PROTOBUF */
 

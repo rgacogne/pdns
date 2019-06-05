@@ -326,15 +326,21 @@ void DNSProtoBufMessage::update(const boost::uuids::uuid& uuid, const ComboAddre
   }
 }
 
-
-DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type, const boost::uuids::uuid& uuid, const ComboAddress* requestor, const ComboAddress* responder, const DNSName& domain, int qtype, uint16_t qclass, uint16_t qid, bool isTCP, size_t bytes)
+void DNSProtoBufMessage::reset(DNSProtoBufMessage::DNSProtoBufMessageType type, const boost::uuids::uuid& uuid, const ComboAddress* requestor, const ComboAddress* responder, const DNSName& domain, int qtype, uint16_t qclass, uint16_t qid, bool isTCP, size_t bytes)
 {
+  d_message.Clear();
+
   update(uuid, requestor, responder, isTCP, qid);
 
   setType(type);
 
   setBytes(bytes);
   setQuestion(domain, qtype, qclass);
+}
+
+DNSProtoBufMessage::DNSProtoBufMessage(DNSProtoBufMessageType type, const boost::uuids::uuid& uuid, const ComboAddress* requestor, const ComboAddress* responder, const DNSName& domain, int qtype, uint16_t qclass, uint16_t qid, bool isTCP, size_t bytes)
+{
+  reset(type, uuid, requestor, responder, domain, qtype, qclass, qid, isTCP, bytes);
 }
 
 void DNSProtoBufMessage::copyFrom(const DNSProtoBufMessage& msg)
