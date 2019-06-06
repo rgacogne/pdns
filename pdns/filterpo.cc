@@ -68,7 +68,7 @@ bool DNSFilterEngine::Zone::findClientPolicy(const ComboAddress& addr, DNSFilter
   return false;
 }
 
-bool DNSFilterEngine::Zone::findNamedPolicy(const std::unordered_map<DNSName, DNSFilterEngine::Policy>& polmap, const DNSName& qname, DNSFilterEngine::Policy& pol) const
+bool DNSFilterEngine::Zone::findNamedPolicy(const std::unordered_map<DNSName, DNSFilterEngine::Policy>& polmap, const DNSName& qname, DNSFilterEngine::Policy& pol)
 {
   /* for www.powerdns.com, we need to check:
      www.powerdns.com.
@@ -433,7 +433,7 @@ std::vector<DNSRecord> DNSFilterEngine::Policy::getRecords(const DNSName& qname)
   return result;
 }
 
-void DNSFilterEngine::Zone::dumpNamedPolicy(FILE* fp, const DNSName& name, const Policy& pol) const
+void DNSFilterEngine::Zone::dumpNamedPolicy(FILE* fp, const DNSName& name, const Policy& pol)
 {
   auto records = pol.getRecords(name);
   for (const auto& dr : records) {
@@ -486,7 +486,7 @@ DNSName DNSFilterEngine::Zone::maskToRPZ(const Netmask& nm)
 }
 
 
-void DNSFilterEngine::Zone::dumpAddrPolicy(FILE* fp, const Netmask& nm, const DNSName& name, const Policy& pol) const
+void DNSFilterEngine::Zone::dumpAddrPolicy(FILE* fp, const Netmask& nm, const DNSName& name, const Policy& pol)
 {
   DNSName full = maskToRPZ(nm);
   full += name;

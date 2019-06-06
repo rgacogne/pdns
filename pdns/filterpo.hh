@@ -177,9 +177,9 @@ public:
 
   private:
     static DNSName maskToRPZ(const Netmask& nm);
-    bool findNamedPolicy(const std::unordered_map<DNSName, DNSFilterEngine::Policy>& polmap, const DNSName& qname, DNSFilterEngine::Policy& pol) const;
-    void dumpNamedPolicy(FILE* fp, const DNSName& name, const Policy& pol) const;
-    void dumpAddrPolicy(FILE* fp, const Netmask& nm, const DNSName& name, const Policy& pol) const;
+    static bool findNamedPolicy(const std::unordered_map<DNSName, DNSFilterEngine::Policy>& polmap, const DNSName& qname, DNSFilterEngine::Policy& pol);
+    static void dumpNamedPolicy(FILE* fp, const DNSName& name, const Policy& pol);
+    static void dumpAddrPolicy(FILE* fp, const Netmask& nm, const DNSName& name, const Policy& pol);
 
     std::unordered_map<DNSName, Policy> d_qpolName;   // QNAME trigger (RPZ)
     NetmaskTree<Policy> d_qpolAddr;         // Source address
