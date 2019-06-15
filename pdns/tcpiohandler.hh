@@ -34,7 +34,7 @@ public:
   virtual ~TLSCtx() {}
   virtual bool supportFastOpen() const = 0;
   virtual std::unique_ptr<TLSConnection> getConnection(int socket, unsigned int timeout, time_t now) = 0;
-  virtual std::unique_ptr<TLSConnection> getClientConnection(int socket, unsigned int timeout) = 0;
+  virtual std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, int socket, unsigned int timeout) = 0;
   virtual void rotateTicketsKey(time_t now) = 0;
   virtual void loadTicketsKeys(const std::string& file)
   {
@@ -162,15 +162,17 @@ class TCPIOHandler
 public:
   enum class Type { Client, Server };
 
-  TCPIOHandler(Type type, int socket, unsigned int timeout, std::shared_ptr<TLSCtx> ctx, time_t now): d_socket(socket)
+  TCPIOHandler(const std::string& host, int socket, unsigned int timeout, std::shared_ptr<TLSCtx> ctx, time_t now): d_socket(socket)
   {
     if (ctx) {
-      if (type == Type::Server) {
-        d_conn = ctx->getConnection(d_socket, timeout, now);
-      }
-      else {
-        d_conn = ctx->getClientConnection(d_socket, timeout);
-      }
+      d_conn = ctx->getClientConnection(host, d_socket, timeout);
+    }
+  }
+
+  TCPIOHandler(const int socket, unsigned int timeout, std::shared_ptr<TLSCtx> ctx, time_t now): d_socket(socket)
+  {
+    if (ctx) {
+      d_conn = ctx->getConnection(d_socket, timeout, now);
     }
   }
 
@@ -321,4 +323,13 @@ private:
   bool d_fastOpen{false};
 };
 
-std::shared_ptr<TLSCtx> getTLSContext(const std::string& provider, const std::string& ciphers, const std::string& ciphers13);
+struct TLSContextParameters
+{
+  std::string d_provider;
+  std::string d_ciphers;
+  std::string d_ciphers13;
+  std::string d_caStore;
+  bool d_validateCertificates{true};
+};
+
+std::shared_ptr<TLSCtx> getTLSContext(const TLSContextParameters& params);

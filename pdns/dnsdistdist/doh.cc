@@ -597,9 +597,13 @@ static int create_listener(const ComboAddress& addr, std::shared_ptr<DOHServerCo
   return 0;
 }
 
-static std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)> getTLSContext(const std::vector<std::pair<std::string, std::string>>& pairs, const std::string& ciphers, const std::string& ciphers13)
+static std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)> getTLSContextForDoH(const std::vector<std::pair<std::string, std::string>>& pairs, const std::string& ciphers, const std::string& ciphers13)
 {
+#ifdef HAVE_TLS_SERVER_METHOD
+  auto ctx = std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(SSL_CTX_new(TLS_server_method()), SSL_CTX_free);
+#else
   auto ctx = std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>(SSL_CTX_new(SSLv23_server_method()), SSL_CTX_free);
+#endif
 
   int sslOptions =
     SSL_OP_NO_SSLv2 |
@@ -648,9 +652,9 @@ static void setupAcceptContext(DOHAcceptContext& ctx, DOHServerConfig& dsc, bool
   nativeCtx->ctx = &dsc.h2o_ctx;
   nativeCtx->hosts = dsc.h2o_config.hosts;
   if (setupTLS) {
-    auto tlsCtx = getTLSContext(dsc.df->d_certKeyPairs,
-                                dsc.df->d_ciphers,
-                                dsc.df->d_ciphers13);
+    auto tlsCtx = getTLSContextForDoH(dsc.df->d_certKeyPairs,
+				      dsc.df->d_ciphers,
+				      dsc.df->d_ciphers13);
 
     nativeCtx->ssl_ctx = tlsCtx.release();
   }
@@ -673,9 +677,9 @@ void DOHFrontend::setup()
 
   d_dsc = std::make_shared<DOHServerConfig>(d_idleTimeout);
 
-  auto tlsCtx = getTLSContext(d_certKeyPairs,
-                              d_ciphers,
-                              d_ciphers13);
+  auto tlsCtx = getTLSContextForDoH(d_certKeyPairs,
+				    d_ciphers,
+				    d_ciphers13);
 
   auto accept_ctx = d_dsc->accept_ctx->get();
   accept_ctx->ssl_ctx = tlsCtx.release();
