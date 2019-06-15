@@ -379,16 +379,17 @@ void setupLuaConfig(bool client)
       }
 
       if(vars.count("tls")) {
-        std::string ciphers;
-        std::string ciphers13;
+	TLSContextParameters tlsParams;
+	tlsParams.d_provider = boost::get<string>(vars["tls"]);
+
         if (vars.count("ciphers")) {
-          ciphers = boost::get<string>(vars["ciphers"]);
+          tlsParams.d_ciphers = boost::get<string>(vars["ciphers"]);
         }
         if (vars.count("ciphers13")) {
-          ciphers13 = boost::get<string>(vars["ciphers13"]);
+          tlsParams.d_ciphers13 = boost::get<string>(vars["ciphers13"]);
         }
 
-        ret->tlsCtx = getTLSContext(boost::get<string>(vars["tls"]), ciphers, ciphers13);
+        ret->tlsCtx = getTLSContext(tlsParams);
       }
 
       /* this needs to be done _AFTER_ the order has been set,
