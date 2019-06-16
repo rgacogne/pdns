@@ -891,6 +891,7 @@ struct DownstreamState
   std::atomic_flag threadStarted;
   bool tcpFastOpen{false};
   bool ipBindAddrNoPort{true};
+  bool tcpCheck{false};
 
   bool isUp() const
   {

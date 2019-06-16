@@ -291,6 +291,38 @@ public:
     throw std::runtime_error("Error establishing a TLS connection");
   }
 
+  void connect(bool fastOpen, const ComboAddress& remote, unsigned int timeout) override
+  {
+    /* sorry */
+    (void) fastOpen;
+    (void) remote;
+
+    time_t start = 0;
+    unsigned int remainingTime = timeout;
+    if (timeout) {
+      start = time(nullptr);
+    }
+
+    int res = 0;
+    do {
+      res = SSL_connect(d_conn.get());
+      if (res < 0) {
+        handleIORequest(res, remainingTime);
+      }
+
+      if (timeout) {
+        time_t now = time(nullptr);
+        unsigned int elapsed = now - start;
+        if (now < start || elapsed >= remainingTime) {
+          throw runtime_error("Timeout while establishing TLS connection");
+        }
+        start = now;
+        remainingTime -= elapsed;
+      }
+    }
+    while (res != 1);
+  }
+
   IOState tryHandshake() override
   {
     int res = SSL_accept(d_conn.get());
@@ -912,6 +944,47 @@ public:
     } while (ret == GNUTLS_E_INTERRUPTED);
 
     throw std::runtime_error("Error establishing a new connection: " + std::string(gnutls_strerror(ret)));
+  }
+
+  void connect(bool fastOpen, const ComboAddress& remote, unsigned int timeout) override
+  {
+    time_t start = 0;
+    unsigned int remainingTime = timeout;
+    if (timeout) {
+      start = time(nullptr);
+    }
+
+    IOState state;
+    do {
+      state = tryConnect(fastOpen, remote);
+      if (state == IOState::Done) {
+        return;
+      }
+      else if (state == IOState::NeedRead) {
+        int result = waitForData(d_socket, remainingTime);
+        if (result <= 0) {
+          throw std::runtime_error("Error reading from TLS connection: " + std::to_string(result));
+        }
+      }
+      else if (state == IOState::NeedWrite) {
+        int result = waitForRWData(d_socket, false, remainingTime, 0);
+        if (result <= 0) {
+          throw std::runtime_error("Error reading from TLS connection: " + std::to_string(result));
+        }
+        
+      }
+
+      if (timeout) {
+        time_t now = time(nullptr);
+        unsigned int elapsed = now - start;
+        if (now < start || elapsed >= remainingTime) {
+          throw runtime_error("Timeout while establishing TLS connection");
+        }
+        start = now;
+        remainingTime -= elapsed;
+      }
+    }
+    while (state != IOState::Done);
   }
 
   void doHandshake() override

@@ -1839,44 +1839,78 @@ try
   dnsheader * requestHeader = dpw.getHeader();
   *requestHeader = checkHeader;
 
-  Socket sock(ds->remote.sin4.sin_family, SOCK_DGRAM);
+  Socket sock(ds->remote.sin4.sin_family, ds->tcpCheck ? SOCK_STREAM : SOCK_DGRAM);
   sock.setNonBlocking();
   if (!IsAnyAddress(ds->sourceAddr)) {
     sock.setReuseAddr();
-    sock.bind(ds->sourceAddr);
-  }
-  sock.connect(ds->remote);
-  ssize_t sent = udpClientSendRequestToBackend(ds, sock.getHandle(), reinterpret_cast<char*>(&packet[0]), packet.size(), true);
-  if (sent < 0) {
-    int ret = errno;
-    if (g_verboseHealthChecks)
-      infolog("Error while sending a health check query to backend %s: %d", ds->getNameWithAddr(), ret);
-    return false;
+#ifdef IP_BIND_ADDRESS_NO_PORT
+    if (ds->ipBindAddrNoPort) {
+      SSetsockopt(sock.getHandle(), SOL_IP, IP_BIND_ADDRESS_NO_PORT, 1);
+    }
+#endif
+    sock.bind(ds->sourceAddr, false);
   }
 
-  int ret = waitForRWData(sock.getHandle(), true, /* ms to seconds */ ds->checkTimeout / 1000, /* remaining ms to us */ (ds->checkTimeout % 1000) * 1000);
-  if(ret < 0 || !ret) { // error, timeout, both are down!
-    if (ret < 0) {
-      ret = errno;
-      if (g_verboseHealthChecks)
-        infolog("Error while waiting for the health check response from backend %s: %d", ds->getNameWithAddr(), ret);
-    }
-    else {
-      if (g_verboseHealthChecks)
-        infolog("Timeout while waiting for the health check response from backend %s", ds->getNameWithAddr());
-    }
-    return false;
-  }
+  SConnectWithTimeout(sock.getHandle(), ds->remote, ds->checkTimeout);
 
   string reply;
-  ComboAddress from;
-  sock.recvFrom(reply, from);
 
-  /* we are using a connected socket but hey.. */
-  if (from != ds->remote) {
-    if (g_verboseHealthChecks)
-      infolog("Invalid health check response received from %s, expecting one from %s", from.toStringWithPort(), ds->remote.toStringWithPort());
-    return false;
+  if (ds->tcpCheck) {
+    TCPIOHandler handler(ds->name, sock.releaseHandle(), ds->checkTimeout, ds->tlsCtx, time(nullptr));
+    handler.connect(false, ds->remote, ds->checkTimeout);
+
+    uint16_t packetSize = htons(packet.size());
+    handler.write(&packetSize, sizeof(packetSize), ds->checkTimeout);
+    handler.write(&packet[0], packet.size(), ds->checkTimeout);
+    size_t got = handler.read(&packetSize, sizeof(packetSize), ds->checkTimeout);
+    if (got != sizeof(packetSize)) {
+      if (g_verboseHealthChecks) {
+        infolog("Error while reading a TCP health check response to backend %s", ds->getNameWithAddr());
+      }
+      return false;
+    }
+    reply.resize(ntohs(packetSize));
+    got = handler.read(&reply[0], reply.size(), ds->checkTimeout);
+    if (got != reply.size()) {
+      if (g_verboseHealthChecks) {
+        infolog("Error while reading a TCP health check response to backend %s", ds->getNameWithAddr());
+      }
+      return false;
+    }
+  }
+  else {
+
+    ssize_t sent = udpClientSendRequestToBackend(ds, sock.getHandle(), reinterpret_cast<char*>(&packet[0]), packet.size(), true);
+    if (sent < 0) {
+      int ret = errno;
+      if (g_verboseHealthChecks)
+        infolog("Error while sending a health check query to backend %s: %d", ds->getNameWithAddr(), ret);
+      return false;
+    }
+
+    int ret = waitForRWData(sock.getHandle(), true, /* ms to seconds */ ds->checkTimeout / 1000, /* remaining ms to us */ (ds->checkTimeout % 1000) * 1000);
+    if(ret < 0 || !ret) { // error, timeout, both are down!
+      if (ret < 0) {
+        ret = errno;
+        if (g_verboseHealthChecks)
+          infolog("Error while waiting for the health check response from backend %s: %d", ds->getNameWithAddr(), ret);
+      }
+      else {
+        if (g_verboseHealthChecks)
+          infolog("Timeout while waiting for the health check response from backend %s", ds->getNameWithAddr());
+      }
+      return false;
+    }
+
+    ComboAddress from;
+    sock.recvFrom(reply, from);
+
+    /* we are using a connected socket but hey.. */
+    if (from != ds->remote) {
+      if (g_verboseHealthChecks)
+        infolog("Invalid health check response received from %s, expecting one from %s", from.toStringWithPort(), ds->remote.toStringWithPort());
+      return false;
+    }
   }
 
   const dnsheader * responseHeader = reinterpret_cast<const dnsheader *>(reply.c_str());
