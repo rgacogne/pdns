@@ -11,6 +11,7 @@ class TLSConnection
 public:
   virtual ~TLSConnection() { }
   virtual IOState tryConnect(bool fastOpen, const ComboAddress& remote) = 0;
+  virtual void connect(bool fastOpen, const ComboAddress& remote, unsigned int timeout) = 0;
   virtual void doHandshake() = 0;
   virtual IOState tryHandshake() = 0;
   virtual size_t read(void* buffer, size_t bufferSize, unsigned int readTimeout, unsigned int totalTimeout=0) = 0;
@@ -193,9 +194,19 @@ public:
     if (d_conn) {
       return d_conn->tryConnect(fastOpen, remote);
     }
-    d_fastOpen = true;
+    d_fastOpen = fastOpen;
 
     return IOState::Done;
+  }
+
+  void connect(bool fastOpen, const ComboAddress& remote, unsigned int timeout)
+  {
+    /* yes, this is only the TLS connect not the socket one,
+       sorry about that */
+    if (d_conn) {
+      d_conn->connect(fastOpen, remote, timeout);
+    }
+    d_fastOpen = fastOpen;
   }
 
   IOState tryHandshake()
