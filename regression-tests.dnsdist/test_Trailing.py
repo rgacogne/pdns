@@ -267,6 +267,15 @@ class TestTrailingDataToDnsdist(DNSDistTest):
         for method in ("sendUDPQuery", "sendTCPQuery"):
             sender = getattr(self, method)
             (receivedQuery, receivedResponse) = sender(raw, response, rawQuery=True)
+            if receivedQuery is None:
+                print("Did not get a query in testTrailingRemoved over %s" % (method))
+                print("query (before adding the trailing data):")
+                print(query)
+                print("expected response:")
+                print(response)
+                print("received response")
+                print(receivedResponse)
+
             self.assertTrue(receivedQuery)
             self.assertTrue(receivedResponse)
             receivedQuery.id = query.id
