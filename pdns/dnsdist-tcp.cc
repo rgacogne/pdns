@@ -174,7 +174,9 @@ static std::unique_ptr<TCPConnectionToBackend> getConnectionToDownstream(std::sh
     if (!list.empty()) {
       result = std::move(list.front());
       list.pop_front();
-      result->setReused();
+      if (result) {
+        result->setReused();
+      }
       return result;
     }
   }
@@ -739,6 +741,10 @@ static void handleResponse(std::shared_ptr<IncomingTCPConnectionState>& state, s
 static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>& state, struct timeval& now)
 {
   auto ds = state->d_ds;
+  if (!ds) {
+    throw std::runtime_error("sendQueryToBackend() to called without a downstream server set");
+  }
+
   state->d_state = IncomingTCPConnectionState::State::sendingQueryToBackend;
   state->d_currentPos = 0;
   state->d_firstResponsePacket = true;
@@ -750,7 +756,7 @@ static void sendQueryToBackend(std::shared_ptr<IncomingTCPConnectionState>& stat
     return;
   }
 
-  while (state->d_downstreamFailures < state->d_ds->retries)
+  while (state->d_downstreamFailures < ds->retries)
   {
     state->d_downstreamConnection = getConnectionToDownstream(ds, state->d_downstreamFailures, now);
 
@@ -889,6 +895,10 @@ static void handleNewIOState(std::shared_ptr<IncomingTCPConnectionState>& state,
 
 static void handleDownstreamIO(std::shared_ptr<IncomingTCPConnectionState>& state, struct timeval& now)
 {
+  if (state->d_ds == nullptr) {
+    throw std::runtime_error("No downstream in " + std::string(__func__) + "!");
+  }
+
   if (state->d_downstreamConnection == nullptr) {
     throw std::runtime_error("No downstream socket in " + std::string(__func__) + "!");
   }
@@ -1150,6 +1160,9 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
   else if (got != sizeof(citmp)) {
     throw std::runtime_error("Partial read while reading from the TCP acceptor pipe (" + std::to_string(pipefd) + ") in " + std::string(isNonBlocking(pipefd) ? "non-blocking" : "blocking") + " mode");
   }
+  else if (citmp == nullptr) {
+    throw std::runtime_error("Received a null pointer from the TCP acceptor pipe (" + std::to_string(pipefd) + ") in " + std::string(isNonBlocking(pipefd) ? "non-blocking" : "blocking") + " mode");
+  }
 
   try {
     g_tcpclientthreads->decrementQueuedCount();
@@ -1238,7 +1251,7 @@ void tcpClientThread(int pipefd)
 void tcpAcceptorThread(void* p)
 {
   setThreadName("dnsdist/tcpAcce");
-  ClientState* cs = (ClientState*) p;
+  ClientState* cs = reinterpret_cast<ClientState*>(p);
   bool tcpClientCountIncremented = false;
   ComboAddress remote;
   remote.sin4.sin_family = cs->local.sin4.sin_family;
