@@ -926,23 +926,32 @@ struct PacketID
   }
 };
 
-struct PacketIDBirthdayCompare: public std::binary_function<PacketID, PacketID, bool>
+struct PacketIDBirthdayCompare: public std::binary_function<std::shared_ptr<PacketID>, std::shared_ptr<PacketID>, bool>
 {
-  bool operator()(const PacketID& a, const PacketID& b) const
+  bool operator()(const std::shared_ptr<PacketID>& a, const std::shared_ptr<PacketID>& b) const
   {
-    int ourSock= a.sock ? a.sock->getHandle() : 0;
-    int bSock = b.sock ? b.sock->getHandle() : 0;
-    if( tie(a.remote, ourSock, a.type) < tie(b.remote, bSock, b.type))
+    int ourSock= a->sock ? a->sock->getHandle() : 0;
+    int bSock = b->sock ? b->sock->getHandle() : 0;
+    if( tie(a->remote, ourSock, a->type) < tie(b->remote, bSock, b->type))
       return true;
-    if( tie(a.remote, ourSock, a.type) > tie(b.remote, bSock, b.type))
+    if( tie(a->remote, ourSock, a->type) > tie(b->remote, bSock, b->type))
       return false;
 
-    return a.domain < b.domain;
+    return a->domain < b->domain;
   }
 };
+
+struct SharedPacketIDComparator {
+    bool operator()(const std::shared_ptr<PacketID>& lhs,
+                    const std::shared_ptr<PacketID>& rhs) const
+    {
+        return *lhs < *rhs;
+    }
+};
+
 extern thread_local std::unique_ptr<MemRecursorCache> t_RC;
 extern thread_local std::unique_ptr<RecursorPacketCache> t_packetCache;
-typedef MTasker<PacketID,string> MT_t;
+typedef MTasker<shared_ptr<PacketID>,string,SharedPacketIDComparator> MT_t;
 MT_t* getMT();
 
 struct RecursorStats

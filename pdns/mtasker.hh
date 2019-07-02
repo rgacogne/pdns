@@ -47,7 +47,7 @@ struct KeyTag {};
     \note The EventKey needs to have an operator< defined because it is used as the key of an associative array
 */
 
-template<class EventKey=int, class EventVal=int> class MTasker
+template<class EventKey=int, class EventVal=int, typename _Comp=std::less<EventKey>> class MTasker
 {
 private:
   pdns_ucontext_t d_kernel;
@@ -88,7 +88,7 @@ public:
   typedef multi_index_container<
     Waiter,
     indexed_by <
-                ordered_unique<member<Waiter,EventKey,&Waiter::key> >,
+                ordered_unique<member<Waiter,EventKey,&Waiter::key>, _Comp >,
                 ordered_non_unique<tag<KeyTag>, member<Waiter,struct timeval,&Waiter::ttd> >
                >
   > waiters_t;
