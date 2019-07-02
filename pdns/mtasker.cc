@@ -170,7 +170,7 @@ int main()
     \return returns -1 in case of error, 0 in case of timeout, 1 in case of an answer 
 */
 
-template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::waitEvent(EventKey &key, EventVal *val, unsigned int timeoutMsec, struct timeval* now)
+template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::waitEvent(EventKey&& key, EventVal *val, unsigned int timeoutMsec, struct timeval* now)
 {
   if(d_waiters.count(key)) { // there was already an exact same waiter
     return -1;
@@ -193,7 +193,7 @@ template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::waitEven
   }
 
   w.tid=d_tid;
-  w.key=key;
+  w.key=std::move(key);
 
   d_waiters.insert(w);
 #ifdef MTASKERTIMING
@@ -201,7 +201,7 @@ template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::waitEven
   d_threads[d_tid].totTime+=diff;
 #endif
   notifyStackSwitchToKernel();
-  pdns_swapcontext(*d_waiters.find(key)->context,d_kernel); // 'A' will return here when 'key' has arrived, hands over control to kernel first
+  pdns_swapcontext(*d_waiters.find(w.key)->context,d_kernel); // 'A' will return here when 'key' has arrived, hands over control to kernel first
   notifyStackSwitchDone();
 #ifdef MTASKERTIMING
   d_threads[d_tid].dt.start();

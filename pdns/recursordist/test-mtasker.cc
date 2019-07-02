@@ -16,7 +16,7 @@ static void doSomething(void* p)
 {
   MTasker<>* mt = reinterpret_cast<MTasker<>*>(p);
   int i=12, o;
-  if (mt->waitEvent(i, &o) == 1)
+  if (mt->waitEvent(std::move(i), &o) == 1)
     g_result = o;
 }
 

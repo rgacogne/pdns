@@ -391,7 +391,7 @@ int asendtcp(const string& data, Socket* sock)
   t_fdm->addWriteFD(sock->getHandle(), handleTCPClientWritable, pident);
   string packet;
 
-  int ret=MT->waitEvent(pident, &packet, g_networkTimeoutMsec);
+  int ret=MT->waitEvent(std::move(pident), &packet, g_networkTimeoutMsec);
 
   if(!ret || ret==-1) { // timeout
     t_fdm->removeWriteFD(sock->getHandle());
@@ -414,7 +414,7 @@ int arecvtcp(string& data, size_t len, Socket* sock, bool incompleteOkay)
   pident.inIncompleteOkay=incompleteOkay;
   t_fdm->addReadFD(sock->getHandle(), handleTCPClientReadable, pident);
 
-  int ret=MT->waitEvent(pident,&data, g_networkTimeoutMsec);
+  int ret=MT->waitEvent(std::move(pident), &data, g_networkTimeoutMsec);
   if(!ret || ret==-1) { // timeout
     t_fdm->removeReadFD(sock->getHandle());
   }
@@ -467,7 +467,7 @@ string GenUDPQueryResponse(const ComboAddress& dest, const string& query)
 
   string data;
  
-  int ret=MT->waitEvent(pident,&data, g_networkTimeoutMsec);
+  int ret=MT->waitEvent(std::move(pident), &data, g_networkTimeoutMsec);
  
   if(!ret || ret==-1) { // timeout
     t_fdm->removeReadFD(s.getHandle());
@@ -701,7 +701,7 @@ int arecvfrom(std::string& packet, int flags, const ComboAddress& fromaddr, size
   pident.type = qtype;
   pident.remote=fromaddr;
 
-  int ret=MT->waitEvent(pident, &packet, g_networkTimeoutMsec, now);
+  int ret=MT->waitEvent(std::move(pident), &packet, g_networkTimeoutMsec, now);
 
   /* -1 means error, 0 means timeout, 1 means a result from handleUDPServerResponse() which might still be an error */
   if(ret > 0) {
