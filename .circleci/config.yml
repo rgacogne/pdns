@@ -481,7 +481,7 @@ jobs:
               --enable-ixfrdist
       - run:
           name: build
-          command: make -j3 -k
+          command: ASAN_OPTIONS=detect_leaks=0 make -j3 -k
       - save-ccache-cache:
           product: auth
       - run:
@@ -830,7 +830,7 @@ jobs:
           working_directory: ~/project/pdns/recursordist
       - run:
           name: build
-          command: make -j3 -k
+          command: make -j2 -k
           working_directory: ~/project/pdns/recursordist
       - save-ccache-cache:
           product: recursor
