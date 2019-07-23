@@ -455,6 +455,9 @@ jobs:
   build-auth:
     docker:
       - image: debian:stretch
+        environment:
+          UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1:suppressions=${CIRCLE_WORKING_DIRECTORY}/build-scripts/UBSan.supp"
+          ASAN_OPTIONS=detect_leaks=0
 
     steps:
       - checkout-shallow
@@ -481,7 +484,7 @@ jobs:
               --enable-ixfrdist
       - run:
           name: build
-          command: ASAN_OPTIONS=detect_leaks=0 make -j3 -k
+          command: make -j3 -k
       - save-ccache-cache:
           product: auth
       - run:
@@ -778,6 +781,10 @@ jobs:
   build-recursor:
     docker:
       - image: debian:stretch
+        environment:
+          UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1:suppressions=${CIRCLE_WORKING_DIRECTORY}/../../build-scripts/UBSan.supp"
+          ASAN_OPTIONS=detect_leaks=0
+
     steps:
       - restore-cache-ccache:
           product: recursor
