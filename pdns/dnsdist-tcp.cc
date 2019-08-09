@@ -152,22 +152,20 @@ public:
 
   IOState tryWrite(std::vector<uint8_t>& buffer, size_t& pos, size_t toWrite)
   {
-    setReused();
-
     if (!d_handler->doesFilter() &&
-        ((d_firstWrite && d_enableFastOpen) /* first write on a fast open enabled connection */ ||
+        (d_enableFastOpen /* first write on a fast open enabled connection */ ||
          d_ds->sourceItf != 0  /* a speficic outgoing interface has been specified */
           )) {
       int socketFlags = 0;
 #ifdef MSG_FASTOPEN
-      if (d_enableFastOpen && d_firstWrite) {
+      if (d_enableFastOpen) {
         socketFlags |= MSG_FASTOPEN;
       }
 #endif /* MSG_FASTOPEN */
 
       size_t sent = sendMsgWithOptions(getHandle(), reinterpret_cast<const char *>(&buffer.at(pos)), toWrite, &d_ds->remote, &d_ds->sourceAddr, d_ds->sourceItf, socketFlags);
       pos += sent;
-      d_firstWrite = false;
+      d_enableFastOpen = false;
 
       if (sent == toWrite) {
         return IOState::Done;
@@ -177,7 +175,7 @@ public:
       }
     }
     else {
-      d_firstWrite = false;
+      d_enableFastOpen = false;
 
       return d_handler->tryWrite(buffer, pos, toWrite);
     }
@@ -220,7 +218,6 @@ private:
   uint64_t d_queries{0};
   bool d_fresh{true};
   bool d_enableFastOpen{false};
-  bool d_firstWrite{true};
 };
 
 static thread_local map<ComboAddress, std::deque<std::unique_ptr<TCPConnectionToBackend>>> t_downstreamConnections;
