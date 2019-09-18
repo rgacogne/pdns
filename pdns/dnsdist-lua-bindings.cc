@@ -256,27 +256,29 @@ void setupLuaBindings(bool client)
       return std::make_shared<BPFFilter>(maxV4, maxV6, maxQNames);
     });
 
-  g_lua.registerFunction<void(std::shared_ptr<BPFFilter>::*)(const ComboAddress& ca)>("block", [](std::shared_ptr<BPFFilter> bpf, const ComboAddress& ca) {
+  g_lua.registerFunction<bool(std::shared_ptr<BPFFilter>::*)(const ComboAddress& ca)>("block", [](std::shared_ptr<BPFFilter> bpf, const ComboAddress& ca) {
       if (bpf) {
         return bpf->block(ca);
       }
+      return false;
     });
 
-  g_lua.registerFunction<void(std::shared_ptr<BPFFilter>::*)(const DNSName& qname, boost::optional<uint16_t> qtype)>("blockQName", [](std::shared_ptr<BPFFilter> bpf, const DNSName& qname, boost::optional<uint16_t> qtype) {
+  g_lua.registerFunction<bool(std::shared_ptr<BPFFilter>::*)(const DNSName& qname, boost::optional<uint16_t> qtype)>("blockQName", [](std::shared_ptr<BPFFilter> bpf, const DNSName& qname, boost::optional<uint16_t> qtype) {
       if (bpf) {
         return bpf->block(qname, qtype ? *qtype : 255);
       }
+      return false;
     });
 
   g_lua.registerFunction<void(std::shared_ptr<BPFFilter>::*)(const ComboAddress& ca)>("unblock", [](std::shared_ptr<BPFFilter> bpf, const ComboAddress& ca) {
       if (bpf) {
-        return bpf->unblock(ca);
+        bpf->unblock(ca);
       }
     });
 
   g_lua.registerFunction<void(std::shared_ptr<BPFFilter>::*)(const DNSName& qname, boost::optional<uint16_t> qtype)>("unblockQName", [](std::shared_ptr<BPFFilter> bpf, const DNSName& qname, boost::optional<uint16_t> qtype) {
       if (bpf) {
-        return bpf->unblock(qname, qtype ? *qtype : 255);
+        bpf->unblock(qname, qtype ? *qtype : 255);
       }
     });
 

@@ -34,8 +34,10 @@ public:
   BPFFilter(uint32_t maxV4Addresses, uint32_t maxV6Addresses, uint32_t maxQNames);
   void addSocket(int sock);
   void removeSocket(int sock);
-  void block(const ComboAddress& addr);
-  void block(const DNSName& qname, uint16_t qtype=255);
+  bool hasRoomFor(const ComboAddress& addr);
+  bool hasRoomFor(const DNSName& name);
+  bool block(const ComboAddress& addr);
+  bool block(const DNSName& qname, uint16_t qtype=255);
   void unblock(const ComboAddress& addr);
   void unblock(const DNSName& qname, uint16_t qtype=255);
   std::vector<std::pair<ComboAddress, uint64_t> > getAddrStats();
@@ -51,6 +53,10 @@ private:
     }
     int fd{-1};
   };
+
+  bool hasRoomForLocked(const ComboAddress& addr) const;
+  bool hasRoomForLocked(const DNSName& name) const;
+
   std::mutex d_mutex;
   uint32_t d_maxV4;
   uint32_t d_maxV6;

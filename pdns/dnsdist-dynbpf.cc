@@ -23,11 +23,9 @@
 
 #ifdef HAVE_EBPF
 
-bool DynBPFFilter::block(const ComboAddress& addr, const struct timespec& until)
+bool DynBPFFilter::addBlockLocked(const ComboAddress& addr, const struct timespec& until)
 {
   bool inserted = false;
-  std::unique_lock<std::mutex> lock(d_mutex);
-
   if (d_excludedSubnets.match(addr)) {
     /* do not add a block for excluded subnets */
     return inserted;
@@ -44,6 +42,25 @@ bool DynBPFFilter::block(const ComboAddress& addr, const struct timespec& until)
     d_entries.insert(BlockEntry(addr, until));
     inserted = true;
   }
+  return inserted;
+}
+
+bool DynBPFFilter::block(const ComboAddress& addr, const struct timespec& until)
+{
+  std::unique_lock<std::mutex> lock(d_mutex);
+  return addBlockLocked(addr, until);
+}
+
+size_t DynBPFFilter::block(const std::vector<ComboAddress>& addrs, const struct timespec& until)
+{
+  size_t inserted = 0;
+  std::unique_lock<std::mutex> lock(d_mutex);
+  for (const auto& addr : addrs) {
+    if (addBlockLocked(addr, until)) {
+      ++inserted;
+    }
+  }
+
   return inserted;
 }
 
@@ -74,6 +91,7 @@ std::vector<std::tuple<ComboAddress, uint64_t, struct timespec> > DynBPFFilter::
   }
 
   const auto& stats = d_bpf->getAddrStats();
+  result.reserve(stats.size());
   for (const auto& stat : stats) {
     const container_t::iterator it = d_entries.find(stat.first);
     if (it != d_entries.end()) {

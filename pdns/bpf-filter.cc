@@ -210,26 +210,51 @@ void BPFFilter::removeSocket(int sock)
   }
 }
 
-void BPFFilter::block(const ComboAddress& addr)
+bool BPFFilter::hasRoomFor(const ComboAddress& addr)
 {
   std::unique_lock<std::mutex> lock(d_mutex);
+  return hasRoomForLocked(addr);
+}
 
+bool BPFFilter::hasRoomForLocked(const ComboAddress& addr) const
+{
+  if (addr.sin4.sin_family == AF_INET) {
+    return d_v4Count < d_maxV4;
+  }
+  else if (addr.sin4.sin_family == AF_INET6) {
+    return d_v6Count < d_maxV6;
+  }
+
+  return false;
+}
+
+bool BPFFilter::hasRoomFor(const DNSName& name)
+{
+  std::unique_lock<std::mutex> lock(d_mutex);
+  return d_qNamesCount < d_maxQNames;
+}
+
+bool BPFFilter::hasRoomForLocked(const DNSName& name) const
+{
+  return d_qNamesCount < d_maxQNames;
+}
+
+bool BPFFilter::block(const ComboAddress& addr)
+{
   uint64_t counter = 0;
   int res = 0;
+
+  std::unique_lock<std::mutex> lock(d_mutex);
+  if (!hasRoomForLocked(addr)) {
+    throw std::runtime_error("Table full when trying to block " + addr.toString());
+  }
+
   if (addr.sin4.sin_family == AF_INET) {
     uint32_t key = htonl(addr.sin4.sin_addr.s_addr);
-    if (d_v4Count >= d_maxV4) {
-      throw std::runtime_error("Table full when trying to block " + addr.toString());
-    }
-
-    res = bpf_lookup_elem(d_v4map.fd, &key, &counter);
-    if (res != -1) {
-      throw std::runtime_error("Trying to block an already blocked address: " + addr.toString());
-    }
-
     res = bpf_update_elem(d_v4map.fd, &key, &counter, BPF_NOEXIST);
     if (res == 0) {
-      d_v4Count++;
+      ++d_v4Count;
+      return true;
     }
   }
   else if (addr.sin4.sin_family == AF_INET6) {
@@ -239,24 +264,20 @@ void BPFFilter::block(const ComboAddress& addr)
       key[idx] = addr.sin6.sin6_addr.s6_addr[idx];
     }
 
-    if (d_v6Count >= d_maxV6) {
-      throw std::runtime_error("Table full when trying to block " + addr.toString());
-    }
-
-    res = bpf_lookup_elem(d_v6map.fd, &key, &counter);
-    if (res != -1) {
-      throw std::runtime_error("Trying to block an already blocked address: " + addr.toString());
-    }
-
     res = bpf_update_elem(d_v6map.fd, key, &counter, BPF_NOEXIST);
     if (res == 0) {
-      d_v6Count++;
+      ++d_v6Count;
+      return true;
     }
   }
 
-  if (res != 0) {
-    throw std::runtime_error("Error adding blocked address " + addr.toString() + ": " + std::string(strerror(errno)));
+  if (res == -1) {
+    if (errno != EEXIST) {
+      throw std::runtime_error("Error while trying to add a new address (" + addr.toString() + ") to the the eBPF block: " + stringerror());
+    }
   }
+
+  return false;
 }
 
 void BPFFilter::unblock(const ComboAddress& addr)
@@ -289,7 +310,7 @@ void BPFFilter::unblock(const ComboAddress& addr)
   }
 }
 
-void BPFFilter::block(const DNSName& qname, uint16_t qtype)
+bool BPFFilter::block(const DNSName& qname, uint16_t qtype)
 {
   struct QNameKey key;
   struct QNameValue value;
@@ -306,24 +327,22 @@ void BPFFilter::block(const DNSName& qname, uint16_t qtype)
 
   {
     std::unique_lock<std::mutex> lock(d_mutex);
-    if (d_qNamesCount >= d_maxQNames) {
+    if (!hasRoomForLocked(qname)) {
       throw std::runtime_error("Table full when trying to block " + qname.toLogString());
     }
 
-    int res = bpf_lookup_elem(d_qnamemap.fd, &key, &value);
-    if (res != -1) {
-      throw std::runtime_error("Trying to block an already blocked qname: " + qname.toLogString());
-    }
-
-    res = bpf_update_elem(d_qnamemap.fd, &key, &value, BPF_NOEXIST);
+    int res = bpf_update_elem(d_qnamemap.fd, &key, &value, BPF_NOEXIST);
     if (res == 0) {
-      d_qNamesCount++;
+      ++d_qNamesCount;
+      return true;
     }
 
-    if (res != 0) {
-      throw std::runtime_error("Error adding blocked qname " + qname.toLogString() + ": " + std::string(strerror(errno)));
+    if (res != 0 && errno != EEXIST) {
+      throw std::runtime_error("Error adding blocked qname " + qname.toLogString() + ": " + stringerror());
     }
   }
+
+  return false;
 }
 
 void BPFFilter::unblock(const DNSName& qname, uint16_t qtype)

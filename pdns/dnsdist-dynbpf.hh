@@ -51,9 +51,12 @@ public:
   }
   /* returns true if the addr wasn't already blocked, false otherwise */
   bool block(const ComboAddress& addr, const struct timespec& until);
+  size_t block(const std::vector<ComboAddress>& addrs, const struct timespec& until);
   void purgeExpired(const struct timespec& now);
   std::vector<std::tuple<ComboAddress, uint64_t, struct timespec> > getAddrStats();
 private:
+  bool addBlockLocked(const ComboAddress& addr, const struct timespec& until);
+
   struct BlockEntry
   {
     BlockEntry(const ComboAddress& addr, const struct timespec until): d_addr(addr), d_until(until)
