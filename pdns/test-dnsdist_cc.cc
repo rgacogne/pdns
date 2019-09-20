@@ -390,6 +390,9 @@ BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECS) {
   BOOST_CHECK_EQUAL(ecsAdded, true);
   validateQuery(packet, len);
   validateECS(packet, len, remote);
+  vector<uint8_t> queryWithEDNS;
+  queryWithEDNS.resize(len);
+  memcpy(queryWithEDNS.data(), packet, len);
 
   /* not large enough packet */
   consumed = 0;
@@ -405,6 +408,33 @@ BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECS) {
   BOOST_CHECK_EQUAL(ednsAdded, false);
   BOOST_CHECK_EQUAL(ecsAdded, false);
   validateQuery(reinterpret_cast<char*>(query.data()), len);
+
+  /* packet with trailing data (preserving trailing data) */
+  memcpy(packet, query.data(), query.size());
+  ednsAdded = false;
+  ecsAdded = false;
+  consumed = 0;
+  len = query.size();
+  qname = DNSName(packet, len, sizeof(dnsheader), false, &qtype, nullptr, &consumed);
+  BOOST_CHECK_EQUAL(qname, name);
+  BOOST_CHECK(qtype == QType::A);
+  /* add trailing data */
+  const size_t trailingDataSize = 10;
+  /* Making sure we have enough room to allow for fake trailing data */
+  BOOST_REQUIRE(sizeof(packet) > len && (sizeof(packet) - len) > trailingDataSize);
+  for (size_t idx = 0; idx < trailingDataSize; idx++) {
+    packet[len + idx] = 'A';
+  }
+  len += trailingDataSize;
+  BOOST_CHECK(handleEDNSClientSubnet(packet, sizeof packet, consumed, &len, &ednsAdded, &ecsAdded, false, newECSOption, true));
+  BOOST_REQUIRE_EQUAL(static_cast<size_t>(len), queryWithEDNS.size() + trailingDataSize);
+  BOOST_CHECK_EQUAL(memcmp(queryWithEDNS.data(), packet, queryWithEDNS.size()), 0);
+  for (size_t idx = 0; idx < trailingDataSize; idx++) {
+    BOOST_CHECK_EQUAL(packet[queryWithEDNS.size() + idx], 'A');
+  }
+  BOOST_CHECK_EQUAL(ednsAdded, false);
+  BOOST_CHECK_EQUAL(ecsAdded, true);
+  validateQuery(packet, len);
 }
 
 BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECSAlreadyParsed) {
@@ -497,6 +527,36 @@ BOOST_AUTO_TEST_CASE(replaceECSWithSameSize) {
   BOOST_CHECK_EQUAL(ecsAdded, false);
   validateQuery(packet, len);
   validateECS(packet, len, remote);
+  vector<uint8_t> queryWithEDNS;
+  queryWithEDNS.resize(len);
+  memcpy(queryWithEDNS.data(), packet, len);
+
+  /* packet with trailing data (preserving trailing data) */
+  memcpy(packet, query.data(), query.size());
+  ednsAdded = false;
+  ecsAdded = false;
+  consumed = 0;
+  len = query.size();
+  qname = DNSName(packet, len, sizeof(dnsheader), false, &qtype, nullptr, &consumed);
+  BOOST_CHECK_EQUAL(qname, name);
+  BOOST_CHECK(qtype == QType::A);
+  /* add trailing data */
+  const size_t trailingDataSize = 10;
+  /* Making sure we have enough room to allow for fake trailing data */
+  BOOST_REQUIRE(sizeof(packet) > len && (sizeof(packet) - len) > trailingDataSize);
+  for (size_t idx = 0; idx < trailingDataSize; idx++) {
+    packet[len + idx] = 'A';
+  }
+  len += trailingDataSize;
+  BOOST_CHECK(handleEDNSClientSubnet(packet, sizeof packet, consumed, &len, &ednsAdded, &ecsAdded, true, newECSOption, true));
+  BOOST_REQUIRE_EQUAL(static_cast<size_t>(len), queryWithEDNS.size() + trailingDataSize);
+  BOOST_CHECK_EQUAL(memcmp(queryWithEDNS.data(), packet, queryWithEDNS.size()), 0);
+  for (size_t idx = 0; idx < trailingDataSize; idx++) {
+    BOOST_CHECK_EQUAL(packet[queryWithEDNS.size() + idx], 'A');
+  }
+  BOOST_CHECK_EQUAL(ednsAdded, false);
+  BOOST_CHECK_EQUAL(ecsAdded, false);
+  validateQuery(packet, len);
 }
 
 BOOST_AUTO_TEST_CASE(replaceECSWithSameSizeAlreadyParsed) {
