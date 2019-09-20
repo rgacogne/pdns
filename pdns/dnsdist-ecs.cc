@@ -329,7 +329,7 @@ bool parseEDNSOptions(DNSQuestion& dq)
   return false;
 }
 
-static bool addECSToExistingOPT(char* const packet, size_t const packetSize, uint16_t* const len, const string& newECSOption, unsigned char* optRDLen, bool* const ecsAdded)
+static bool addECSToExistingOPT(char* const packet, size_t const packetSize, uint16_t* const len, const string& newECSOption, unsigned char* optRDLen, bool* const ecsAdded, bool preserveTrailingData)
 {
   /* we need to add one EDNS0 ECS option, fixing the size of EDNS0 RDLENGTH */
   /* getEDNSOptionsStart has already checked that there is exactly one AR,
@@ -337,7 +337,13 @@ static bool addECSToExistingOPT(char* const packet, size_t const packetSize, uin
 
   /* check if the existing buffer is large enough */
   const size_t newECSOptionSize = newECSOption.size();
-  if (packetSize - *len <= newECSOptionSize) {
+  uint32_t existingLen = *len;
+  uint32_t realPacketLen = getDNSPacketLength(packet, *len);
+  if (realPacketLen < *len && preserveTrailingData) {
+    existingLen = realPacketLen;
+  }
+
+  if (packetSize - existingLen <= newECSOptionSize) {
     return false;
   }
 
@@ -346,8 +352,16 @@ static bool addECSToExistingOPT(char* const packet, size_t const packetSize, uin
   optRDLen[0] = newRDLen / 256;
   optRDLen[1] = newRDLen % 256;
 
-  memcpy(packet + *len, newECSOption.c_str(), newECSOptionSize);
-  *len += newECSOptionSize;
+  if (realPacketLen < *len && preserveTrailingData) {
+    size_t toMove = *len - realPacketLen;
+    memmove(packet + realPacketLen + newECSOptionSize, packet + realPacketLen, toMove);
+    *len += newECSOptionSize;
+  }
+  else {
+    *len = realPacketLen + newECSOptionSize;
+  }
+
+  memcpy(packet + realPacketLen, newECSOption.c_str(), newECSOptionSize);
   *ecsAdded = true;
 
   return true;
@@ -361,11 +375,16 @@ static bool addEDNSWithECS(char* const packet, size_t const packetSize, uint16_t
   generateOptRR(newECSOption, EDNSRR, g_EdnsUDPPayloadSize, 0, false);
 
   /* does it fit in the existing buffer? */
-  if (packetSize - *len <= EDNSRR.size()) {
+  uint32_t existingLen = *len;
+  uint32_t realPacketLen = getDNSPacketLength(packet, *len);
+  if (realPacketLen < *len && preserveTrailingData) {
+    existingLen = realPacketLen;
+  }
+
+  if (packetSize - existingLen <= EDNSRR.size()) {
     return false;
   }
 
-  uint32_t realPacketLen = getDNSPacketLength(packet, *len);
   if (realPacketLen < *len && preserveTrailingData) {
     size_t toMove = *len - realPacketLen;
     memmove(packet + realPacketLen + EDNSRR.size(), packet + realPacketLen, toMove);
@@ -416,7 +435,7 @@ bool handleEDNSClientSubnet(char* const packet, const size_t packetSize, const u
     return replaceEDNSClientSubnetOption(packet, packetSize, len, ecsOptionStart, ecsOptionSize, optRDLen, newECSOption);
   } else {
     /* we have an EDNS OPT RR but no existing ECS option */
-    return addECSToExistingOPT(packet, packetSize, len, newECSOption, optRDLen, ecsAdded);
+    return addECSToExistingOPT(packet, packetSize, len, newECSOption, optRDLen, ecsAdded, preserveTrailingData);
   }
 
   return true;
