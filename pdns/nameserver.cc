@@ -289,27 +289,31 @@ UDPNameserver::UDPNameserver( bool additional_socket )
     g_log<<Logger::Critical<<"PDNS is deaf and mute! Not listening on any interfaces"<<endl;    
 }
 
-void UDPNameserver::send(DNSPacket& p)
+void UDPNameserver::send(DNSPacket& p, bool checkTruncation)
 {
-  string buffer=p.getString();
+  const string& buffer = p.getString();
   g_rs.submitResponse(p, true);
 
   struct msghdr msgh;
   struct iovec iov;
   cmsgbuf_aligned cbuf;
 
-  fillMSGHdr(&msgh, &iov, &cbuf, 0, (char*)buffer.c_str(), buffer.length(), &p.d_remote);
+  fillMSGHdr(&msgh, &iov, &cbuf, 0, const_cast<char*>(buffer.c_str()), buffer.length(), &p.d_remote);
 
-  msgh.msg_control=NULL;
-  if(p.d_anyLocal) {
+  msgh.msg_control = nullptr;
+  if (p.d_anyLocal) {
     addCMsgSrcAddr(&msgh, &cbuf, p.d_anyLocal.get_ptr(), 0);
   }
+
   DLOG(g_log<<Logger::Notice<<"Sending a packet to "<< p.getRemote() <<" ("<< buffer.length()<<" octets)"<<endl);
-  if(buffer.length() > p.getMaxReplyLen()) {
+
+  if (checkTruncation && buffer.length() > p.getMaxReplyLen()) {
     g_log<<Logger::Error<<"Weird, trying to send a message that needs truncation, "<< buffer.length()<<" > "<<p.getMaxReplyLen()<<". Question was for "<<p.qdomain<<"|"<<p.qtype.getName()<<endl;
   }
-  if(sendmsg(p.getSocket(), &msgh, 0) < 0)
+
+  if (sendmsg(p.getSocket(), &msgh, 0) < 0) {
     g_log<<Logger::Error<<"Error sending reply with sendmsg (socket="<<p.getSocket()<<", dest="<<p.d_remote.toStringWithPort()<<"): "<<stringerror()<<endl;
+  }
 }
 
 bool UDPNameserver::receive(DNSPacket& packet, std::string& buffer)
@@ -354,38 +358,43 @@ bool UDPNameserver::receive(DNSPacket& packet, std::string& buffer)
       break;
     }
   }
-  if(sock==-1)
+
+  if (sock == -1) {
     throw PDNSException("poll betrayed us! (should not happen)");
+  }
   
   DLOG(g_log<<"Received a packet " << len <<" bytes long from "<< remote.toString()<<endl);
 
   BOOST_STATIC_ASSERT(offsetof(sockaddr_in, sin_port) == offsetof(sockaddr_in6, sin6_port));
 
-  if(remote.sin4.sin_port == 0) // would generate error on responding. sin4 also works for ipv6
+  if (remote.sin4.sin_port == 0) {
+    // would generate error on responding. sin4 also works for ipv6
     return 0;
+  }
   
   packet.setSocket(sock);
   packet.setRemote(&remote);
 
   ComboAddress dest;
-  if(HarvestDestinationAddress(&msgh, &dest)) {
+  if (HarvestDestinationAddress(&msgh, &dest)) {
 //    cerr<<"Setting d_anyLocal to '"<<dest.toString()<<"'"<<endl;
     packet.d_anyLocal = dest;
   }            
 
   struct timeval recvtv;
-  if(HarvestTimestamp(&msgh, &recvtv)) {
+  if (HarvestTimestamp(&msgh, &recvtv)) {
     packet.d_dt.setTimeval(recvtv);
   }
-  else
-    packet.d_dt.set(); // timing    
+  else {
+    packet.d_dt.set(); // timing
+  }
 
-  if(packet.parse(&buffer.at(0), (size_t) len)<0) {
+  if (!packet.parseQuestionOnly(&buffer.at(0), static_cast<size_t>(len))) {
     S.inc("corrupt-packets");
     S.ringAccount("remotes-corrupt", packet.d_remote);
 
     return false; // unable to parse
   }
-  
+
   return true;
 }

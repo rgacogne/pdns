@@ -413,6 +413,7 @@ try
   }
 
   for(;;) {
+    buffer.resize(DNSPacket::s_udpTruncationThreshold);
     if(!NS->receive(question, buffer)) { // receive a packet         inline
       continue;                    // packet was broken, try again
     }
@@ -424,32 +425,19 @@ try
     else
       numreceived6++;
 
-    if(question.d_dnssecOk)
-      numreceiveddo++;
-
      if(question.d.qr)
        continue;
 
     S.ringAccount("queries", question.qdomain, question.qtype);
     S.ringAccount("remotes", question.d_remote);
-    if(logDNSQueries) {
-      string remote;
-      if(question.hasEDNSSubnet()) 
-        remote = question.getRemote().toString() + "<-" + question.getRealRemote().toString();
-      else
-        remote = question.getRemote().toString();
-      g_log << Logger::Notice<<"Remote "<< remote <<" wants '" << question.qdomain<<"|"<<question.qtype.getName() << 
-        "', do = " <<question.d_dnssecOk <<", bufsize = "<< question.getMaxReplyLen();
-      if(question.d_ednsRawPacketSizeLimit > 0 && question.getMaxReplyLen() != (unsigned int)question.d_ednsRawPacketSizeLimit)
-        g_log<<" ("<<question.d_ednsRawPacketSizeLimit<<")";
-      g_log<<": ";
-    }
 
-    if(PC.enabled() && (question.d.opcode != Opcode::Notify && question.d.opcode != Opcode::Update) && question.couldBeCached()) {
+    if(PC.enabled() && question.couldBeCached()) {
       bool haveSomething=PC.get(question, cached); // does the PacketCache recognize this question?
       if (haveSomething) {
-        if(logDNSQueries)
-          g_log<<"packetcache HIT"<<endl;
+        if (logDNSQueries) {
+          g_log << Logger::Notice<<"Remote "<< question.getRemote().toStringWithPort() <<" wants '" << question.qdomain<<"|"<<question.qtype.getName() <<
+            "': packetcache HIT"<<endl;
+        }
         cached.setRemote(&question.d_remote);  // inlined
         cached.setSocket(question.getSocket());                               // inlined
         cached.d_anyLocal = question.d_anyLocal;
@@ -464,15 +452,40 @@ try
       }
     }
 
+    if (!question.doParse()) {
+      continue;
+    }
+
+    if (logDNSQueries) {
+      string remote;
+      if(question.hasEDNSSubnet()) {
+        remote = question.getRemote().toString() + "<-" + question.getRealRemote().toString();
+      }
+      else {
+        remote = question.getRemote().toString();
+      }
+
+      g_log << Logger::Notice<<"Remote "<< remote <<" wants '" << question.qdomain<<"|"<<question.qtype.getName() <<
+        "', do = " <<question.d_dnssecOk <<", bufsize = "<< question.getMaxReplyLen();
+      if(question.d_ednsRawPacketSizeLimit > 0 && question.getMaxReplyLen() != (unsigned int)question.d_ednsRawPacketSizeLimit) {
+        g_log<<" ("<<question.d_ednsRawPacketSizeLimit<<")";
+      }
+      g_log<<": ";
+      if (PC.enabled()) {
+        g_log<<"packetcache MISS"<<endl;
+      }
+    }
+
+    if(question.d_dnssecOk) {
+      numreceiveddo++;
+    }
+
     if(distributor->isOverloaded()) {
       if(logDNSQueries) 
         g_log<<"Dropped query, backends are overloaded"<<endl;
       overloadDrops++;
       continue;
     }
-        
-    if(PC.enabled() && logDNSQueries)
-      g_log<<"packetcache MISS"<<endl;
 
     try {
       distributor->question(question, &sendout); // otherwise, give to the distributor

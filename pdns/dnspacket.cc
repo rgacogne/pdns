@@ -186,7 +186,22 @@ void DNSPacket::setCompress(bool compress)
 
 bool DNSPacket::couldBeCached() const
 {
-  return !d_wantsnsid && qclass==QClass::IN && !d_havetsig;
+  if (qclass != QClass::IN) {
+    return false;
+  }
+
+  if (d.opcode != Opcode::Query) {
+    return false;
+  }
+
+  if (d.ancount != 0 || d.nscount != 0) {
+    return false;
+  }
+
+  /* we might not know this at this point, but it's fine since
+     the corresponding answer will never be inserted into the
+     packet cache */
+  return !d_havetsig;
 }
 
 unsigned int DNSPacket::getMinTTL()
@@ -412,15 +427,46 @@ void DNSPacket::spoofQuestion(const DNSPacket& qd)
 int DNSPacket::noparse(const char *mesg, size_t length)
 {
   d_rawpacket.assign(mesg,length); 
-  if(length < 12) { 
-    g_log << Logger::Debug << "Ignoring packet: too short ("<<length<<" < 12) from "
+  if(length < sizeof(dnsheader)) {
+    g_log << Logger::Debug << "Ignoring packet: too short ("<<length<<" < " << sizeof(dnsheader) << ") from "
       << d_remote.toStringWithPort()<< endl;
     return -1;
   }
   d_wantsnsid=false;
   d_maxreplylen=512;
-  memcpy((void *)&d,(const void *)d_rawpacket.c_str(),12);
+  memcpy(&d, d_rawpacket.c_str(), sizeof(dnsheader));
   return 0;
+}
+
+bool DNSPacket::parseQuestionOnly(const char *mesg, size_t length)
+{
+  if(length < sizeof(dnsheader)) {
+    g_log << Logger::Debug << "Ignoring packet: too short ("<< length <<" < " << sizeof(dnsheader) << ") from " << d_remote.toStringWithPort() << endl;
+    return false;
+  }
+
+  memcpy(&d, mesg, sizeof(dnsheader));
+
+  if (ntohs(d.qdcount) != 1) {
+    g_log << Logger::Debug << "Ignoring packet: QDCOUNT != 1 ("<< std::to_string(ntohs(d.qdcount)) <<") from " << d_remote.toStringWithPort() << endl;
+    return false;
+  }
+
+  try {
+    uint16_t type;
+    qdomain = DNSName(mesg, length, sizeof(dnsheader), false, &type, &qclass);
+    qtype = QType(type);
+  }
+  catch (const std::exception& e) {
+    g_log << Logger::Debug << "Ignoring packet: error parsing qname ("<< e.what() <<") from " << d_remote.toStringWithPort() << endl;
+    return false;
+  }
+
+  d_rawpacket.assign(mesg,length);
+  d_wantsnsid = false;
+  d_maxreplylen = 512;
+
+  return true;
 }
 
 void DNSPacket::setTSIGDetails(const TSIGRecordContent& tr, const DNSName& keyname, const string& secret, const string& previous, bool timersonly)
@@ -491,88 +537,91 @@ bool DNSPacket::getTKEYRecord(TKEYRecordContent *tr, DNSName *keyname) const
   return gotit;
 }
 
+bool DNSPacket::doParse()
+{
+  try
+  {
+    MOADNSParser mdp(d_isQuery, d_rawpacket);
+    EDNSOpts edo;
+
+    // ANY OPTION WHICH *MIGHT* BE SET DOWN BELOW SHOULD BE CLEARED FIRST!
+
+    d_wantsnsid = false;
+    d_dnssecOk = false;
+    d_havetsig = mdp.getTSIGPos();
+    d_haveednssubnet = false;
+    d_haveednssection = false;
+
+    if(getEDNSOpts(mdp, &edo)) {
+      d_haveednssection = true;
+      /* rfc6891 6.2.3:
+         "Values lower than 512 MUST be treated as equal to 512."
+      */
+      d_ednsRawPacketSizeLimit = edo.d_packetsize;
+      d_maxreplylen = std::min(std::max(static_cast<uint16_t>(512), edo.d_packetsize), s_udpTruncationThreshold);
+      if(edo.d_extFlags & EDNSOpts::DNSSECOK)
+        d_dnssecOk=true;
+
+      for (const auto& option : edo.d_options) {
+        if(option.first == EDNSOptionCode::NSID) {
+          d_wantsnsid = true;
+        }
+        else if(s_doEDNSSubnetProcessing && (option.first == EDNSOptionCode::ECS)) { // 'EDNS SUBNET'
+          if(getEDNSSubnetOptsFromString(option.second, &d_eso)) {
+            d_haveednssubnet=true;
+          }
+        }
+      }
+      d_ednsversion = edo.d_version;
+      d_ednsrcode = edo.d_extRCode;
+    }
+    else  {
+      d_maxreplylen = 512;
+      d_ednsRawPacketSizeLimit = -1;
+    }
+
+    qdomain=mdp.d_qname;
+
+    if (!ntohs(d.qdcount)) {
+      if(!d_tcp) {
+        g_log << Logger::Warning << "No question section in packet from " << getRemote() <<", error="<<RCode::to_s(d.rcode)<<endl;
+        return false;
+      }
+    }
+
+    qtype = mdp.d_qtype;
+    qclass = mdp.d_qclass;
+
+    d_trc = TSIGRecordContent();
+
+    return true;
+  }
+  catch(const std::exception& e) {
+    return false;
+  }
+}
+
 /** This function takes data from the network, possibly received with recvfrom, and parses
     it into our class. Results of calling this function multiple times on one packet are
     unknown. Returns -1 if the packet cannot be parsed.
 */
 int DNSPacket::parse(const char *mesg, size_t length)
-try
 {
-  d_rawpacket.assign(mesg,length); 
-  d_wrapped=true;
-  if(length < 12) { 
+  if(length < sizeof(dnsheader)) {
     g_log << Logger::Debug << "Ignoring packet: too short from "
       << getRemote() << endl;
     return -1;
   }
 
-  MOADNSParser mdp(d_isQuery, d_rawpacket);
-  EDNSOpts edo;
+  d_rawpacket.assign(mesg,length);
+  memcpy(&d, d_rawpacket.c_str(), sizeof(dnsheader));
+  d_wrapped=true;
 
-  // ANY OPTION WHICH *MIGHT* BE SET DOWN BELOW SHOULD BE CLEARED FIRST!
-
-  d_wantsnsid=false;
-  d_dnssecOk=false;
-  d_havetsig = mdp.getTSIGPos();
-  d_haveednssubnet = false;
-  d_haveednssection = false;
-
-  if(getEDNSOpts(mdp, &edo)) {
-    d_haveednssection=true;
-    /* rfc6891 6.2.3:
-       "Values lower than 512 MUST be treated as equal to 512."
-    */
-    d_ednsRawPacketSizeLimit=edo.d_packetsize;
-    d_maxreplylen=std::min(std::max(static_cast<uint16_t>(512), edo.d_packetsize), s_udpTruncationThreshold);
-//    cerr<<edo.d_extFlags<<endl;
-    if(edo.d_extFlags & EDNSOpts::DNSSECOK)
-      d_dnssecOk=true;
-
-    for(vector<pair<uint16_t, string> >::const_iterator iter = edo.d_options.begin();
-        iter != edo.d_options.end(); 
-        ++iter) {
-      if(iter->first == EDNSOptionCode::NSID) {
-        d_wantsnsid=true;
-      }
-      else if(s_doEDNSSubnetProcessing && (iter->first == EDNSOptionCode::ECS)) { // 'EDNS SUBNET'
-        if(getEDNSSubnetOptsFromString(iter->second, &d_eso)) {
-          //cerr<<"Parsed, source: "<<d_eso.source.toString()<<", scope: "<<d_eso.scope.toString()<<", family = "<<d_eso.scope.getNetwork().sin4.sin_family<<endl;
-          d_haveednssubnet=true;
-        } 
-      }
-      else {
-        // cerr<<"Have an option #"<<iter->first<<": "<<makeHexDump(iter->second)<<endl;
-      }
-    }
-    d_ednsversion = edo.d_version;
-    d_ednsrcode = edo.d_extRCode;
- }
-  else  {
-    d_maxreplylen=512;
-    d_ednsRawPacketSizeLimit=-1;
+  if (!doParse()) {
+    return -1;
   }
-
-  memcpy((void *)&d,(const void *)d_rawpacket.c_str(),12);
-  qdomain=mdp.d_qname;
-  // if(!qdomain.empty()) // strip dot
-  //   boost::erase_tail(qdomain, 1);
-
-  if(!ntohs(d.qdcount)) {
-    if(!d_tcp) {
-      g_log << Logger::Warning << "No question section in packet from " << getRemote() <<", error="<<RCode::to_s(d.rcode)<<endl;
-      return -1;
-    }
-  }
-  
-  qtype=mdp.d_qtype;
-  qclass=mdp.d_qclass;
-
-  d_trc = TSIGRecordContent();
 
   return 0;
-}
-catch(std::exception& e) {
-  return -1;
 }
 
 unsigned int DNSPacket::getMaxReplyLen()
