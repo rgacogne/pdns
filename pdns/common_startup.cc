@@ -427,6 +427,7 @@ try
   }
 
   for(;;) {
+    buffer.resize(DNSPacket::s_udpTruncationThreshold);
     if(!NS->receive(question, buffer)) { // receive a packet         inline
       continue;                    // packet was broken, try again
     }
@@ -438,14 +439,12 @@ try
     else
       numreceived6++;
 
-    if(question.d_dnssecOk)
-      numreceiveddo++;
-
      if(question.d.qr)
        continue;
 
     S.ringAccount("queries", question.qdomain, question.qtype);
     S.ringAccount("remotes", question.d_remote);
+
     if(logDNSQueries) {
       string remote;
       if(question.hasEDNSSubnet()) 
@@ -458,7 +457,7 @@ try
         g_log<<" ("<<question.d_ednsRawPacketSizeLimit<<")";
     }
 
-    if(PC.enabled() && (question.d.opcode != Opcode::Notify && question.d.opcode != Opcode::Update) && question.couldBeCached()) {
+    if(PC.enabled() && question.couldBeCached()) {
       bool haveSomething=PC.get(question, cached); // does the PacketCache recognize this question?
       if (haveSomething) {
         if(logDNSQueries)
@@ -475,6 +474,34 @@ try
         avg_latency=(int)(0.999*avg_latency+0.001*diff); // 'EWMA'
         continue;
       }
+    }
+
+    if (!question.doParse()) {
+      continue;
+    }
+
+    if (logDNSQueries) {
+      string remote;
+      if(question.hasEDNSSubnet()) {
+        remote = question.getRemote().toString() + "<-" + question.getRealRemote().toString();
+      }
+      else {
+        remote = question.getRemote().toString();
+      }
+
+      g_log << Logger::Notice<<"Remote "<< remote <<" wants '" << question.qdomain<<"|"<<question.qtype.getName() <<
+        "', do = " <<question.d_dnssecOk <<", bufsize = "<< question.getMaxReplyLen();
+      if(question.d_ednsRawPacketSizeLimit > 0 && question.getMaxReplyLen() != (unsigned int)question.d_ednsRawPacketSizeLimit) {
+        g_log<<" ("<<question.d_ednsRawPacketSizeLimit<<")";
+      }
+      g_log<<": ";
+      if (PC.enabled()) {
+        g_log<<"packetcache MISS"<<endl;
+      }
+    }
+
+    if(question.d_dnssecOk) {
+      numreceiveddo++;
     }
 
     if(distributor->isOverloaded()) {

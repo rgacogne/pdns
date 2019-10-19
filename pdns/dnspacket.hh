@@ -58,6 +58,8 @@ public:
 
   int noparse(const char *mesg, size_t len); //!< just suck the data inward
   int parse(const char *mesg, size_t len); //!< parse a raw UDP or TCP packet and suck the data inward
+  bool parseQuestionOnly(const char* mesg, size_t len); // suck the data inward, only parse the header and question
+  bool doParse(); // do the parsing once the data has been set via parseQuestionOnly()
   const string& getString(); //!< for serialization - just passes the whole packet
 
   // address & socket manipulation
