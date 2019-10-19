@@ -438,14 +438,14 @@ int DNSPacket::noparse(const char *mesg, size_t length)
   return 0;
 }
 
-bool DNSPacket::parseQuestionOnly(const char *mesg, size_t length)
+bool DNSPacket::parseQuestionOnly(std::string&& query)
 {
-  if(length < sizeof(dnsheader)) {
-    g_log << Logger::Debug << "Ignoring packet: too short ("<< length <<" < " << sizeof(dnsheader) << ") from " << d_remote.toStringWithPort() << endl;
+  if (query.size() < sizeof(dnsheader)) {
+    g_log << Logger::Debug << "Ignoring packet: too short ("<< query.size() <<" < " << sizeof(dnsheader) << ") from " << d_remote.toStringWithPort() << endl;
     return false;
   }
 
-  memcpy(&d, mesg, sizeof(dnsheader));
+  memcpy(&d, query.data(), sizeof(dnsheader));
 
   if (ntohs(d.qdcount) != 1) {
     g_log << Logger::Debug << "Ignoring packet: QDCOUNT != 1 ("<< std::to_string(ntohs(d.qdcount)) <<") from " << d_remote.toStringWithPort() << endl;
@@ -454,7 +454,7 @@ bool DNSPacket::parseQuestionOnly(const char *mesg, size_t length)
 
   try {
     uint16_t type;
-    qdomain = DNSName(mesg, length, sizeof(dnsheader), false, &type, &qclass);
+    qdomain = std::move(DNSName(query.c_str(), query.size(), sizeof(dnsheader), false, &type, &qclass));
     qtype = QType(type);
   }
   catch (const std::exception& e) {
@@ -462,7 +462,8 @@ bool DNSPacket::parseQuestionOnly(const char *mesg, size_t length)
     return false;
   }
 
-  d_rawpacket.assign(mesg,length);
+  d_rawpacket = std::move(query);
+  d_wrapped=true;
   d_wantsnsid = false;
   d_maxreplylen = 512;
 
@@ -580,7 +581,7 @@ bool DNSPacket::doParse()
       d_ednsRawPacketSizeLimit = -1;
     }
 
-    qdomain=mdp.d_qname;
+    qdomain=std::move(mdp.d_qname);
 
     if (!ntohs(d.qdcount)) {
       if(!d_tcp) {

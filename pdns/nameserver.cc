@@ -389,7 +389,8 @@ bool UDPNameserver::receive(DNSPacket& packet, std::string& buffer)
     packet.d_dt.set(); // timing
   }
 
-  if (!packet.parseQuestionOnly(&buffer.at(0), static_cast<size_t>(len))) {
+  buffer.resize(static_cast<size_t>(len));
+  if (!packet.parseQuestionOnly(std::move(buffer))) {
     S.inc("corrupt-packets");
     S.ringAccount("remotes-corrupt", packet.d_remote);
 
