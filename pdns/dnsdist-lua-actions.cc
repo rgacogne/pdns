@@ -451,7 +451,6 @@ public:
           ruleresult->clear();
         }
       }
-      cerr<<"returning action "<<(int)ret<<endl;
       return static_cast<DNSAction::Action>(ret);
     } catch (const std::exception &e) {
       warnlog("LuaFFIAction failed inside Lua, returning ServFail: %s", e.what());
@@ -483,7 +482,6 @@ public:
   {
     DNSQuestion* dq = dynamic_cast<DNSQuestion*>(dr);
     if (dq == nullptr) {
-      cerr<<"no DQ!!"<<endl;
       return DNSResponseAction::Action::ServFail;
     }
 
@@ -501,7 +499,6 @@ public:
           ruleresult->clear();
         }
       }
-      cerr<<"returning action "<<(int)ret<<endl;
       return static_cast<DNSResponseAction::Action>(ret);
     } catch (const std::exception &e) {
       warnlog("LuaFFIResponseAction failed inside Lua, returning ServFail: %s", e.what());
