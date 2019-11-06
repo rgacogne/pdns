@@ -1885,11 +1885,11 @@ class TestAdvancedLuaFFI(DNSDistTest):
 
   void dnsdist_ffi_dnsquestion_set_http_response(dnsdist_ffi_dnsquestion_t* dq, uint16_t statusCode, const char* body, const char* contentType) __attribute__ ((visibility ("default")));
   ]]
-    local first = true
+    local expectingUDP = true
 
     function luaffirulefunction(dq)
       local qtype = ffi.C.dnsdist_ffi_dnsquestion_get_qtype(dq)
-      if qtype ~= DNSQType.A then
+      if qtype ~= DNSQType.A and qtype ~= DNSQType.SOA then
         print('invalid qtype')
         return false
       end
@@ -1925,17 +1925,20 @@ class TestAdvancedLuaFFI(DNSDistTest):
       end
 
       local opcode = ffi.C.dnsdist_ffi_dnsquestion_get_opcode(dq)
-      if rcode ~= DNSOpcode.Query then
-        print('invalid rcode')
+      if qtype == DNSQType.A and opcode ~= DNSOpcode.Query then
+        print('invalid opcode')
+        return false
+      elseif qtype == DNSQType.SOA and opcode ~= DNSOpcode.Update then
+        print('invalid opcode')
         return false
       end
 
       local tcp = ffi.C.dnsdist_ffi_dnsquestion_get_tcp(dq)
-      if tcp == first then
+      if expectingUDP == tcp then
         print('invalid tcp')
         return false
       end
-      first = false
+      expectingUDP = expectingUDP == false
 
       local dnssecok = ffi.C.dnsdist_ffi_dnsquestion_get_do(dq)
       if dnssecok ~= false then
@@ -1954,11 +1957,17 @@ class TestAdvancedLuaFFI(DNSDistTest):
     end
 
     function luaffiactionfunction(dq)
-      local str = "192.0.2.1"
-      local buf = ffi.new("char[?]", #str + 1)
-      ffi.copy(buf, str)
-      ffi.C.dnsdist_ffi_dnsquestion_set_result(dq, buf, #str)
-      return DNSAction.Spoof
+      local qtype = ffi.C.dnsdist_ffi_dnsquestion_get_qtype(dq)
+      if qtype == DNSQType.A then
+        local str = "192.0.2.1"
+        local buf = ffi.new("char[?]", #str + 1)
+        ffi.copy(buf, str)
+        ffi.C.dnsdist_ffi_dnsquestion_set_result(dq, buf, #str)
+        return DNSAction.Spoof
+      elseif qtype == DNSQType.SOA then
+        ffi.C.dnsdist_ffi_dnsquestion_set_rcode(dq, DNSRCode.REFUSED)
+        return DNSAction.Refused
+      end
     end
 
     addAction(LuaFFIRule(luaffirulefunction), LuaFFIAction(luaffiactionfunction))
@@ -1981,6 +1990,24 @@ class TestAdvancedLuaFFI(DNSDistTest):
                                     dns.rdatatype.A,
                                     '192.0.2.1')
         response.answer.append(rrset)
+
+        for method in ("sendUDPQuery", "sendTCPQuery"):
+            sender = getattr(self, method)
+            (_, receivedResponse) = sender(query, response=None, useQueue=False)
+            self.assertEquals(receivedResponse, response)
+
+    def testAdvancedLuaFFIUpdate(self):
+        """
+        Advanced: Test the Lua FFI interface via an update
+        """
+        name = 'luaffi.advanced.tests.powerdns.com.'
+        query = dns.message.make_query(name, 'SOA', 'IN')
+        query.set_opcode(dns.opcode.UPDATE)
+        # dnsdist set RA = RD for spoofed responses
+        query.flags &= ~dns.flags.RD
+
+        response = dns.message.make_response(query)
+        response.set_rcode(dns.rcode.REFUSED)
 
         for method in ("sendUDPQuery", "sendTCPQuery"):
             sender = getattr(self, method)
