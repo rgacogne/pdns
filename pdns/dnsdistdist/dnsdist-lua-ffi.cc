@@ -252,7 +252,9 @@ size_t dnsdist_ffi_dnsquestion_get_edns_options(dnsdist_ffi_dnsquestion_t* dq, c
     }
   }
 
-  *out = dq->ednsOptionsVect.data();
+  if (totalCount > 0) {
+    *out = dq->ednsOptionsVect.data();
+  }
 
   return totalCount;
 }
@@ -274,7 +276,10 @@ size_t dnsdist_ffi_dnsquestion_get_http_headers(dnsdist_ffi_dnsquestion_t* dq, c
     ++pos;
   }
 
-  *out = dq->httpHeadersVect.data();
+  if (!dq->httpHeadersVect.empty()) {
+    *out = dq->httpHeadersVect.data();
+  }
+
   return dq->httpHeadersVect.size();
 #else
   return 0;
