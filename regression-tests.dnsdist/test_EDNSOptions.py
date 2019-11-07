@@ -538,9 +538,9 @@ class TestEDNSOptionsLuaFFI(DNSDistTest):
     newServer{address="127.0.0.1:%s"}
     """
 
-    def testWithoutEDNS(self):
+    def testWithoutEDNSFFI(self):
         """
-        EDNS Options: No EDNS
+        EDNS Options: No EDNS (FFI)
         """
         name = 'noedns.ednsoptions.tests.powerdns.com.'
         query = dns.message.make_query(name, 'A', 'IN')
@@ -561,9 +561,9 @@ class TestEDNSOptionsLuaFFI(DNSDistTest):
             self.assertEquals(receivedQuery, query)
             self.assertEquals(receivedResponse, response)
 
-    def testCookie(self):
+    def testCookieFFI(self):
         """
-        EDNS Options: Cookie
+        EDNS Options: Cookie (FFI)
         """
         name = 'cookie.ednsoptions.tests.powerdns.com.'
         eco = cookiesoption.CookiesOption(b'deadbeef', b'deadbeef')
@@ -585,9 +585,9 @@ class TestEDNSOptionsLuaFFI(DNSDistTest):
             self.assertEquals(receivedQuery, query)
             self.assertEquals(receivedResponse, response)
 
-    def testECS4(self):
+    def testECS4FFI(self):
         """
-        EDNS Options: ECS4
+        EDNS Options: ECS4 (FFI)
         """
         name = 'ecs4.ednsoptions.tests.powerdns.com.'
         ecso = clientsubnetoption.ClientSubnetOption('1.2.3.4', 32)
@@ -609,9 +609,9 @@ class TestEDNSOptionsLuaFFI(DNSDistTest):
             self.assertEquals(receivedQuery, query)
             self.assertEquals(receivedResponse, response)
 
-    def testECS6(self):
+    def testECS6FFI(self):
         """
-        EDNS Options: ECS6
+        EDNS Options: ECS6 (FFI)
         """
         name = 'ecs6.ednsoptions.tests.powerdns.com.'
         ecso = clientsubnetoption.ClientSubnetOption('2001:DB8::1', 128)
@@ -633,9 +633,9 @@ class TestEDNSOptionsLuaFFI(DNSDistTest):
             self.assertEquals(receivedQuery, query)
             self.assertEquals(receivedResponse, response)
 
-    def testECS6Cookie(self):
+    def testECS6CookieFFI(self):
         """
-        EDNS Options: Cookie + ECS6
+        EDNS Options: Cookie + ECS6 (FFI)
         """
         name = 'cookie-ecs6.ednsoptions.tests.powerdns.com.'
         eco = cookiesoption.CookiesOption(b'deadbeef', b'deadbeef')
@@ -658,9 +658,9 @@ class TestEDNSOptionsLuaFFI(DNSDistTest):
             self.assertEquals(receivedQuery, query)
             self.assertEquals(receivedResponse, response)
 
-    def testMultiCookiesECS6(self):
+    def testMultiCookiesECS6FFI(self):
         """
-        EDNS Options: Two Cookies + ECS6
+        EDNS Options: Two Cookies + ECS6 (FFI)
         """
         name = 'multiplecookies-ecs6.ednsoptions.tests.powerdns.com.'
         eco1 = cookiesoption.CookiesOption(b'deadbeef', b'deadbeef')
