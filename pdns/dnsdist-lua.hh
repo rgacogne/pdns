@@ -56,17 +56,50 @@ class SpoofAction : public DNSAction
 public:
   SpoofAction(const vector<ComboAddress>& addrs): d_addrs(addrs)
   {
+    for (const auto& addr : d_addrs) {
+      if (addr.isIPv4()) {
+        d_types.insert(QType::A);
+      }
+      else if (addr.isIPv6()) {
+        d_types.insert(QType::AAAA);
+      }
+    }
+
+    if (!d_addrs.empty()) {
+      d_types.insert(QType::ANY);
+    }
   }
-  SpoofAction(const string& cname): d_cname(cname)
+
+  SpoofAction(const DNSName& cname): d_cname(cname)
   {
   }
+
+  SpoofAction(const std::string& raw): d_rawResponse(raw)
+  {
+  }
+
   DNSAction::Action operator()(DNSQuestion* dq, string* ruleresult) const override;
+
+  void setTTL(uint32_t ttl)
+  {
+    d_ttl = ttl;
+  }
+
+  void setAA(bool aa)
+  {
+    d_setAA = aa;
+  }
+
   string toString() const override
   {
     string ret = "spoof in ";
-    if(!d_cname.empty()) {
-      ret+=d_cname.toString()+ " ";
-    } else {
+    if (!d_cname.empty()) {
+      ret += d_cname.toString() + " ";
+    }
+    else if (!d_rawResponse.empty()) {
+      ret += "raw bytes ";
+    }
+    else {
       for(const auto& a : d_addrs)
         ret += a.toString()+" ";
     }
@@ -74,7 +107,11 @@ public:
   }
 private:
   std::vector<ComboAddress> d_addrs;
+  std::set<uint16_t> d_types;
+  std::string d_rawResponse;
   DNSName d_cname;
+  uint32_t d_ttl{60};
+  boost::optional<bool> d_setAA{boost::none};
 };
 
 typedef boost::variant<string, vector<pair<int, string>>, std::shared_ptr<DNSRule>, DNSName, vector<pair<int, DNSName> > > luadnsrule_t;

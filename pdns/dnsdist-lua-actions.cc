@@ -400,19 +400,24 @@ DNSAction::Action SpoofAction::operator()(DNSQuestion* dq, std::string* ruleresu
 {
   uint16_t qtype = dq->qtype;
   // do we even have a response?
-  if(d_cname.empty() && !std::count_if(d_addrs.begin(), d_addrs.end(), [qtype](const ComboAddress& a)
-                                       {
-                                         return (qtype == QType::ANY || ((a.sin4.sin_family == AF_INET && qtype == QType::A) ||
-                                                                         (a.sin4.sin_family == AF_INET6 && qtype == QType::AAAA)));
-                                       }))
+  if (d_cname.empty() &&
+      d_rawResponse.empty() &&
+      d_types.count(qtype) == 0) {
     return Action::None;
+  }
 
   vector<ComboAddress> addrs;
-  unsigned int totrdatalen=0;
+  unsigned int totrdatalen = 0;
+  uint16_t numberOfRecords = 0;
   if (!d_cname.empty()) {
     qtype = QType::CNAME;
     totrdatalen += d_cname.toDNSString().size();
-  } else {
+    numberOfRecords = 1;
+  } else if (!d_rawResponse.empty()) {
+    totrdatalen += d_rawResponse.size();
+    numberOfRecords = 1;
+  }
+  else {
     for(const auto& addr : d_addrs) {
       if(qtype != QType::ANY && ((addr.sin4.sin_family == AF_INET && qtype != QType::A) ||
                                  (addr.sin4.sin_family == AF_INET6 && qtype != QType::AAAA))) {
@@ -420,6 +425,7 @@ DNSAction::Action SpoofAction::operator()(DNSQuestion* dq, std::string* ruleresu
       }
       totrdatalen += addr.sin4.sin_family == AF_INET ? sizeof(addr.sin4.sin_addr.s_addr) : sizeof(addr.sin6.sin6_addr.s6_addr);
       addrs.push_back(addr);
+      ++numberOfRecords;
     }
   }
 
@@ -429,7 +435,7 @@ DNSAction::Action SpoofAction::operator()(DNSQuestion* dq, std::string* ruleresu
   unsigned int consumed=0;
   DNSName ignore((char*)dq->dh, dq->len, sizeof(dnsheader), false, 0, 0, &consumed);
 
-  if (dq->size < (sizeof(dnsheader) + consumed + 4 + ((d_cname.empty() ? 0 : 1) + addrs.size())*12 /* recordstart */ + totrdatalen)) {
+  if (dq->size < (sizeof(dnsheader) + consumed + 4 + numberOfRecords*12 /* recordstart */ + totrdatalen)) {
     return Action::None;
   }
 
@@ -446,17 +452,27 @@ DNSAction::Action SpoofAction::operator()(DNSQuestion* dq, std::string* ruleresu
   dq->dh->qr = true; // for good measure
   dq->dh->ra = dq->dh->rd; // for good measure
   dq->dh->ad = false;
+  if (d_setAA) {
+    dq->dh->aa = *d_setAA;
+  }
   dq->dh->ancount = 0;
   dq->dh->arcount = 0; // for now, forget about your EDNS, we're marching over it
 
-  if(qtype == QType::CNAME) {
-    std::string wireData = d_cname.toDNSString(); // Note! This doesn't do compression!
-    const unsigned char recordstart[]={0xc0, 0x0c,    // compressed name
-                                       0, (unsigned char) qtype,
-                                       0, QClass::IN, // IN
-                                       0, 0, 0, 60,   // TTL
-                                       0, (unsigned char)wireData.length()};
-    static_assert(sizeof(recordstart) == 12, "sizeof(recordstart) must be equal to 12, otherwise the above check is invalid");
+  uint32_t ttl = htonl(d_ttl);
+  unsigned char recordstart[] = {0xc0, 0x0c,    // compressed name
+                                 0, 0,          // QTYPE
+                                 0, QClass::IN,
+                                 0, 0, 0, 0,    // TTL
+                                 0, 0 };        // rdata length
+  static_assert(sizeof(recordstart) == 12, "sizeof(recordstart) must be equal to 12, otherwise the above check is invalid");
+  memcpy(&recordstart[6], &ttl, sizeof(ttl));
+
+  if (qtype == QType::CNAME) {
+    const std::string wireData = d_cname.toDNSString(); // Note! This doesn't do compression!
+    uint16_t rdataLen = htons(wireData.length());
+    qtype = htons(qtype);
+    memcpy(&recordstart[2], &qtype, sizeof(qtype));
+    memcpy(&recordstart[10], &rdataLen, sizeof(rdataLen));
 
     memcpy(dest, recordstart, sizeof(recordstart));
     dest += sizeof(recordstart);
@@ -464,24 +480,33 @@ DNSAction::Action SpoofAction::operator()(DNSQuestion* dq, std::string* ruleresu
     dq->len += wireData.length() + sizeof(recordstart);
     dq->dh->ancount++;
   }
+  else if (!d_rawResponse.empty()) {
+    uint16_t rdataLen = htons(d_rawResponse.size());
+    qtype = htons(qtype);
+    memcpy(&recordstart[2], &qtype, sizeof(qtype));
+    memcpy(&recordstart[10], &rdataLen, sizeof(rdataLen));
+
+    memcpy(dest, recordstart, sizeof(recordstart));
+    dest += sizeof(recordstart);
+    memcpy(dest, d_rawResponse.c_str(), d_rawResponse.size());
+    dq->len += d_rawResponse.size() + sizeof(recordstart);
+    dq->dh->ancount++;
+  }
   else {
     for(const auto& addr : addrs) {
-      unsigned char rdatalen = addr.sin4.sin_family == AF_INET ? sizeof(addr.sin4.sin_addr.s_addr) : sizeof(addr.sin6.sin6_addr.s6_addr);
-      const unsigned char recordstart[]={0xc0, 0x0c,    // compressed name
-                                         0, (unsigned char) (addr.sin4.sin_family == AF_INET ? QType::A : QType::AAAA),
-                                         0, QClass::IN, // IN
-                                         0, 0, 0, 60,   // TTL
-                                         0, rdatalen};
-      static_assert(sizeof(recordstart) == 12, "sizeof(recordstart) must be equal to 12, otherwise the above check is invalid");
+      uint16_t rdataLen = htons(addr.sin4.sin_family == AF_INET ? sizeof(addr.sin4.sin_addr.s_addr) : sizeof(addr.sin6.sin6_addr.s6_addr));
+      qtype = htons(addr.sin4.sin_family == AF_INET ? QType::A : QType::AAAA);
+      memcpy(&recordstart[2], &qtype, sizeof(qtype));
+      memcpy(&recordstart[10], &rdataLen, sizeof(rdataLen));
 
       memcpy(dest, recordstart, sizeof(recordstart));
       dest += sizeof(recordstart);
 
       memcpy(dest,
              addr.sin4.sin_family == AF_INET ? (void*)&addr.sin4.sin_addr.s_addr : (void*)&addr.sin6.sin6_addr.s6_addr,
-             rdatalen);
-      dest += rdatalen;
-      dq->len += rdatalen + sizeof(recordstart);
+             addr.sin4.sin_family == AF_INET ? sizeof(addr.sin4.sin_addr.s_addr) : sizeof(addr.sin6.sin6_addr.s6_addr));
+      dest += (addr.sin4.sin_family == AF_INET ? sizeof(addr.sin4.sin_addr.s_addr) : sizeof(addr.sin6.sin6_addr.s6_addr));
+      dq->len += (addr.sin4.sin_family == AF_INET ? sizeof(addr.sin4.sin_addr.s_addr) : sizeof(addr.sin6.sin6_addr.s6_addr)) + sizeof(recordstart);
       dq->dh->ancount++;
     }
   }
@@ -1186,6 +1211,20 @@ static void addAction(GlobalStateHolder<vector<T> > *someRulActions, luadnsrule_
     });
 }
 
+typedef std::unordered_map<std::string, boost::variant<bool, uint32_t> > spoofparams_t;
+
+static void parseSpoofConfig(boost::optional<spoofparams_t> vars, boost::optional<uint32_t>& ttl, boost::optional<bool>& setAA)
+{
+  if (vars) {
+    if (vars->count("ttl")) {
+      ttl = boost::get<uint32_t>((*vars)["ttl"]);
+    }
+    if (vars->count("aa")) {
+      setAA = boost::get<bool>((*vars)["aa"]);
+    }
+  }
+}
+
 void setupLuaActions()
 {
   g_lua.writeFunction("newRuleAction", [](luadnsrule_t dnsrule, std::shared_ptr<DNSAction> action, boost::optional<luaruleparams_t> params) {
@@ -1278,7 +1317,7 @@ void setupLuaActions()
       return std::shared_ptr<DNSAction>(new QPSPoolAction(limit, a));
     });
 
-  g_lua.writeFunction("SpoofAction", [](boost::variant<std::string,vector<pair<int, std::string>>> inp, boost::optional<std::string> b ) {
+  g_lua.writeFunction("SpoofAction", [](boost::variant<std::string,vector<pair<int, std::string>>> inp, boost::optional<std::string> b, boost::optional<spoofparams_t> vars) {
       vector<ComboAddress> addrs;
       if(auto s = boost::get<std::string>(&inp))
         addrs.push_back(ComboAddress(*s));
@@ -1289,11 +1328,51 @@ void setupLuaActions()
       }
       if(b)
         addrs.push_back(ComboAddress(*b));
-      return std::shared_ptr<DNSAction>(new SpoofAction(addrs));
+      auto ret = std::shared_ptr<DNSAction>(new SpoofAction(addrs));
+      boost::optional<uint32_t> ttl = boost::none;
+      boost::optional<bool> setAA = boost::none;
+      parseSpoofConfig(vars, ttl, setAA);
+      if (ttl) {
+        auto sa = std::dynamic_pointer_cast<SpoofAction>(ret);
+        sa->setTTL(*ttl);
+      }
+      if (setAA) {
+        auto sa = std::dynamic_pointer_cast<SpoofAction>(ret);
+        sa->setAA(*setAA);
+      }
+      return ret;
     });
 
-  g_lua.writeFunction("SpoofCNAMEAction", [](const std::string& a) {
-      return std::shared_ptr<DNSAction>(new SpoofAction(a));
+  g_lua.writeFunction("SpoofCNAMEAction", [](const std::string& a, boost::optional<spoofparams_t> vars) {
+      auto ret = std::shared_ptr<DNSAction>(new SpoofAction(DNSName(a)));
+      boost::optional<uint32_t> ttl = boost::none;
+      boost::optional<bool> setAA = boost::none;
+      parseSpoofConfig(vars, ttl, setAA);
+      if (ttl) {
+        auto sa = std::dynamic_pointer_cast<SpoofAction>(ret);
+        sa->setTTL(*ttl);
+      }
+      if (setAA) {
+        auto sa = std::dynamic_pointer_cast<SpoofAction>(ret);
+        sa->setAA(*setAA);
+      }
+      return ret;
+    });
+
+  g_lua.writeFunction("SpoofRawAction", [](const std::string& raw, boost::optional<spoofparams_t> vars) {
+      auto ret = std::shared_ptr<DNSAction>(new SpoofAction(raw));
+      boost::optional<uint32_t> ttl = boost::none;
+      boost::optional<bool> setAA = boost::none;
+      parseSpoofConfig(vars, ttl, setAA);
+      if (ttl) {
+        auto sa = std::dynamic_pointer_cast<SpoofAction>(ret);
+        sa->setTTL(*ttl);
+      }
+      if (setAA) {
+        auto sa = std::dynamic_pointer_cast<SpoofAction>(ret);
+        sa->setAA(*setAA);
+      }
+      return ret;
     });
 
   g_lua.writeFunction("DropAction", []() {
