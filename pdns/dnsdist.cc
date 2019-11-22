@@ -1562,6 +1562,15 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
   uint16_t queryId = 0;
 
   try {
+    char buffer[44];
+    size_t ipoptionsSize = 0;
+    if (HarvestIPOptions(msgh, buffer, ipoptionsSize)) {
+      cerr<<"Got it "<<ipoptionsSize<<endl;
+    }
+    else {
+      cerr<<"no luck"<<endl;
+    }
+        
     if (!isUDPQueryAcceptable(cs, holders, msgh, remote, dest)) {
       return;
     }
@@ -2284,6 +2293,12 @@ static void setUpLocalBind(std::unique_ptr<ClientState>& cs)
       }
 #endif
     }
+#ifdef IP_RECVOPTS
+  } else {
+    SSetsockopt(fd, IPPROTO_IP, IP_RECVOPTS, 1);
+#else
+    #error IP_RECVOPTS not found
+#endif /* IP_RECVOPTS */
   }
 
   if(cs->local.sin4.sin_family == AF_INET6) {
