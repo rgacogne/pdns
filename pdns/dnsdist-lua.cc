@@ -35,6 +35,9 @@
 #include "dnsdist-console.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
+#ifdef LUAJIT_VERSION
+#include "dnsdist-lua-ffi.hh"
+#endif /* LUAJIT_VERSION */
 #include "dnsdist-rings.hh"
 #include "dnsdist-secpoll.hh"
 
@@ -2149,6 +2152,10 @@ vector<std::function<void(void)>> setupLua(bool client, const std::string& confi
   setupLuaInspection();
   setupLuaRules();
   setupLuaVars();
+
+#ifdef LUAJIT_VERSION
+  g_lua.executeCode(getLuaFFIWrappers());
+#endif
 
   std::ifstream ifs(config);
   if(!ifs)

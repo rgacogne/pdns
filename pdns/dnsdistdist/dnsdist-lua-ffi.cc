@@ -347,3 +347,220 @@ void dnsdist_ffi_dnsquestion_set_tag(dnsdist_ffi_dnsquestion_t* dq, const char* 
 
   dq->dq->qTag->insert({label, value});
 }
+
+const std::string& getLuaFFIWrappers()
+{
+  static const std::string interface = 
+#include "dnsdist-lua-ffi-interface.inc"
+    ;
+  static const std::string code = R"FFICodeContent(function _get_ffi_dq(ffi_ref)
+  local ffi = require("ffi")
+  local C = ffi.C
+
+  ffi.cdef[[
+)FFICodeContent" + interface + R"FFICodeContent(
+  ]]
+
+  local mt = {
+    __index = function(t, key)
+      if key == 'ecsOverride' then
+        return C.dnsdist_ffi_dnsquestion_get_ecs_override(t.ref)
+      end
+      if key == 'ecsPrefixLength' then
+        return C.dnsdist_ffi_dnsquestion_get_ecs_prefix_length(t.ref)
+      end
+      if key == 'getDO' then
+        return function(t)
+          return C.dnsdist_ffi_dnsquestion_get_do(t.ref)
+        end
+      end
+      if key == 'getHTTPPath' then
+        return function(t)
+          local val = C.dnsdist_ffi_dnsquestion_get_http_path(t.ref)
+          if val then
+            return ffi.string(val)
+          end
+          return nil
+        end
+      end
+      if key == 'getHTTPQuery' then
+        return function(t)
+          local val = C.dnsdist_ffi_dnsquestion_get_http_query(t.ref)
+          if val then
+            return ffi.string(val)
+          end
+          return nil
+        end
+      end
+      if key == 'getHTTPHost' then
+        return function(t)
+          local val = C.dnsdist_ffi_dnsquestion_get_http_host(t.ref)
+          if val then
+            return ffi.string(val)
+          end
+          return nil
+        end
+      end
+      if key == 'getHTTPScheme' then
+        return function(t)
+          local val = C.dnsdist_ffi_dnsquestion_get_http_scheme(t.ref)
+          if val then
+            return ffi.string(val)
+          end
+          return nil
+        end
+      end
+      if key == 'getServerNameIndication' then
+        return function(t)
+          local ret_ptr = ffi.new("const char *[1]")
+          local ret_ptr_param = ffi.cast("const char **", ret_ptr)
+          local ret_size = ffi.new("size_t[1]")
+          local ret_size_param = ffi.cast("size_t*", ret_size)
+          C.dnsdist_ffi_dnsquestion_get_sni(t.ref, ret_ptr_param, ret_size_param)
+          if ret_size[0] == 0 then
+            return nil
+          end
+          return ffi.string(ret_ptr[0], ret_size[0])
+        end
+      end
+      if key == 'getTag' then
+        return function(t, label)
+          local buf = ffi.new("char[?]", #label + 1)
+          ffi.copy(buf, label)
+          local val = C.dnsdist_ffi_dnsquestion_get_tag(t.ref, buf)
+          if val then
+            return ffi.string(val)
+          end
+          return nil
+        end
+      end
+      if key == 'len' then
+        return C.dnsdist_ffi_dnsquestion_get_len(t.ref)
+      end
+      if key == 'localaddr' then
+        local ret_ptr = ffi.new("void *[1]")
+        local ret_ptr_param = ffi.cast("const void **", ret_ptr)
+        local ret_size = ffi.new("size_t[1]")
+        local ret_size_param = ffi.cast("size_t*", ret_size)
+        C.dnsdist_ffi_dnsquestion_get_localaddr(t.ref, ret_ptr_param, ret_size_param)
+        return newCAFromRaw(ffi.string(ret_ptr[0], ret_size[0]))
+      end
+      if key == 'remoteaddr' then
+        local ret_ptr = ffi.new("void *[1]")
+        local ret_ptr_param = ffi.cast("const void **", ret_ptr)
+        local ret_size = ffi.new("size_t[1]")
+        local ret_size_param = ffi.cast("size_t*", ret_size)
+        C.dnsdist_ffi_dnsquestion_get_remoteaddr(t.ref, ret_ptr_param, ret_size_param)
+        return newCAFromRaw(ffi.string(ret_ptr[0], ret_size[0]))
+      end
+      if key == 'opcode' then
+        return C.dnsdist_ffi_dnsquestion_get_opcode(t.ref)
+      end
+      if key == 'qname' then
+        local ret_ptr = ffi.new("const char *[1]")
+        local ret_ptr_param = ffi.cast("const char **", ret_ptr)
+        local ret_size = ffi.new("size_t[1]")
+        local ret_size_param = ffi.cast("size_t*", ret_size)
+        C.dnsdist_ffi_dnsquestion_get_qname_raw(t.ref, ret_ptr_param, ret_size_param)
+        return newDNSNameFromRaw(ffi.string(ret_ptr[0], ret_size[0]))
+      end
+      if key == 'qtype' then
+        return C.dnsdist_ffi_dnsquestion_get_qtype(t.ref)
+      end
+      if key == 'qclass' then
+        return C.dnsdist_ffi_dnsquestion_get_qclass(t.ref)
+      end
+      if key == 'rcode' then
+        return C.dnsdist_ffi_dnsquestion_get_rcode(t.ref)
+      end
+      if key == 'setHTTPResponse' then
+        return function(t, code, body, content_type)
+          local body_buf = ffi.new("char[?]", #body + 1)
+          ffi.copy(body_buf, body)
+          local content_type_buf = ffi.new("char[?]", #content_type + 1)
+          ffi.copy(content_type_buf, content_type)
+          C.dnsdist_ffi_dnsquestion_set_http_response(t.ref, code, body_buf, content_type_buf)
+        end
+      end
+      if key == 'setResult' then
+        return function(t, value, size)
+          local buf = ffi.new("char[?]", size + 1)
+          ffi.copy(buf, value, size)
+          C.dnsdist_ffi_dnsquestion_set_result(t.ref, buf, size)
+        end
+      end
+      if key == 'setTag' then
+        return function(t, label, value)
+          local label_buf = ffi.new("char[?]", #label + 1)
+          ffi.copy(label_buf, label)
+          local value_buf = ffi.new("char[?]", #value + 1)
+          ffi.copy(value_buf, value)
+          C.dnsdist_ffi_dnsquestion_set_tag(t.ref, label_buf, value_buf)
+        end
+      end
+      if key == 'size' then
+        return C.dnsdist_ffi_dnsquestion_get_size(t.ref)
+      end
+      if key == 'skipCache' then
+        return C.dnsdist_ffi_dnsquestion_get_skip_cache(t.ref)
+      end
+      if key == 'tcp' then
+        return C.dnsdist_ffi_dnsquestion_get_tcp(t.ref)
+      end
+      if key == 'tempFailureTTL' then
+        return C.dnsdist_ffi_dnsquestion_get_temp_failure_ttl(t.ref)
+      end
+      if key == 'useECS' then
+        return C.dnsdist_ffi_dnsquestion_get_use_ecs(t.ref)
+      end
+    end,
+    __newindex = function(t, key, value)
+      if key == 'ecsOverride' then
+        C.dnsdist_ffi_dnsquestion_set_ecs_override(t.ref, value)
+      end
+      if key == 'ecsPrefixLength' then
+        C.dnsdist_ffi_dnsquestion_set_ecs_prefix_length(t.ref, value)
+      end
+      if key == 'len' then
+        C.dnsdist_ffi_dnsquestion_set_len(t.ref, value)
+      end
+      if key == 'rcode' then
+        C.dnsdist_ffi_dnsquestion_set_rcode(t.ref, value)
+      end
+      if key == 'skipCache' then
+        C.dnsdist_ffi_dnsquestion_set_skip_cache(t.ref, value)
+      end
+      if key == 'tempFailureTTL' then
+        C.dnsdist_ffi_dnsquestion_set_temp_failure_ttl(t.ref, value)
+      end
+      if key == 'useECS' then
+        C.dnsdist_ffi_dnsquestion_set_use_ecs(t.ref, value)
+      end
+    end,
+  }
+  local t = {
+    ref = ffi_ref
+  }
+  setmetatable(t, mt)
+  return t
+end
+
+function LuaRule(f)
+  function wrapper(ffi_ref)
+    local dq = _get_ffi_dq(ffi_ref)
+    return f(dq)
+  end
+  return LuaFFIRule(wrapper)
+end
+
+function LuaAction(f)
+  function wrapper(ffi_ref)
+    local dq = _get_ffi_dq(ffi_ref)
+    return f(dq)
+  end
+  return LuaFFIAction(wrapper)
+end
+
+)FFICodeContent";
+  return code;
+}
