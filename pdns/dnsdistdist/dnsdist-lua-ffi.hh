@@ -47,8 +47,10 @@ struct dnsdist_ffi_dnsquestion_t
 
   DNSQuestion* dq{nullptr};
   std::vector<dnsdist_ednsoption_t> ednsOptionsVect;
-  std::vector<dnsdist_http_header> httpHeadersVect;
+  std::vector<dnsdist_http_header_t> httpHeadersVect;
+  std::vector<dnsdist_tag_t> tagsVect;
   std::unordered_map<std::string, std::string> httpHeaders;
+  std::string trailingData;
   boost::optional<std::string> result{boost::none};
   boost::optional<std::string> httpPath{boost::none};
   boost::optional<std::string> httpQueryString{boost::none};
