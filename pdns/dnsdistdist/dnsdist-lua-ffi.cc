@@ -55,6 +55,16 @@ void dnsdist_ffi_dnsquestion_get_remoteaddr(const dnsdist_ffi_dnsquestion_t* dq,
   dnsdist_ffi_comboaddress_to_raw(*dq->dq->remote, addr, addrSize);
 }
 
+uint16_t dnsdist_ffi_dnsquestion_get_local_port(const dnsdist_ffi_dnsquestion_t* dq)
+{
+  return dq->dq->local->getPort();
+}
+
+uint16_t dnsdist_ffi_dnsquestion_get_remote_port(const dnsdist_ffi_dnsquestion_t* dq)
+{
+  return dq->dq->remote->getPort();
+}
+
 void dnsdist_ffi_dnsquestion_get_qname_raw(const dnsdist_ffi_dnsquestion_t* dq, const char** qname, size_t* qnameSize)
 {
   const auto& storage = dq->dq->qname->getStorage();
@@ -286,6 +296,31 @@ size_t dnsdist_ffi_dnsquestion_get_http_headers(dnsdist_ffi_dnsquestion_t* dq, c
 #endif
 }
 
+size_t dnsdist_ffi_dnsquestion_get_tag_array(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_tag_t** out)
+{
+  if (dq->dq->qTag == nullptr || dq->dq->qTag->size() == 0) {
+    return 0;
+  }
+
+  dq->tagsVect.clear();
+  dq->tagsVect.resize(dq->dq->qTag->size());
+  size_t pos = 0;
+
+  for (const auto& tag : *dq->dq->qTag) {
+    auto& entry = dq->tagsVect.at(pos);
+    entry.name = tag.first.c_str();
+    entry.value = tag.second.c_str();
+    ++pos;
+  }
+
+
+  if (!dq->tagsVect.empty()) {
+    *out = dq->tagsVect.data();
+  }
+
+  return dq->tagsVect.size();
+}
+
 void dnsdist_ffi_dnsquestion_set_result(dnsdist_ffi_dnsquestion_t* dq, const char* str, size_t strSize)
 {
   dq->result = std::string(str, strSize);
@@ -339,6 +374,11 @@ void dnsdist_ffi_dnsquestion_set_temp_failure_ttl(dnsdist_ffi_dnsquestion_t* dq,
   dq->dq->tempFailureTTL = tempFailureTTL;
 }
 
+void dnsdist_ffi_dnsquestion_unset_temp_failure_ttl(dnsdist_ffi_dnsquestion_t* dq)
+{
+  dq->dq->tempFailureTTL = boost::none;
+}
+
 void dnsdist_ffi_dnsquestion_set_tag(dnsdist_ffi_dnsquestion_t* dq, const char* label, const char* value)
 {
   if (!dq->dq->qTag) {
@@ -348,12 +388,34 @@ void dnsdist_ffi_dnsquestion_set_tag(dnsdist_ffi_dnsquestion_t* dq, const char* 
   dq->dq->qTag->insert({label, value});
 }
 
+size_t dnsdist_ffi_dnsquestion_get_trailing_data(dnsdist_ffi_dnsquestion_t* dq, const char** out)
+{
+  dq->trailingData = dq->dq->getTrailingData();
+  if (!dq->trailingData.empty()) {
+    *out = dq->trailingData.data();
+  }
+
+  return dq->trailingData.size();
+}
+
+bool dnsdist_ffi_dnsquestion_set_trailing_data(dnsdist_ffi_dnsquestion_t* dq, const char* data, size_t dataLen)
+{
+  return dq->dq->setTrailingData(std::string(data, dataLen));
+}
+
+void dnsdist_ffi_dnsquestion_send_trap(dnsdist_ffi_dnsquestion_t* dq, const char* reason, size_t reasonLen)
+{
+  if (g_snmpAgent && g_snmpTrapsEnabled) {
+    g_snmpAgent->sendDNSTrap(*dq->dq, std::string(reason, reasonLen));
+  }
+}
+
 const std::string& getLuaFFIWrappers()
 {
-  static const std::string interface = 
+  static const std::string interface =
 #include "dnsdist-lua-ffi-interface.inc"
     ;
-  static const std::string code = R"FFICodeContent(function _get_ffi_dq(ffi_ref)
+  static const std::string code = R"FFICodeContent(
   local ffi = require("ffi")
   local C = ffi.C
 
@@ -361,6 +423,28 @@ const std::string& getLuaFFIWrappers()
 )FFICodeContent" + interface + R"FFICodeContent(
   ]]
 
+function _get_ffi_dq(ffi_ref)
+  local function getNewEDNSOptionView(value)
+    local newOption = {
+      values = { value }
+    }
+    local optionMT = {
+      __index = function(t, key)
+        if key == 'count' then
+          return function(t)
+            return #t.values
+          end
+        end
+        if key == 'getValues' then
+          return function(t)
+            return t.values
+          end
+        end
+      end
+    }
+    setmetatable(newOption, optionMT)
+    return newOption
+  end
   local mt = {
     __index = function(t, key)
       if key == 'ecsOverride' then
@@ -374,6 +458,40 @@ const std::string& getLuaFFIWrappers()
           return C.dnsdist_ffi_dnsquestion_get_do(t.ref)
         end
       end
+      if key == 'getEDNSOptions' then
+        return function(t)
+          local ret_ptr = ffi.new("const dnsdist_ednsoption_t *[1]")
+          local ret_ptr_param = ffi.cast("const dnsdist_ednsoption_t **", ret_ptr)
+          local count = tonumber(C.dnsdist_ffi_dnsquestion_get_edns_options(t.ref, ret_ptr_param))
+          local result = {}
+          if count > 0 then
+            for idx = 0, count-1 do
+              local option = ret_ptr[0][idx];
+              if result[tonumber(option.optionCode)] == nil then
+                result[tonumber(option.optionCode)] = getNewEDNSOptionView(ffi.string(option.data, option.len))
+              else
+                table.insert(result[tonumber(option.optionCode)].values, ffi.string(option.data, option.len))
+              end
+            end
+          end
+          return result
+        end
+      end
+      if key == 'getHTTPHeaders' then
+        return function(t)
+          local ret_ptr = ffi.new("const dnsdist_http_header_t *[1]")
+          local ret_ptr_param = ffi.cast("const dnsdist_http_header_t **", ret_ptr)
+          local count = tonumber(C.dnsdist_ffi_dnsquestion_get_http_headers(t.ref, ret_ptr_param))
+          local result = {}
+          if count > 0 then
+            for idx = 0, count-1 do
+              local header = ret_ptr[0][idx];
+              result[ffi.string(header.name)] = ffi.string(header.value)
+            end
+          end
+          return result
+        end
+      end
       if key == 'getHTTPPath' then
         return function(t)
           local val = C.dnsdist_ffi_dnsquestion_get_http_path(t.ref)
@@ -383,9 +501,9 @@ const std::string& getLuaFFIWrappers()
           return nil
         end
       end
-      if key == 'getHTTPQuery' then
+      if key == 'getHTTPQueryString' then
         return function(t)
-          local val = C.dnsdist_ffi_dnsquestion_get_http_query(t.ref)
+          local val = C.dnsdist_ffi_dnsquestion_get_http_query_string(t.ref)
           if val then
             return ffi.string(val)
           end
@@ -434,8 +552,32 @@ const std::string& getLuaFFIWrappers()
           return nil
         end
       end
+      if key == 'getTagArray' then
+        return function(t)
+          local result = {}
+          local ret_ptr = ffi.new("const dnsdist_tag_t *[1]")
+          local ret_ptr_param = ffi.cast("const dnsdist_tag_t **", ret_ptr)
+          local count = tonumber(C.dnsdist_ffi_dnsquestion_get_tag_array(t.ref, ret_ptr_param))
+          local result = {}
+          if count > 0 then
+            for idx = 0, count-1 do
+              local tag = ret_ptr[0][idx]
+              result[ffi.string(tag.name)] = ffi.string(tag.value)
+            end
+          end
+          return result
+        end
+      end
+      if key == 'getTrailingData' then
+        return function(t)
+          local ret_ptr = ffi.new("const char *[1]")
+          local ret_ptr_param = ffi.cast("const char **", ret_ptr)
+          local len = tonumber(C.dnsdist_ffi_dnsquestion_get_trailing_data(t.ref, ret_ptr_param))
+          return ffi.string(ret_ptr[0], len)
+        end
+      end
       if key == 'len' then
-        return C.dnsdist_ffi_dnsquestion_get_len(t.ref)
+        return tonumber(C.dnsdist_ffi_dnsquestion_get_len(t.ref))
       end
       if key == 'localaddr' then
         local ret_ptr = ffi.new("void *[1]")
@@ -443,7 +585,8 @@ const std::string& getLuaFFIWrappers()
         local ret_size = ffi.new("size_t[1]")
         local ret_size_param = ffi.cast("size_t*", ret_size)
         C.dnsdist_ffi_dnsquestion_get_localaddr(t.ref, ret_ptr_param, ret_size_param)
-        return newCAFromRaw(ffi.string(ret_ptr[0], ret_size[0]))
+        local port = C.dnsdist_ffi_dnsquestion_get_local_port(t.ref)
+        return newCAFromRaw(ffi.string(ret_ptr[0], ret_size[0]), port)
       end
       if key == 'remoteaddr' then
         local ret_ptr = ffi.new("void *[1]")
@@ -451,10 +594,11 @@ const std::string& getLuaFFIWrappers()
         local ret_size = ffi.new("size_t[1]")
         local ret_size_param = ffi.cast("size_t*", ret_size)
         C.dnsdist_ffi_dnsquestion_get_remoteaddr(t.ref, ret_ptr_param, ret_size_param)
-        return newCAFromRaw(ffi.string(ret_ptr[0], ret_size[0]))
+        local port = C.dnsdist_ffi_dnsquestion_get_remote_port(t.ref)
+        return newCAFromRaw(ffi.string(ret_ptr[0], ret_size[0]), port)
       end
       if key == 'opcode' then
-        return C.dnsdist_ffi_dnsquestion_get_opcode(t.ref)
+        return tonumber(C.dnsdist_ffi_dnsquestion_get_opcode(t.ref))
       end
       if key == 'qname' then
         local ret_ptr = ffi.new("const char *[1]")
@@ -465,13 +609,20 @@ const std::string& getLuaFFIWrappers()
         return newDNSNameFromRaw(ffi.string(ret_ptr[0], ret_size[0]))
       end
       if key == 'qtype' then
-        return C.dnsdist_ffi_dnsquestion_get_qtype(t.ref)
+        return tonumber(C.dnsdist_ffi_dnsquestion_get_qtype(t.ref))
       end
       if key == 'qclass' then
-        return C.dnsdist_ffi_dnsquestion_get_qclass(t.ref)
+        return tonumber(C.dnsdist_ffi_dnsquestion_get_qclass(t.ref))
       end
       if key == 'rcode' then
-        return C.dnsdist_ffi_dnsquestion_get_rcode(t.ref)
+        return tonumber(C.dnsdist_ffi_dnsquestion_get_rcode(t.ref))
+      end
+      if key == 'sendTrap' then
+        return function(t, reason)
+          local reason_buf = ffi.new("char[?]", #reason + 1)
+          ffi.copy(reason_buf, reason)
+          C.dnsdist_ffi_dnsquestion_send_trap(t.ref, reason_buf, #reason)
+        end
       end
       if key == 'setHTTPResponse' then
         return function(t, code, body, content_type)
@@ -498,8 +649,27 @@ const std::string& getLuaFFIWrappers()
           C.dnsdist_ffi_dnsquestion_set_tag(t.ref, label_buf, value_buf)
         end
       end
+      if key == 'setTagArray' then
+        return function(t, values)
+          for label,value in pairs(values) do
+            local label_buf = ffi.new("char[?]", #label + 1)
+            ffi.copy(label_buf, label)
+            local value_buf = ffi.new("char[?]", #value + 1)
+            ffi.copy(value_buf, value)
+            C.dnsdist_ffi_dnsquestion_set_tag(t.ref, label_buf, value_buf)
+          end
+        end
+      end
+      if key == 'setTrailingData' then
+        return function(t, data)
+          local len = #data
+          local data_buf = ffi.new("char[?]", len + 1)
+          ffi.copy(data_buf, data, len)
+          return C.dnsdist_ffi_dnsquestion_set_trailing_data(t.ref, data_buf, len)
+        end
+      end
       if key == 'size' then
-        return C.dnsdist_ffi_dnsquestion_get_size(t.ref)
+        return tonumber(C.dnsdist_ffi_dnsquestion_get_size(t.ref))
       end
       if key == 'skipCache' then
         return C.dnsdist_ffi_dnsquestion_get_skip_cache(t.ref)
@@ -508,7 +678,10 @@ const std::string& getLuaFFIWrappers()
         return C.dnsdist_ffi_dnsquestion_get_tcp(t.ref)
       end
       if key == 'tempFailureTTL' then
-        return C.dnsdist_ffi_dnsquestion_get_temp_failure_ttl(t.ref)
+        if C.dnsdist_ffi_dnsquestion_is_temp_failure_ttl_set(t.ref) then
+          return C.dnsdist_ffi_dnsquestion_get_temp_failure_ttl(t.ref)
+        end
+        return nil
       end
       if key == 'useECS' then
         return C.dnsdist_ffi_dnsquestion_get_use_ecs(t.ref)
@@ -531,7 +704,11 @@ const std::string& getLuaFFIWrappers()
         C.dnsdist_ffi_dnsquestion_set_skip_cache(t.ref, value)
       end
       if key == 'tempFailureTTL' then
-        C.dnsdist_ffi_dnsquestion_set_temp_failure_ttl(t.ref, value)
+        if value  == nil then
+          C.dnsdist_ffi_dnsquestion_unset_temp_failure_ttl(t.ref)
+        else
+          C.dnsdist_ffi_dnsquestion_set_temp_failure_ttl(t.ref, value)
+        end
       end
       if key == 'useECS' then
         C.dnsdist_ffi_dnsquestion_set_use_ecs(t.ref, value)
@@ -548,7 +725,13 @@ end
 function LuaRule(f)
   function wrapper(ffi_ref)
     local dq = _get_ffi_dq(ffi_ref)
-    return f(dq)
+    ret, code = f(dq)
+    if code then
+      local buf = ffi.new("char[?]", #code + 1)
+      ffi.copy(buf, code)
+      C.dnsdist_ffi_dnsquestion_set_result(ffi_ref, code, #code)
+    end
+    return ret
   end
   return LuaFFIRule(wrapper)
 end
@@ -556,7 +739,13 @@ end
 function LuaAction(f)
   function wrapper(ffi_ref)
     local dq = _get_ffi_dq(ffi_ref)
-    return f(dq)
+    ret, code = f(dq)
+    if code then
+      local buf = ffi.new("char[?]", #code + 1)
+      ffi.copy(buf, code)
+      C.dnsdist_ffi_dnsquestion_set_result(ffi_ref, code, #code)
+    end
+    return ret
   end
   return LuaFFIAction(wrapper)
 end
