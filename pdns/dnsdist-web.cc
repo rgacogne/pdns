@@ -503,7 +503,7 @@ static void connectionThread(int sock, ComboAddress remote)
         for (const auto& state : *states) {
           string serverName;
 
-          if (state->name.empty())
+          if (state->getName().empty())
               serverName = state->remote.toStringWithPort();
           else
               serverName = state->getName();
@@ -765,7 +765,7 @@ static void connectionThread(int sock, ComboAddress remote)
 
 	Json::object server{
 	  {"id", num++},
-	  {"name", a->name},
+	  {"name", a->getName()},
           {"address", a->remote.toStringWithPort()},
           {"state", status},
           {"qps", (double)a->queryLoad},
