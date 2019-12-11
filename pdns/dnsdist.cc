@@ -46,6 +46,7 @@
 #include "dnsdist-console.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
+#include "dnsdist-lua-ffi.hh"
 #include "dnsdist-rings.hh"
 #include "dnsdist-secpoll.hh"
 #include "dnsdist-xpf.hh"
@@ -812,7 +813,7 @@ void DownstreamState::setWeight(int newWeight)
   }
 }
 
-DownstreamState::DownstreamState(const ComboAddress& remote_, const ComboAddress& sourceAddr_, unsigned int sourceItf_, const std::string& sourceItfName_, size_t numberOfSockets): sourceItfName(sourceItfName_), remote(remote_), sourceAddr(sourceAddr_), sourceItf(sourceItf_)
+DownstreamState::DownstreamState(const ComboAddress& remote_, const ComboAddress& sourceAddr_, unsigned int sourceItf_, const std::string& sourceItfName_, size_t numberOfSockets): sourceItfName(sourceItfName_), remote(remote_), sourceAddr(sourceAddr_), sourceItf(sourceItf_), name(remote_.toStringWithPort()), nameWithAddr(remote_.toStringWithPort())
 {
   pthread_rwlock_init(&d_lock, nullptr);
   id = getUniqueID();
@@ -839,7 +840,7 @@ LuaContext g_lua;
 
 GlobalStateHolder<ServerPolicy> g_policy;
 
-shared_ptr<DownstreamState> firstAvailable(const NumberedServerVector& servers, const DNSQuestion* dq)
+shared_ptr<DownstreamState> firstAvailable(const ServerPolicy::NumberedServerVector& servers, const DNSQuestion* dq)
 {
   for(auto& d : servers) {
     if(d.second->isUp() && d.second->qps.check())
@@ -849,7 +850,7 @@ shared_ptr<DownstreamState> firstAvailable(const NumberedServerVector& servers, 
 }
 
 // get server with least outstanding queries, and within those, with the lowest order, and within those: the fastest
-shared_ptr<DownstreamState> leastOutstanding(const NumberedServerVector& servers, const DNSQuestion* dq)
+shared_ptr<DownstreamState> leastOutstanding(const ServerPolicy::NumberedServerVector& servers, const DNSQuestion* dq)
 {
   if (servers.size() == 1 && servers[0].second->isUp()) {
     return servers[0].second;
@@ -870,7 +871,7 @@ shared_ptr<DownstreamState> leastOutstanding(const NumberedServerVector& servers
   return poss.begin()->second;
 }
 
-shared_ptr<DownstreamState> valrandom(unsigned int val, const NumberedServerVector& servers, const DNSQuestion* dq)
+shared_ptr<DownstreamState> valrandom(unsigned int val, const ServerPolicy::NumberedServerVector& servers, const DNSQuestion* dq)
 {
   vector<pair<int, shared_ptr<DownstreamState>>> poss;
   int sum = 0;
@@ -900,18 +901,18 @@ shared_ptr<DownstreamState> valrandom(unsigned int val, const NumberedServerVect
   return p->second;
 }
 
-shared_ptr<DownstreamState> wrandom(const NumberedServerVector& servers, const DNSQuestion* dq)
+shared_ptr<DownstreamState> wrandom(const ServerPolicy::NumberedServerVector& servers, const DNSQuestion* dq)
 {
   return valrandom(random(), servers, dq);
 }
 
 uint32_t g_hashperturb;
-shared_ptr<DownstreamState> whashed(const NumberedServerVector& servers, const DNSQuestion* dq)
+shared_ptr<DownstreamState> whashed(const ServerPolicy::NumberedServerVector& servers, const DNSQuestion* dq)
 {
   return valrandom(dq->qname->hash(g_hashperturb), servers, dq);
 }
 
-shared_ptr<DownstreamState> chashed(const NumberedServerVector& servers, const DNSQuestion* dq)
+shared_ptr<DownstreamState> chashed(const ServerPolicy::NumberedServerVector& servers, const DNSQuestion* dq)
 {
   unsigned int qhash = dq->qname->hash(g_hashperturb);
   unsigned int sel = std::numeric_limits<unsigned int>::max();
@@ -952,9 +953,9 @@ shared_ptr<DownstreamState> chashed(const NumberedServerVector& servers, const D
   return shared_ptr<DownstreamState>();
 }
 
-shared_ptr<DownstreamState> roundrobin(const NumberedServerVector& servers, const DNSQuestion* dq)
+shared_ptr<DownstreamState> roundrobin(const ServerPolicy::NumberedServerVector& servers, const DNSQuestion* dq)
 {
-  NumberedServerVector poss;
+  ServerPolicy::NumberedServerVector poss;
 
   for(auto& d : servers) {
     if(d.second->isUp()) {
@@ -1039,7 +1040,7 @@ std::shared_ptr<ServerPool> getPool(const pools_t& pools, const std::string& poo
   return it->second;
 }
 
-NumberedServerVector getDownstreamCandidates(const pools_t& pools, const std::string& poolName)
+ServerPolicy::NumberedServerVector getDownstreamCandidates(const pools_t& pools, const std::string& poolName)
 {
   std::shared_ptr<ServerPool> pool = getPool(pools, poolName);
   return pool->getServers();
@@ -1495,8 +1496,20 @@ ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& 
     }
     auto servers = serverPool->getServers();
     if (policy.isLua) {
-      std::lock_guard<std::mutex> lock(g_luamutex);
-      selectedBackend = policy.policy(servers, &dq);
+      if (!policy.isFFI) {
+        std::lock_guard<std::mutex> lock(g_luamutex);
+        selectedBackend = policy.policy(servers, &dq);
+      }
+      else {
+        dnsdist_ffi_dnsquestion_t dnsq(&dq);
+        dnsdist_ffi_servers_list_t serversList(servers);
+        unsigned int selected = 0;
+        {
+          std::lock_guard<std::mutex> lock(g_luamutex);
+          selected = policy.ffipolicy(&serversList, &dnsq);
+        }
+        selectedBackend = servers.at(selected).second;
+      }
     }
     else {
       selectedBackend = policy.policy(servers, &dq);
@@ -2176,7 +2189,7 @@ static void healthChecksThread()
           --dss->outstanding;
           ++g_stats.downstreamTimeouts; // this is an 'actively' discovered timeout
           vinfolog("Had a downstream timeout from %s (%s) for query for %s|%s from %s",
-                   dss->remote.toStringWithPort(), dss->name,
+                   dss->remote.toStringWithPort(), dss->getName(),
                    ids.qname.toLogString(), QType(ids.qtype).getName(), ids.origRemote.toStringWithPort());
 
           struct timespec ts;

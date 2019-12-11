@@ -384,7 +384,7 @@ void setupLuaConfig(bool client)
       }
 
       if(vars.count("name")) {
-        ret->name=boost::get<string>(vars["name"]);
+        ret->setName(boost::get<string>(vars["name"]));
       }
 
       if (vars.count("id")) {
@@ -523,20 +523,6 @@ void setupLuaConfig(bool client)
                         states.erase(remove(states.begin(), states.end(), server), states.end());
                         g_dstates.setState(states);
                       } );
-
-  g_lua.writeFunction("setServerPolicy", [](ServerPolicy policy)  {
-      setLuaSideEffect();
-      g_policy.setState(policy);
-    });
-  g_lua.writeFunction("setServerPolicyLua", [](string name, policyfunc_t policy)  {
-      setLuaSideEffect();
-      g_policy.setState(ServerPolicy{name, policy, true});
-    });
-
-  g_lua.writeFunction("showServerPolicy", []() {
-      setLuaSideEffect();
-      g_outputBuffer=g_policy.getLocal()->name+"\n";
-    });
 
   g_lua.writeFunction("truncateTC", [](bool tc) { setLuaSideEffect(); g_truncateTC=tc; });
   g_lua.writeFunction("fixupCase", [](bool fu) { setLuaSideEffect(); g_fixupCase=fu; });
@@ -684,11 +670,11 @@ void setupLuaConfig(bool client)
             pools+=p;
           }
           if (showUUIDs) {
-            ret << (fmt % counter % s->name % s->remote.toStringWithPort() %
+            ret << (fmt % counter % s->getName() % s->remote.toStringWithPort() %
                     status %
                     s->queryLoad % s->qps.getRate() % s->order % s->weight % s->queries.load() % s->reuseds.load() % (s->dropRate) % (s->latencyUsec/1000.0) % s->outstanding.load() % pools % s->id) << endl;
           } else {
-            ret << (fmt % counter % s->name % s->remote.toStringWithPort() %
+            ret << (fmt % counter % s->getName() % s->remote.toStringWithPort() %
                     status %
                     s->queryLoad % s->qps.getRate() % s->order % s->weight % s->queries.load() % s->reuseds.load() % (s->dropRate) % (s->latencyUsec/1000.0) % s->outstanding.load() % pools) << endl;
           }
@@ -1369,8 +1355,8 @@ void setupLuaConfig(bool client)
             if (!servers.empty()) {
               servers += ", ";
             }
-            if (!server.second->name.empty()) {
-              servers += server.second->name;
+            if (!server.second->getName().empty()) {
+              servers += server.second->getName();
               servers += " ";
             }
             servers += server.second->remote.toStringWithPort();
@@ -1656,6 +1642,27 @@ void setupLuaConfig(bool client)
 #endif /* HAVE_NET_SNMP */
     });
 
+  g_lua.writeFunction("setServerPolicy", [](ServerPolicy policy) {
+      setLuaSideEffect();
+      g_policy.setState(policy);
+    });
+
+  g_lua.writeFunction("setServerPolicyLua", [](string name, ServerPolicy::policyfunc_t policy) {
+      setLuaSideEffect();
+      g_policy.setState(ServerPolicy{name, policy, true});
+    });
+
+  g_lua.writeFunction("setServerPolicyLuaFFI", [](string name, ServerPolicy::ffipolicyfunc_t policy) {
+      setLuaSideEffect();
+      auto pol = ServerPolicy(name, policy);
+      g_policy.setState(std::move(pol));
+    });
+
+  g_lua.writeFunction("showServerPolicy", []() {
+      setLuaSideEffect();
+      g_outputBuffer=g_policy.getLocal()->name+"\n";
+    });
+
   g_lua.writeFunction("setPoolServerPolicy", [](ServerPolicy policy, string pool) {
       setLuaSideEffect();
       auto localPools = g_pools.getCopy();
@@ -1663,7 +1670,7 @@ void setupLuaConfig(bool client)
       g_pools.setState(localPools);
     });
 
-  g_lua.writeFunction("setPoolServerPolicyLua", [](string name, policyfunc_t policy, string pool) {
+  g_lua.writeFunction("setPoolServerPolicyLua", [](string name, ServerPolicy::policyfunc_t policy, string pool) {
       setLuaSideEffect();
       auto localPools = g_pools.getCopy();
       setPoolPolicy(localPools, pool, std::make_shared<ServerPolicy>(ServerPolicy{name, policy, true}));
