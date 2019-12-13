@@ -324,6 +324,7 @@ void setupLuaConfig(bool client)
         return ret;
       }
       ret=std::make_shared<DownstreamState>(serverAddr, sourceAddr, sourceItf, sourceItfName, numberOfSockets);
+      infolog("Added downstream server %s", serverAddr.toStringWithPort());
 
       if(vars.count("qps")) {
         int qpsVal=std::stoi(boost::get<string>(vars["qps"]));
