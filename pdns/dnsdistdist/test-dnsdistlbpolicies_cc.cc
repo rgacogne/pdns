@@ -19,6 +19,9 @@ bool g_snmpEnabled{false};
 bool g_snmpTrapsEnabled{false};
 DNSDistSNMPAgent* g_snmpAgent{nullptr};
 
+bool g_verbose{true};
+bool g_syslog{true};
+
 /* add stub implementations, we don't want to include the corresponding object files
    and their dependencies */
 
@@ -88,6 +91,28 @@ static DNSQuestion getDQ(const DNSName* providedName = nullptr)
   return dq;
 }
 
+static void benchPolicy(const ServerPolicy& pol)
+{
+  std::vector<DNSName> names;
+  names.reserve(1000);
+  for (size_t idx = 0; idx < 1000; idx++) {
+    names.push_back(DNSName("powerdns-" + std::to_string(idx) + ".com."));
+  }
+  ServerPolicy::NumberedServerVector servers;
+  for (size_t idx = 1; idx <= 10; idx++) {
+    servers.push_back({ idx, std::make_shared<DownstreamState>(ComboAddress("192.0.2." + std::to_string(idx) + ":53")) });
+    servers.at(idx - 1).second->setUp();
+  }
+
+  StopWatch sw;
+  sw.start();
+  for (const auto& name : names) {
+    auto dq = getDQ(&name);
+    auto server = getSelectedBackendFromPolicy(pol, servers, dq);
+  }
+  cerr<<pol.name<<" took "<<std::to_string(sw.udiff())<<" us for "<<names.size()<<endl;
+}
+
 BOOST_AUTO_TEST_SUITE(dnsdistlbpolicies)
 
 BOOST_AUTO_TEST_CASE(test_firstAvailable) {
@@ -118,6 +143,20 @@ BOOST_AUTO_TEST_CASE(test_firstAvailable) {
   server = getSelectedBackendFromPolicy(pol, servers, dq);
   BOOST_REQUIRE(server != nullptr);
   BOOST_CHECK(server == servers.at(1).second);
+
+  std::vector<DNSName> names;
+  names.reserve(1000);
+  for (size_t idx = 0; idx < 1000; idx++) {
+    names.push_back(DNSName("powerdns-" + std::to_string(idx) + ".com."));
+  }
+  std::map<std::shared_ptr<DownstreamState>, uint64_t> serversMap;
+  for (size_t idx = 1; idx <= 10; idx++) {
+    servers.push_back({ idx, std::make_shared<DownstreamState>(ComboAddress("192.0.2." + std::to_string(idx) + ":53")) });
+    serversMap[servers.at(idx - 1).second] = 0;
+    servers.at(idx - 1).second->setUp();
+  }
+
+  benchPolicy(pol);
 }
 
 BOOST_AUTO_TEST_CASE(test_leastOutstanding) {
@@ -156,6 +195,8 @@ BOOST_AUTO_TEST_CASE(test_leastOutstanding) {
   server = getSelectedBackendFromPolicy(pol, servers, dq);
   BOOST_REQUIRE(server != nullptr);
   BOOST_CHECK(server == servers.at(1).second);
+
+  benchPolicy(pol);
 }
 
 BOOST_AUTO_TEST_CASE(test_wrandom) {
@@ -169,6 +210,8 @@ BOOST_AUTO_TEST_CASE(test_wrandom) {
     serversMap[servers.at(idx - 1).second] = 0;
     servers.at(idx - 1).second->setUp();
   }
+
+  benchPolicy(pol);
 
   for (size_t idx = 0; idx < 1000; idx++) {
     auto server = getSelectedBackendFromPolicy(pol, servers, dq);
@@ -234,12 +277,15 @@ BOOST_AUTO_TEST_CASE(test_whashed) {
     servers.at(idx - 1).second->setUp();
   }
 
+  benchPolicy(pol);
+
   for (const auto& name : names) {
     auto dq = getDQ(&name);
     auto server = getSelectedBackendFromPolicy(pol, servers, dq);
     BOOST_REQUIRE(serversMap.count(server) == 1);
     ++serversMap[server];
   }
+
   uint64_t total = 0;
   for (const auto& entry : serversMap) {
     BOOST_CHECK_GT(entry.second, 0);
@@ -317,12 +363,15 @@ BOOST_AUTO_TEST_CASE(test_chashed) {
     servers.at(idx - 1).second->hash();
   }
 
+  benchPolicy(pol);
+
   for (const auto& name : names) {
     auto dq = getDQ(&name);
     auto server = getSelectedBackendFromPolicy(pol, servers, dq);
     BOOST_REQUIRE(serversMap.count(server) == 1);
     ++serversMap[server];
   }
+
   uint64_t total = 0;
   for (const auto& entry : serversMap) {
     BOOST_CHECK_GT(entry.second, 0);
@@ -415,6 +464,7 @@ BOOST_AUTO_TEST_CASE(test_lua) {
     BOOST_REQUIRE(serversMap.count(server) == 1);
     ++serversMap[server];
   }
+
   uint64_t total = 0;
   for (const auto& entry : serversMap) {
     BOOST_CHECK_GT(entry.second, 0);
@@ -423,6 +473,8 @@ BOOST_AUTO_TEST_CASE(test_lua) {
     total += entry.second;
   }
   BOOST_CHECK_EQUAL(total, names.size());
+
+  benchPolicy(pol);
 }
 
 #ifdef LUAJIT_VERSION
@@ -440,7 +492,19 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi) {
     function ffilb(servers_list, dq)
       local serversCount = tonumber(C.dnsdist_ffi_servers_list_get_count(servers_list))
       counter = counter + 1
-      return counter % serversCount
+--      return counter % serversCount
+      local hash = tonumber(C.dnsdist_ffi_dnsquestion_get_qname_hash(dq, 0))
+      return hash % serversCount
+
+--[[
+        local ret_ptr = ffi.new("const char *[1]")
+        local ret_ptr_param = ffi.cast("const char **", ret_ptr)
+        local ret_size = ffi.new("size_t[1]")
+        local ret_size_param = ffi.cast("size_t*", ret_size)
+        C.dnsdist_ffi_dnsquestion_get_qname_raw(dq, ret_ptr_param, ret_size_param)
+        local dn = newDNSNameFromRaw(ffi.string(ret_ptr[0], ret_size[0]))
+        return dn:hash() % serversCount
+--]]
     end
 
     setServerPolicyLuaFFI("FFI", ffilb)
@@ -450,6 +514,9 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi) {
       auto pol = ServerPolicy(name, policy);
       g_policy.setState(std::move(pol));
     });
+  g_lua.writeFunction("newDNSNameFromRaw", [](const std::string& name) { return DNSName(name.c_str(), name.size(), 0, false); });
+  g_lua.registerFunction<string(DNSName::*)()>("toString", [](const DNSName&dn ) { return dn.toString(); });
+  g_lua.registerFunction<size_t(DNSName::*)()>("hash", [](const DNSName& name) { return name.hash(); });
   g_lua.executeCode(policySetupStr);
 
   ServerPolicy pol = g_policy.getCopy();
@@ -468,6 +535,7 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi) {
     BOOST_REQUIRE(serversMap.count(server) == 1);
     ++serversMap[server];
   }
+
   uint64_t total = 0;
   for (const auto& entry : serversMap) {
     BOOST_CHECK_GT(entry.second, 0);
@@ -476,6 +544,8 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi) {
     total += entry.second;
   }
   BOOST_CHECK_EQUAL(total, names.size());
+
+  benchPolicy(pol);
 }
 #endif /* LUAJIT_VERSION */
 
