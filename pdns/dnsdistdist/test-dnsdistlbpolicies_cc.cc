@@ -2,10 +2,10 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_NO_MAIN
 
-#include <thread>
 #include <boost/test/unit_test.hpp>
 
 #include "dnsdist.hh"
+#include "dnsdist-kvs.hh"
 #include "dnsdist-lua-ffi.hh"
 #include "dolog.hh"
 
@@ -497,6 +497,7 @@ BOOST_AUTO_TEST_CASE(test_lua) {
 }
 
 #ifdef LUAJIT_VERSION
+
 BOOST_AUTO_TEST_CASE(test_lua_ffi_rr) {
   std::vector<DNSName> names;
   names.reserve(1000);
@@ -718,6 +719,187 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi_chashed) {
 
   g_verbose = existingVerboseValue;
 }
+
+BOOST_AUTO_TEST_CASE(test_lua_ffi_kvs_lookup) {
+  std::vector<DNSName> names;
+  names.reserve(1000);
+  for (size_t idx = 0; idx < 1000; idx++) {
+    names.push_back(DNSName("powerdns-" + std::to_string(idx) + ".com."));
+  }
+
+  static const std::string policySetupStr = R"foo(
+    local ffi = require("ffi")
+    local C = ffi.C
+    local kvs = newCDBKVStore('/data/Dumps/dnsdist.cdb', 60)
+    function ffilb(servers_list, dq)
+      local ret_ptr = ffi.new("void *[1]")
+      local ret_ptr_param = ffi.cast("const void **", ret_ptr)
+      local ret_size = ffi.new("size_t[1]")
+      local ret_size_param = ffi.cast("size_t*", ret_size)
+      C.dnsdist_ffi_dnsquestion_get_remoteaddr(dq, ret_ptr_param, ret_size_param)
+      local netmask = newNetmask(newCAFromRaw(ffi.string(ret_ptr[0], ret_size[0])), 24)
+      local key = netmask:toString()
+      local res = kvs:lookup('this is the value of the qname tag')
+      return 0
+    end
+
+    setServerPolicyLuaFFI("FFI KVS", ffilb)
+  )foo";
+  resetLuaContext();
+  g_lua.executeCode(getLuaFFIWrappers());
+  g_lua.writeFunction("setServerPolicyLuaFFI", [](string name, ServerPolicy::ffipolicyfunc_t policy) {
+      g_policy.setState(ServerPolicy(name, policy));
+    });
+    g_lua.writeFunction("newCAFromRaw", [](const std::string& raw, boost::optional<uint16_t> port) {
+                                        if (raw.size() == 4) {
+                                          struct sockaddr_in sin4;
+                                          memset(&sin4, 0, sizeof(sin4));
+                                          sin4.sin_family = AF_INET;
+                                          memcpy(&sin4.sin_addr.s_addr, raw.c_str(), raw.size());
+                                          if (port) {
+                                            sin4.sin_port = htons(*port);
+                                          }
+                                          return ComboAddress(&sin4);
+                                        }
+                                        else if (raw.size() == 16) {
+                                          struct sockaddr_in6 sin6;
+                                          memset(&sin6, 0, sizeof(sin6));
+                                          sin6.sin6_family = AF_INET6;
+                                          memcpy(&sin6.sin6_addr.s6_addr, raw.c_str(), raw.size());
+                                          if (port) {
+                                            sin6.sin6_port = htons(*port);
+                                          }
+                                          return ComboAddress(&sin6);
+                                        }
+                                        return ComboAddress();
+                                      });
+
+    g_lua.writeFunction("newNetmask", [](boost::variant<std::string,ComboAddress> s, boost::optional<unsigned int> bits) {
+    if (s.type() == typeid(ComboAddress)) {
+      auto ca = boost::get<ComboAddress>(s);
+      if (bits) {
+        return Netmask(ca, *bits);
+      }
+      return Netmask(ca);
+    }
+    else if (s.type() == typeid(std::string)) {
+      auto str = boost::get<std::string>(s);
+      return Netmask(str);
+    }
+    throw std::runtime_error("Invalid parameter passed to 'newNetmask()'");
+  });
+    g_lua.registerFunction("toString", &Netmask::toString);
+    g_lua.writeFunction("newCDBKVStore", [](const std::string& fname, time_t refreshDelay) {
+    return std::shared_ptr<KeyValueStore>(new CDBKVStore(fname, refreshDelay));
+  });
+  g_lua.registerFunction<std::string(std::shared_ptr<KeyValueStore>::*)(const boost::variant<ComboAddress, DNSName, std::string>, boost::optional<bool> wireFormat)>("lookup", [](std::shared_ptr<KeyValueStore>& kvs, const boost::variant<ComboAddress, DNSName, std::string> keyVar, boost::optional<bool> wireFormat) {
+    std::string result;
+    if (!kvs) {
+      return result;
+    }
+
+    if (keyVar.type() == typeid(ComboAddress)) {
+      const auto ca = boost::get<ComboAddress>(&keyVar);
+      KeyValueLookupKeySourceIP lookup;
+      for (const auto& key : lookup.getKeys(*ca)) {
+        if (kvs->getValue(key, result)) {
+          return result;
+        }
+      }
+    }
+    else if (keyVar.type() == typeid(DNSName)) {
+      const DNSName* dn = boost::get<DNSName>(&keyVar);
+      KeyValueLookupKeyQName lookup(wireFormat ? *wireFormat : true);
+      for (const auto& key : lookup.getKeys(*dn)) {
+        if (kvs->getValue(key, result)) {
+          return result;
+        }
+      }
+    }
+    else if (keyVar.type() == typeid(std::string)) {
+      const std::string* keyStr = boost::get<std::string>(&keyVar);
+      kvs->getValue(*keyStr, result);
+    }
+
+    return result;
+  });
+
+  g_lua.executeCode(policySetupStr);
+  ServerPolicy pol = g_policy.getCopy();
+
+  benchPolicy(pol);
+}
+
+BOOST_AUTO_TEST_CASE(test_lua_ffi_kvs_lookup_direct) {
+  std::vector<DNSName> names;
+  names.reserve(1000);
+  for (size_t idx = 0; idx < 1000; idx++) {
+    names.push_back(DNSName("powerdns-" + std::to_string(idx) + ".com."));
+  }
+
+  static const std::string policySetupStr = R"foo(
+    local ffi = require("ffi")
+    local C = ffi.C
+    local kvs = newCDBKVStore('/data/Dumps/dnsdist.cdb', 60)
+    function ffilb(servers_list, dq)
+      local ret_ptr = ffi.new("void *[1]")
+      local ret_ptr_param = ffi.cast("const void **", ret_ptr)
+      local ret_size = ffi.new("size_t[1]")
+      local ret_size_param = ffi.cast("size_t*", ret_size)
+      C.dnsdist_ffi_dnsquestion_get_masked_remoteaddr(dq, ret_ptr_param, ret_size_param, 24)
+      local key = ffi.string(ret_ptr[0], ret_size[0])
+      local res = kvs:lookup('this is the value of the qname tag')
+      return 0
+    end
+
+    setServerPolicyLuaFFI("FFI KVS direct", ffilb)
+  )foo";
+  resetLuaContext();
+  g_lua.executeCode(getLuaFFIWrappers());
+  g_lua.writeFunction("setServerPolicyLuaFFI", [](string name, ServerPolicy::ffipolicyfunc_t policy) {
+      g_policy.setState(ServerPolicy(name, policy));
+    });
+    g_lua.writeFunction("newCDBKVStore", [](const std::string& fname, time_t refreshDelay) {
+    return std::shared_ptr<KeyValueStore>(new CDBKVStore(fname, refreshDelay));
+  });
+  g_lua.registerFunction<std::string(std::shared_ptr<KeyValueStore>::*)(const boost::variant<ComboAddress, DNSName, std::string>, boost::optional<bool> wireFormat)>("lookup", [](std::shared_ptr<KeyValueStore>& kvs, const boost::variant<ComboAddress, DNSName, std::string> keyVar, boost::optional<bool> wireFormat) {
+    std::string result;
+    if (!kvs) {
+      return result;
+    }
+
+    if (keyVar.type() == typeid(ComboAddress)) {
+      const auto ca = boost::get<ComboAddress>(&keyVar);
+      KeyValueLookupKeySourceIP lookup;
+      for (const auto& key : lookup.getKeys(*ca)) {
+        if (kvs->getValue(key, result)) {
+          return result;
+        }
+      }
+    }
+    else if (keyVar.type() == typeid(DNSName)) {
+      const DNSName* dn = boost::get<DNSName>(&keyVar);
+      KeyValueLookupKeyQName lookup(wireFormat ? *wireFormat : true);
+      for (const auto& key : lookup.getKeys(*dn)) {
+        if (kvs->getValue(key, result)) {
+          return result;
+        }
+      }
+    }
+    else if (keyVar.type() == typeid(std::string)) {
+      const std::string* keyStr = boost::get<std::string>(&keyVar);
+      kvs->getValue(*keyStr, result);
+    }
+
+    return result;
+  });
+
+  g_lua.executeCode(policySetupStr);
+  ServerPolicy pol = g_policy.getCopy();
+
+  benchPolicy(pol);
+}
+
 #endif /* LUAJIT_VERSION */
 
 BOOST_AUTO_TEST_SUITE_END()
