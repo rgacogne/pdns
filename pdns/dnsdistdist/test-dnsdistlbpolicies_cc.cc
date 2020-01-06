@@ -19,8 +19,10 @@ bool g_snmpEnabled{false};
 bool g_snmpTrapsEnabled{false};
 DNSDistSNMPAgent* g_snmpAgent{nullptr};
 
+#ifdef BENCH_POLICIES
 bool g_verbose{true};
 bool g_syslog{true};
+#endif /* BENCH_POLICIES */
 
 /* add stub implementations, we don't want to include the corresponding object files
    and their dependencies */
@@ -93,6 +95,7 @@ static DNSQuestion getDQ(const DNSName* providedName = nullptr)
 
 static void benchPolicy(const ServerPolicy& pol)
 {
+#ifdef BENCH_POLICIES
   bool existingVerboseValue = g_verbose;
   g_verbose = false;
 
@@ -122,6 +125,7 @@ static void benchPolicy(const ServerPolicy& pol)
   cerr<<pol.name<<" took "<<std::to_string(sw.udiff())<<" us for "<<names.size()<<endl;
 
   g_verbose = existingVerboseValue;
+#endif /* BENCH_POLICIES */
 }
 
 static void resetLuaContext()
