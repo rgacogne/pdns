@@ -240,7 +240,7 @@ const char* dnsdist_ffi_dnsquestion_get_http_scheme(dnsdist_ffi_dnsquestion_t* d
   return nullptr;
 }
 
-static void fill_edns_option(const EDNSOptionViewValue& value, dnsdist_ednsoption_t& option)
+static void fill_edns_option(const EDNSOptionViewValue& value, dnsdist_ffi_ednsoption_t& option)
 {
   option.len = value.size;
   option.data = nullptr;
@@ -251,7 +251,7 @@ static void fill_edns_option(const EDNSOptionViewValue& value, dnsdist_ednsoptio
 }
 
 // returns the length of the resulting 'out' array. 'out' is not set if the length is 0
-size_t dnsdist_ffi_dnsquestion_get_edns_options(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_ednsoption_t** out)
+size_t dnsdist_ffi_dnsquestion_get_edns_options(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_ffi_ednsoption_t** out)
 {
   if (dq->dq->ednsOptions == nullptr) {
     parseEDNSOptions(*(dq->dq));
@@ -280,7 +280,7 @@ size_t dnsdist_ffi_dnsquestion_get_edns_options(dnsdist_ffi_dnsquestion_t* dq, c
   return totalCount;
 }
 
-size_t dnsdist_ffi_dnsquestion_get_http_headers(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_http_header_t** out)
+size_t dnsdist_ffi_dnsquestion_get_http_headers(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_ffi_http_header_t** out)
 {
   if (dq->dq->du == nullptr) {
     return 0;
@@ -307,7 +307,7 @@ size_t dnsdist_ffi_dnsquestion_get_http_headers(dnsdist_ffi_dnsquestion_t* dq, c
 #endif
 }
 
-size_t dnsdist_ffi_dnsquestion_get_tag_array(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_tag_t** out)
+size_t dnsdist_ffi_dnsquestion_get_tag_array(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_ffi_tag_t** out)
 {
   if (dq->dq->qTag == nullptr || dq->dq->qTag->size() == 0) {
     return 0;
@@ -533,8 +533,8 @@ function _get_ffi_dq(ffi_ref)
       end
       if key == 'getEDNSOptions' then
         return function(t)
-          local ret_ptr = ffi.new("const dnsdist_ednsoption_t *[1]")
-          local ret_ptr_param = ffi.cast("const dnsdist_ednsoption_t **", ret_ptr)
+          local ret_ptr = ffi.new("const dnsdist_ffi_ednsoption_t *[1]")
+          local ret_ptr_param = ffi.cast("const dnsdist_ffi_ednsoption_t **", ret_ptr)
           local count = tonumber(C.dnsdist_ffi_dnsquestion_get_edns_options(t.ref, ret_ptr_param))
           local result = {}
           if count > 0 then
@@ -552,8 +552,8 @@ function _get_ffi_dq(ffi_ref)
       end
       if key == 'getHTTPHeaders' then
         return function(t)
-          local ret_ptr = ffi.new("const dnsdist_http_header_t *[1]")
-          local ret_ptr_param = ffi.cast("const dnsdist_http_header_t **", ret_ptr)
+          local ret_ptr = ffi.new("const dnsdist_ffi_http_header_t *[1]")
+          local ret_ptr_param = ffi.cast("const dnsdist_ffi_http_header_t **", ret_ptr)
           local count = tonumber(C.dnsdist_ffi_dnsquestion_get_http_headers(t.ref, ret_ptr_param))
           local result = {}
           if count > 0 then
@@ -628,8 +628,8 @@ function _get_ffi_dq(ffi_ref)
       if key == 'getTagArray' then
         return function(t)
           local result = {}
-          local ret_ptr = ffi.new("const dnsdist_tag_t *[1]")
-          local ret_ptr_param = ffi.cast("const dnsdist_tag_t **", ret_ptr)
+          local ret_ptr = ffi.new("const dnsdist_ffi_tag_t *[1]")
+          local ret_ptr_param = ffi.cast("const dnsdist_ffi_tag_t **", ret_ptr)
           local count = tonumber(C.dnsdist_ffi_dnsquestion_get_tag_array(t.ref, ret_ptr_param))
           local result = {}
           if count > 0 then
