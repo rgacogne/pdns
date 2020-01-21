@@ -56,6 +56,9 @@ public:
   void setMaxEntries(uint64_t maxEntries)
   {
     d_maxEntries = maxEntries;
+    for (auto& shard : d_maps) {
+      shard.reserve(maxEntries / d_maps.size());
+    }
   }
 private:
 
@@ -89,7 +92,18 @@ private:
 
   struct MapCombo
   {
-    pthread_rwlock_t d_mut;    
+    MapCombo() {
+      pthread_rwlock_init(&d_mut, nullptr);
+    }
+    ~MapCombo() {
+      pthread_rwlock_destroy(&d_mut);
+    }
+    MapCombo(const MapCombo &) = delete; 
+    MapCombo & operator=(const MapCombo &) = delete;
+
+    void reserve(size_t numberOfEntries);
+
+    pthread_rwlock_t d_mut;
     cmap_t d_map;
   };
 
