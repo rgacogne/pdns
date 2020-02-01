@@ -318,7 +318,7 @@ enum class PrometheusMetricType: int {
 struct MetricDefinition {
   MetricDefinition(PrometheusMetricType _prometheusType, const std::string& _description): description(_description), prometheusType(_prometheusType) {
   }
- 
+
   MetricDefinition() = default;
 
   // Metric description
@@ -342,7 +342,7 @@ struct MetricDefinitionStorage {
 
   // Return string representation of Prometheus metric type
   std::string getPrometheusStringMetricType(PrometheusMetricType metricType) {
-    switch (metricType) { 
+    switch (metricType) {
       case PrometheusMetricType::counter:
         return "counter";
         break;
@@ -890,6 +890,8 @@ struct DownstreamState
   std::atomic<double> tcpAvgConnectionDuration{0.0};
   string name;
   size_t socketsOffset{0};
+  uint64_t maxTCPQueriesPerConnections{0};
+  uint64_t maxTCPConcurrentQueries{0};
   double queryLoad{0.0};
   double dropRate{0.0};
   double latencyUsec{0.0};
