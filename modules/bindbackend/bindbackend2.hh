@@ -56,14 +56,33 @@ using namespace ::boost::multi_index;
   different sorting rules, which make sure that the SOA record comes up front.
 */
 
+struct Bind2DNSRecordCounter
+{
+  Bind2DNSRecordCounter()
+  {
+    ++s_instances;
+  }
+  ~Bind2DNSRecordCounter()
+  {
+    --s_instances;
+  }
+  static std::atomic<uint64_t> s_instances;
+};
+  
 struct Bind2DNSRecord
 {
+  Bind2DNSRecord()
+  {
+    counter = std::make_shared<Bind2DNSRecordCounter>();
+  }
+
   DNSName qname;
   string content;
   string nsec3hash;
   uint32_t ttl;
   uint16_t qtype;
   mutable bool auth;
+  std::shared_ptr<Bind2DNSRecordCounter> counter;
   bool operator<(const Bind2DNSRecord& rhs) const
   {
     if(qname.canonCompare(rhs.qname))
@@ -74,6 +93,8 @@ struct Bind2DNSRecord
       return true;
     return tie(qtype,content, ttl) < tie(rhs.qtype, rhs.content, rhs.ttl);
   }
+
+  static std::atomic<uint64_t> s_instances;
 };
 
 struct Bind2DNSCompare : std::less<Bind2DNSRecord> 
@@ -310,6 +331,7 @@ private:
   static string DLListRejectsHandler(const vector<string>&parts, Utility::pid_t ppid);
   static string DLReloadNowHandler(const vector<string>&parts, Utility::pid_t ppid);
   static string DLAddDomainHandler(const vector<string>&parts, Utility::pid_t ppid);
+  static string DLReportHandler(const vector<string>&parts, Utility::pid_t ppid);
   static void fixupOrderAndAuth(BB2DomainInfo& bbd, bool nsec3zone, NSEC3PARAMRecordContent ns3pr);
   void doEmptyNonTerminals(BB2DomainInfo& bbd, bool nsec3zone, NSEC3PARAMRecordContent ns3pr);
   void loadConfig(string *status=0);

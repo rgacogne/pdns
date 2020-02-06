@@ -31,9 +31,8 @@ extern StatBag S;
 
 const unsigned int AuthQueryCache::s_mincleaninterval, AuthQueryCache::s_maxcleaninterval;
 
-AuthQueryCache::AuthQueryCache(size_t mapsCount): d_lastclean(time(nullptr))
+AuthQueryCache::AuthQueryCache(size_t mapsCount): d_maps(mapsCount), d_lastclean(time(nullptr))
 {
-  d_maps.resize(mapsCount);
   for(auto& mc : d_maps) {
     pthread_rwlock_init(&mc.d_mut, 0);
   }
@@ -183,7 +182,15 @@ uint64_t AuthQueryCache::purge()
 {
   d_statnumentries->store(0);
 
-  return purgeLockedCollectionsVector(d_maps);
+  auto removed = purgeLockedCollectionsVector(d_maps);
+  for (auto& mc : d_maps) {
+    {
+      WriteLock wl(&mc.d_mut);
+      mc.d_map = cmap_t();
+    }
+    mc.reserve(d_maxEntries / d_maps.size());
+  }
+  return removed;
 }
 
 uint64_t AuthQueryCache::purgeExact(const DNSName& qname)

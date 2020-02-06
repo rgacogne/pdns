@@ -83,6 +83,8 @@ string Bind2Backend::s_binddirectory;
 template <typename T>
 std::mutex LookButDontTouch<T>::s_lock;
 
+std::atomic<uint64_t> Bind2DNSRecordCounter::s_instances{0};
+
 BB2DomainInfo::BB2DomainInfo()
 {
   d_loaded=false;
@@ -602,6 +604,13 @@ string Bind2Backend::DLListRejectsHandler(const vector<string>&parts, Utility::p
   return ret.str();
 }
 
+string Bind2Backend::DLReportHandler(const vector<string>&parts, Utility::pid_t ppid)
+{
+  ostringstream ret;
+  ret << "Instances of Bind2DNSRecord: " << Bind2DNSRecordCounter::s_instances << endl;
+  return ret.str();
+}
+
 string Bind2Backend::DLAddDomainHandler(const vector<string>&parts, Utility::pid_t ppid)
 {
   if(parts.size() < 3)
@@ -678,6 +687,7 @@ Bind2Backend::Bind2Backend(const string &suffix, bool loadZones)
   dl->registerFunc("BIND-DOMAIN-STATUS", &DLDomStatusHandler, "bindbackend: list status of all domains", "[domains]");
   dl->registerFunc("BIND-LIST-REJECTS", &DLListRejectsHandler, "bindbackend: list rejected domains");
   dl->registerFunc("BIND-ADD-ZONE", &DLAddDomainHandler, "bindbackend: add zone", "<domain> <filename>");
+  dl->registerFunc("BIND-REPORT", &DLReportHandler, "bindbackend: report");
 }
 
 Bind2Backend::~Bind2Backend()

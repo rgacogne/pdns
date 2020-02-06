@@ -114,9 +114,11 @@ void DNSSECKeeper::clearAllCaches() {
   {
     WriteLock l(&s_keycachelock);
     s_keycache.clear();
+    s_keycache = keycache_t();
   }
   WriteLock l(&s_metacachelock);
   s_metacache.clear();
+  s_metacache = metacache_t();
 }
 
 void DNSSECKeeper::clearCaches(const DNSName& name)
