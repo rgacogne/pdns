@@ -1386,10 +1386,10 @@ static void startDoResolve(void *p)
         res = -2;
       }
       dq.validationState = sr.getValidationState();
+      appliedPolicy = sr.d_appliedPolicy;
 
       // During lookup, an NSDNAME or NSIP trigger was hit in RPZ
       if (res == -2) { // XXX This block should be macro'd, it is repeated post-resolve.
-        appliedPolicy = sr.d_appliedPolicy;
         g_stats.policyResults[appliedPolicy.d_kind]++;
         switch(appliedPolicy.d_kind) {
           case DNSFilterEngine::PolicyKind::NoAction: // This can never happen
@@ -1429,7 +1429,10 @@ static void startDoResolve(void *p)
       }
 
       if (wantsRPZ && (appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
-        appliedPolicy = luaconfsLocal->dfe.getPostPolicy(ret, sr.d_discardedPolicies, appliedPolicy.d_priority);
+        auto newPolicy = luaconfsLocal->dfe.getPostPolicy(ret, sr.d_discardedPolicies, appliedPolicy.d_priority);
+        if (newPolicy.d_type != DNSFilterEngine::PolicyType::None) {
+          appliedPolicy = std::move(newPolicy);
+        }
       }
 
       if(t_pdl) {

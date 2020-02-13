@@ -1806,18 +1806,24 @@ bool SyncRes::nameserversBlockedByRPZ(const DNSFilterEngine& dfe, const NsSet& n
   */
   if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
     for (auto const &ns : nameservers) {
-      d_appliedPolicy = dfe.getProcessingPolicy(ns.first, d_discardedPolicies, d_appliedPolicy.d_priority);
-      if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) { // client query needs an RPZ response
-        LOG(", however nameserver "<<ns.first<<" was blocked by RPZ policy '"<<(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")<<"'"<<endl);
-        return true;
+      auto newPolicy = dfe.getProcessingPolicy(ns.first, d_discardedPolicies, d_appliedPolicy.d_priority);
+      if (newPolicy.d_type != DNSFilterEngine::PolicyType::None) {
+        d_appliedPolicy = std::move(newPolicy);
+        if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) { // client query needs an RPZ response
+          LOG(", however nameserver "<<ns.first<<" was blocked by RPZ policy '"<<(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")<<"'"<<endl);
+          return true;
+        }
       }
 
-      // Traverse all IP addresses for this NS to see if they have an RPN NSIP policy
+      // Traverse all IP addresses for this NS to see if they have an RPZ NSIP policy
       for (auto const &address : ns.second.first) {
-        d_appliedPolicy = dfe.getProcessingPolicy(address, d_discardedPolicies, d_appliedPolicy.d_priority);
-        if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) { // client query needs an RPZ response
-          LOG(", however nameserver "<<ns.first<<" IP address "<<address.toString()<<" was blocked by RPZ policy '"<<(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")<<"'"<<endl);
-          return true;
+        newPolicy = dfe.getProcessingPolicy(address, d_discardedPolicies, d_appliedPolicy.d_priority);
+        if (newPolicy.d_type != DNSFilterEngine::PolicyType::None) {
+          d_appliedPolicy = std::move(newPolicy);
+          if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) { // client query needs an RPZ response
+            LOG(", however nameserver "<<ns.first<<" IP address "<<address.toString()<<" was blocked by RPZ policy '"<<(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")<<"'"<<endl);
+            return true;
+          }
         }
       }
     }
@@ -1834,10 +1840,13 @@ bool SyncRes::nameserverIPBlockedByRPZ(const DNSFilterEngine& dfe, const ComboAd
      process any further RPZ rules.
   */
   if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
-    d_appliedPolicy = dfe.getProcessingPolicy(remoteIP, d_discardedPolicies, d_appliedPolicy.d_priority);
-    if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) {
-      LOG(" (blocked by RPZ policy '"+(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")+"')");
-      return true;
+    auto newPolicy = dfe.getProcessingPolicy(remoteIP, d_discardedPolicies, d_appliedPolicy.d_priority);
+    if (newPolicy.d_type != DNSFilterEngine::PolicyType::None) {
+      d_appliedPolicy = std::move(newPolicy);
+      if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) {
+        LOG(" (blocked by RPZ policy '"+(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")+"')");
+        return true;
+      }
     }
   }
   return false;
@@ -3406,17 +3415,20 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
     nameservers.clear();
     for (auto const &nameserver : nsset) {
       if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
-        d_appliedPolicy = dfe.getProcessingPolicy(nameserver, d_discardedPolicies, d_appliedPolicy.d_priority);
-        if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) { // client query needs an RPZ response
-          LOG("however "<<nameserver<<" was blocked by RPZ policy '"<<(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")<<"'"<<endl);
-          throw PolicyHitException();
+        auto newPolicy = dfe.getProcessingPolicy(nameserver, d_discardedPolicies, d_appliedPolicy.d_priority);
+        if (newPolicy.d_type != DNSFilterEngine::PolicyType::None) {
+          d_appliedPolicy = std::move(newPolicy);
+          if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) { // client query needs an RPZ response
+            LOG("however "<<nameserver<<" was blocked by RPZ policy '"<<(d_appliedPolicy.d_name ? *d_appliedPolicy.d_name : "")<<"'"<<endl);
+            throw PolicyHitException();
+          }
         }
       }
       nameservers.insert({nameserver, {{}, false}});
     }
     LOG("looping to them"<<endl);
     *gotNewServers = true;
-    auth=newauth;
+    auth = newauth;
 
     return false;
   }
