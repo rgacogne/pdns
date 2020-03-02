@@ -221,12 +221,78 @@ class DNSDistTest(AssertEqualDNSMessageMixin, unittest.TestCase):
         sock.close()
 
     @classmethod
-    def TCPResponder(cls, port, fromQueue, toQueue, trailingDataResponse=False, multipleResponses=False, callback=None):
+    def handleTCPQuery(cls, conn, fromQueue, toQueue, trailingDataResponse, multipleResponses, callback):
+
+      ignoreTrailing = trailingDataResponse is True
+      try:
+        data = conn.recv(2)
+      except socket.timeout:
+        data = None
+
+      if not data:
+        conn.close()
+        return False
+
+      (datalen,) = struct.unpack("!H", data)
+      data = conn.recv(datalen)
+      forceRcode = None
+      try:
+        request = dns.message.from_wire(data, ignore_trailing=ignoreTrailing)
+      except dns.message.TrailingJunk as e:
+        if trailingDataResponse is False or forceRcode is True:
+          raise
+        print("TCP query with trailing data, synthesizing response")
+        request = dns.message.from_wire(data, ignore_trailing=True)
+        forceRcode = trailingDataResponse
+
+      if callback:
+        wire = callback(request)
+      else:
+        response = cls._getResponse(request, fromQueue, toQueue, synthesize=forceRcode)
+        if response:
+          wire = response.to_wire(max_size=65535)
+
+      if not wire:
+        conn.close()
+        return False
+
+      conn.send(struct.pack("!H", len(wire)))
+      conn.send(wire)
+
+      while multipleResponses:
+        if fromQueue.empty():
+          break
+
+        response = fromQueue.get(True, cls._queueTimeout)
+        if not response:
+          break
+
+        response = copy.copy(response)
+        response.id = request.id
+        wire = response.to_wire(max_size=65535)
+        try:
+          conn.send(struct.pack("!H", len(wire)))
+          conn.send(wire)
+        except socket.error as e:
+          # some of the tests are going to close
+          # the connection on us, just deal with it
+          break
+
+      return True
+
+    @classmethod
+    def TCPConnectionHandler(cls, conn, fromQueue, toQueue, trailingDataResponse, multipleResponses, callback):
+      while True:
+        if not cls.handleTCPQuery(conn, fromQueue, toQueue, trailingDataResponse, multipleResponses, callback):
+          break
+      conn.close()
+
+    @classmethod
+    def TCPResponder(cls, port, fromQueue, toQueue, trailingDataResponse=False, multipleResponses=False, callback=None, keepOpen=True):
         # trailingDataResponse=True means "ignore trailing data".
         # Other values are either False (meaning "raise an exception")
         # or are interpreted as a response RCODE for queries with trailing data.
         # callback is invoked for every -even healthcheck ones- query and should return a raw response
-        ignoreTrailing = trailingDataResponse is True
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -241,57 +307,17 @@ class DNSDistTest(AssertEqualDNSMessageMixin, unittest.TestCase):
         while True:
             (conn, _) = sock.accept()
             conn.settimeout(5.0)
-            data = conn.recv(2)
-            if not data:
-                conn.close()
-                continue
 
-            (datalen,) = struct.unpack("!H", data)
-            data = conn.recv(datalen)
-            forceRcode = None
-            try:
-                request = dns.message.from_wire(data, ignore_trailing=ignoreTrailing)
-            except dns.message.TrailingJunk as e:
-                if trailingDataResponse is False or forceRcode is True:
-                    raise
-                print("TCP query with trailing data, synthesizing response")
-                request = dns.message.from_wire(data, ignore_trailing=True)
-                forceRcode = trailingDataResponse
-
-            if callback:
-              wire = callback(request)
+            if keepOpen:
+              # keep the same name than the current thread, it is required not to mess up the response counters
+              connThread = threading.Thread(name=threading.currentThread().name,
+                                            target=cls.TCPConnectionHandler,
+                                            args=[conn, fromQueue, toQueue, trailingDataResponse, multipleResponses, callback])
+              connThread.setDaemon(True)
+              connThread.start()
             else:
-              response = cls._getResponse(request, fromQueue, toQueue, synthesize=forceRcode)
-              if response:
-                wire = response.to_wire(max_size=65535)
-
-            if not wire:
-                conn.close()
-                continue
-
-            conn.send(struct.pack("!H", len(wire)))
-            conn.send(wire)
-
-            while multipleResponses:
-                if fromQueue.empty():
-                    break
-
-                response = fromQueue.get(True, cls._queueTimeout)
-                if not response:
-                    break
-
-                response = copy.copy(response)
-                response.id = request.id
-                wire = response.to_wire(max_size=65535)
-                try:
-                    conn.send(struct.pack("!H", len(wire)))
-                    conn.send(wire)
-                except socket.error as e:
-                    # some of the tests are going to close
-                    # the connection on us, just deal with it
-                    break
-
-            conn.close()
+              cls.handleTCPQuery(conn, fromQueue, toQueue, trailingDataResponse, multipleResponses, callback)
+              conn.close()
 
         sock.close()
 
@@ -588,4 +614,3 @@ class DNSDistTest(AssertEqualDNSMessageMixin, unittest.TestCase):
 
     def checkResponseNoEDNS(self, expected, received):
         self.checkMessageNoEDNS(expected, received)
-
