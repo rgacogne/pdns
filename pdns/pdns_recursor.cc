@@ -87,6 +87,7 @@
 #include "validate-recursor.hh"
 #include "rec-lua-conf.hh"
 #include "ednsoptions.hh"
+#include "ednspadding.hh"
 #include "gettime.hh"
 #include "pubsuffix.hh"
 #ifdef NOD_ENABLED
@@ -188,6 +189,7 @@ static deferredAdd_t g_deferredAdds;
 
 typedef vector<int> tcpListenSockets_t;
 typedef map<int, ComboAddress> listenSocketsAddresses_t; // is shared across all threads right now
+enum class PaddingMode { Always, PaddedQueries };
 
 static const ComboAddress g_local4("0.0.0.0"), g_local6("::");
 static listenSocketsAddresses_t g_listenSocketsAddresses; // is shared across all threads right now
@@ -197,6 +199,7 @@ static AtomicCounter counter;
 static std::shared_ptr<SyncRes::domainmap_t> g_initialDomainMap; // new threads needs this to be setup
 static std::shared_ptr<NetmaskGroup> g_initialAllowFrom; // new thread needs to be setup with this
 static NetmaskGroup g_XPFAcl;
+static NetmaskGroup g_paddingFrom;
 static size_t g_tcpMaxQueriesPerConn;
 static size_t s_maxUDPQueriesPerRound;
 static uint64_t g_latencyStatSize;
@@ -205,9 +208,11 @@ static unsigned int g_maxTCPPerClient;
 static unsigned int g_maxMThreads;
 static unsigned int g_numDistributorThreads;
 static unsigned int g_numWorkerThreads;
+static unsigned int g_paddingTag;
 static int g_tcpTimeout;
 static uint16_t g_udpTruncationThreshold;
 static uint16_t g_xpfRRCode{0};
+static PaddingMode g_paddingMode;
 static std::atomic<bool> statsWanted;
 static std::atomic<bool> g_quiet;
 static bool g_logCommonErrors;
@@ -1140,6 +1145,8 @@ static void startDoResolve(void *p)
     std::vector<pair<uint16_t, string> > ednsOpts;
     bool variableAnswer = dc->d_variable;
     bool haveEDNS=false;
+    bool paddingAllowed = g_paddingFrom.match(dc->d_remote);
+    bool padResponse = paddingAllowed ? (g_paddingMode == PaddingMode::Always) : false;
 #ifdef NOD_ENABLED
     bool hasUDR = false;
 #endif /* NOD_ENABLED */
@@ -1172,9 +1179,24 @@ static void startDoResolve(void *p)
             // Option Code and Option Length are both 2
             maxanswersize -= 2 + 2 + mode_server_id.size();
           }
+        } else if (paddingAllowed && padResponse == false && g_paddingMode == PaddingMode::PaddedQueries && o.first == EDNSOptionCode::PADDING) {
+          /* we should only pad on 'secure' cases to limit amplification:
+             - over TCP ;
+             - from 'known-good' sources (dnsdist for example).
+             We should also support a strict mode (only pad if the query has a padding option)
+             and a relaxed mode (pad if the client supports EDNS).
+             The block-size should be configurable as well.
+          */
+          padResponse = true;
+          maxanswersize -= 4;
         }
       }
     }
+
+    if (padResponse && dc->d_tag == 0) {
+      dc->d_tag = g_paddingTag;
+    }
+
     /* perhaps there was no EDNS or no ECS but by now we looked */
     dc->d_ecsParsed = true;
     vector<DNSRecord> ret;
@@ -1638,6 +1660,26 @@ static void startDoResolve(void *p)
       eo.scope = Netmask(sa, 0);
 
       returnedEdnsOptions.push_back(make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(eo)));
+    }
+
+    if (padResponse) {
+      size_t currentSize = pw.getSizeWithOpts(returnedEdnsOptions);
+      if (currentSize < (static_cast<size_t>(maxanswersize) - 4)) {
+        size_t remaining = static_cast<size_t>(maxanswersize) - currentSize;
+        /* from rfc8647, "4.1.  Recommended Strategy: Block-Length Padding":
+           If a server receives a query that includes the EDNS(0) "Padding"
+           option, it MUST pad the corresponding response (see Section 4 of
+           RFC 7830) and SHOULD pad the corresponding response to a
+           multiple of 468 octets (see below).
+        */
+        static const size_t blockSize = 468;
+        size_t modulo = (currentSize + 4) % blockSize;
+        size_t padSize = 0;
+        if (modulo > 0) {
+          padSize = std::min(blockSize - modulo, remaining);
+        }
+        returnedEdnsOptions.push_back(make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(padSize)));
+      }
     }
 
     if (haveEDNS) {
@@ -2118,6 +2160,10 @@ static void handleRunningTCPQuestion(int fd, FDMultiplexer::funcparam_t& var)
         }
       }
 
+      if (dc->d_tag == 0 && g_paddingFrom.match(dc->d_remote)) {
+        dc->d_tag = g_paddingTag;
+      }
+
       const struct dnsheader* dh = reinterpret_cast<const struct dnsheader*>(&conn->data[0]);
 
 #ifdef HAVE_PROTOBUF
@@ -2354,6 +2400,10 @@ static string* doProcessUDPQuestion(const std::string& question, const ComboAddr
         if(g_logCommonErrors)
           g_log<<Logger::Warning<<"Error parsing a query packet for tag determination, setting tag=0: "<<e.what()<<endl;
       }
+    }
+
+    if (ctag == 0 && g_paddingFrom.match(fromaddr)) {
+      ctag = g_paddingTag;
     }
 
     bool cacheHit = false;
@@ -4074,6 +4124,19 @@ static int serviceMain(int argc, char*argv[])
 
   g_lowercaseOutgoing = ::arg().mustDo("lowercase-outgoing");
 
+  g_paddingFrom.toMasks(::arg()["edns-padding-from"]);
+  if (::arg()["edns-padding-mode"] == "always") {
+    g_paddingMode = PaddingMode::Always;
+  }
+  else if (::arg()["edns-padding-mode"] == "padded-queries-only") {
+    g_paddingMode = PaddingMode::PaddedQueries;
+  }
+  else {
+    g_log << Logger::Error << "Unknown edns-padding-mode: " << ::arg()["edns-padding-mode"] << endl;
+    exit(1);
+  }
+  g_paddingTag = ::arg().asNum("edns-padding-tag");
+
   g_numDistributorThreads = ::arg().asNum("distributor-threads");
   g_numWorkerThreads = ::arg().asNum("threads");
   if (g_numWorkerThreads < 1) {
@@ -4808,6 +4871,11 @@ int main(int argc, char **argv)
     ::arg().set("unique-response-db-size", "Size of the DB used to track unique responses in terms of number of cells. Defaults to 67108864")="67108864";
     ::arg().set("unique-response-pb-tag", "If protobuf is configured, the tag to use for messages containing unique DNS responses. Defaults to 'pdns-udr'")="pdns-udr";
 #endif /* NOD_ENABLED */
+
+    ::arg().set("edns-padding-from", "Sources (proxy IP in case of XPF or proxy-protocol presence, client IP otherwise) for which EDNS padding will be enabled in responses")="";
+    ::arg().set("edns-padding-mode", "Whether to add EDNS padding to all responses ('always') or only to the ones to padded queries ('padded-queries-only')")="padded-queries-only";
+    ::arg().set("edns-padding-tag", "Packetcache tag associated to responses sent with EDNS padding, to prevent sending these to non-whitelisted clients.")="7830";
+
     ::arg().setCmd("help","Provide a helpful message");
     ::arg().setCmd("version","Print version string");
     ::arg().setCmd("config","Output blank configuration");

@@ -394,7 +394,7 @@ void DNSPacketWriter::getRecordPayload(string& records)
   records.assign(d_content.begin() + d_sor, d_content.end());
 }
 
-uint32_t DNSPacketWriter::size()
+uint32_t DNSPacketWriter::size() const
 {
   return d_content.size();
 }
@@ -436,4 +436,16 @@ void DNSPacketWriter::commit()
     break;
   }
 
+}
+
+size_t DNSPacketWriter::getSizeWithOpts(const optvect_t& options) const
+{
+  size_t result = size() + /* root */ 1 + DNS_TYPE_SIZE + DNS_CLASS_SIZE + DNS_TTL_SIZE + DNS_RDLENGTH_SIZE;
+
+  for(auto const &option : options) {
+    result += 4;
+    result += option.second.size();
+  }
+
+  return result;
 }

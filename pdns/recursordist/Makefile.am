@@ -116,6 +116,7 @@ pdns_recursor_SOURCES = \
 	dnsseckeeper.hh \
 	dnswriter.cc dnswriter.hh \
 	ednsoptions.cc ednsoptions.hh \
+	ednspadding.cc ednspadding.hh \
 	ednssubnet.cc ednssubnet.hh \
 	filterpo.cc filterpo.hh \
 	fstrm_logger.cc fstrm_logger.hh \
@@ -234,6 +235,7 @@ testrunner_SOURCES = \
 	dnswriter.cc dnswriter.hh \
 	ednscookies.cc ednscookies.hh \
 	ednsoptions.cc ednsoptions.hh \
+	ednspadding.cc ednspadding.hh \
 	ednssubnet.cc ednssubnet.hh \
 	filterpo.cc filterpo.hh \
 	gettime.cc gettime.hh \
