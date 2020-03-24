@@ -56,21 +56,11 @@ using namespace ::boost::multi_index;
 struct Bind2DNSRecord
 {
   DNSName qname;
-  string content;
+  std::shared_ptr<DNSRecordContent> recordContent;
   string nsec3hash;
   uint32_t ttl;
   uint16_t qtype;
   mutable bool auth;
-  bool operator<(const Bind2DNSRecord& rhs) const
-  {
-    if(qname.canonCompare(rhs.qname))
-      return true;
-    if(rhs.qname.canonCompare(qname))
-      return false;
-    if(qtype==QType::SOA && rhs.qtype!=QType::SOA)
-      return true;
-    return tie(qtype,content, ttl) < tie(rhs.qtype, rhs.content, rhs.ttl);
-  }
 };
 
 struct Bind2DNSCompare : std::less<Bind2DNSRecord> 
@@ -184,6 +174,7 @@ public:
   void lookup(const QType &, const DNSName &qdomain, int zoneId, DNSPacket *p=nullptr) override;
   bool list(const DNSName &target, int id, bool include_disabled=false) override;
   bool get(DNSResourceRecord &) override;
+  bool get(DNSZoneRecord &) override;
   void getAllDomains(vector<DomainInfo> *domains, bool include_disabled=false) override;
 
   static DNSBackend *maker();
@@ -245,7 +236,7 @@ private:
   class handle
   {
   public:
-    bool get(DNSResourceRecord &);
+    bool get(DNSZoneRecord&);
     void reset();
     
     handle();
@@ -264,8 +255,8 @@ private:
     bool mustlog;
 
   private:
-    bool get_normal(DNSResourceRecord &);
-    bool get_list(DNSResourceRecord &);
+    bool get_normal(DNSZoneRecord&);
+    bool get_list(DNSZoneRecord&);
 
     void operator=(const handle& ); // don't go copying this
     handle(const handle &);

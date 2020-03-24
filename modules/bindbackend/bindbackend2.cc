@@ -290,7 +290,7 @@ bool Bind2Backend::feedRecord(const DNSResourceRecord &rr, const DNSName &ordern
     throw DBException("out-of-zone data '"+rr.qname.toLogString()+"' during AXFR of zone '"+bbd.d_name.toLogString()+"'");
   }
 
-  shared_ptr<DNSRecordContent> drc(DNSRecordContent::mastermake(rr.qtype.getCode(), 1, rr.content));
+  shared_ptr<DNSRecordContent> drc(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content));
   string content = drc->getZoneRepresentation();
 
   // SOA needs stripping too! XXX FIXME - also, this should not be here I think
@@ -494,6 +494,10 @@ void Bind2Backend::parseZoneFile(BB2DomainInfo *bbd)
     if(rr.qtype.getCode() == QType::NSEC || rr.qtype.getCode() == QType::NSEC3 || rr.qtype.getCode() == QType::NSEC3PARAM)
       continue; // we synthesise NSECs on demand
 
+    if (rr.qclass != QClass::IN) {
+      continue;
+    }
+
     insertRecord(records, bbd->d_name, rr.qname, rr.qtype, rr.content, rr.ttl, "");
   }
   fixupOrderAndAuth(records, bbd->d_name, nsec3zone, ns3pr);
@@ -531,9 +535,8 @@ void Bind2Backend::insertRecord(std::shared_ptr<recordstorage_t>& records, const
   if(!records->empty() && bdr.qname==boost::prior(records->end())->qname)
     bdr.qname=boost::prior(records->end())->qname;
 
-  bdr.qname=bdr.qname;
   bdr.qtype=qtype.getCode();
-  bdr.content=content; 
+  bdr.recordContent = DNSRecordContent::mastermake(bdr.qtype, QClass::IN, content);
   bdr.nsec3hash = hashed;
   
   if (auth) // Set auth on empty non-terminals
@@ -1203,28 +1206,46 @@ Bind2Backend::handle::handle()
   mustlog=false;
 }
 
-bool Bind2Backend::get(DNSResourceRecord &r)
+bool Bind2Backend::get(DNSResourceRecord& r)
 {
-  if(!d_handle.d_records) {
-    if(d_handle.mustlog)
-      g_log<<Logger::Warning<<"There were no answers"<<endl;
+  DNSZoneRecord dzr;
+  if (!get(dzr)) {
     return false;
   }
 
-  if(!d_handle.get(r)) {
-    if(d_handle.mustlog)
+  r.qname = dzr.dr.d_name;
+  r.ttl = dzr.dr.d_ttl;
+  r.qtype = dzr.dr.d_type;
+  r.content = dzr.dr.d_content->getZoneRepresentation(true);
+  r.domain_id = dzr.domain_id;
+  r.auth = dzr.auth;
+
+  return true;
+}
+
+bool Bind2Backend::get(DNSZoneRecord& r)
+{
+  if (!d_handle.d_records) {
+    if (d_handle.mustlog) {
+      g_log<<Logger::Warning<<"There were no answers"<<endl;
+    }
+    return false;
+  }
+
+  if (!d_handle.get(r)) {
+    if (d_handle.mustlog) {
       g_log<<Logger::Warning<<"End of answers"<<endl;
+    }
 
     d_handle.reset();
 
     return false;
   }
-  if(d_handle.mustlog)
-    g_log<<Logger::Warning<<"Returning: '"<<r.qtype.getName()<<"' of '"<<r.qname<<"', content: '"<<r.content<<"'"<<endl;
+
   return true;
 }
 
-bool Bind2Backend::handle::get(DNSResourceRecord &r)
+bool Bind2Backend::handle::get(DNSZoneRecord &r)
 {
   if(d_list)
     return get_list(r);
@@ -1239,37 +1260,34 @@ void Bind2Backend::handle::reset()
   mustlog=false;
 }
 
-//#define DLOG(x) x
-bool Bind2Backend::handle::get_normal(DNSResourceRecord &r)
+bool Bind2Backend::handle::get_normal(DNSZoneRecord& r)
 {
   DLOG(g_log << "Bind2Backend get() was called for "<<qtype.getName() << " record for '"<<
        qname<<"' - "<<d_records->size()<<" available in total!"<<endl);
-  
-  if(d_iter==d_end_iter) {
+
+  if (d_iter == d_end_iter) {
     return false;
   }
 
-  while(d_iter!=d_end_iter && !(qtype.getCode()==QType::ANY || (d_iter)->qtype==qtype.getCode())) {
-    DLOG(g_log<<Logger::Warning<<"Skipped "<<qname<<"/"<<QType(d_iter->qtype).getName()<<": '"<<d_iter->content<<"'"<<endl);
-    d_iter++;
+  while (d_iter != d_end_iter && !(qtype.getCode() == QType::ANY || d_iter->qtype == qtype.getCode())) {
+    DLOG(g_log<<Logger::Warning<<"Skipped "<<qname<<"/"<<QType(d_iter->qtype).getName()<<": '"<<d_iter->recordContent->getZoneRepresentation()<<"'"<<endl);
+    ++d_iter;
   }
-  if(d_iter==d_end_iter) {
+
+  if (d_iter == d_end_iter) {
     return false;
   }
+
   DLOG(g_log << "Bind2Backend get() returning a rr with a "<<QType(d_iter->qtype).getCode()<<endl);
 
-  r.qname=qname.empty() ? domain : (qname+domain);
-  r.domain_id=id;
-  r.content=(d_iter)->content;
-  //  r.domain_id=(d_iter)->domain_id;
-  r.qtype=(d_iter)->qtype;
-  r.ttl=(d_iter)->ttl;
-
-  //if(!d_iter->auth && r.qtype.getCode() != QType::A && r.qtype.getCode()!=QType::AAAA && r.qtype.getCode() != QType::NS)
-  //  cerr<<"Warning! Unauth response for qtype "<< r.qtype.getName() << " for '"<<r.qname<<"'"<<endl;
+  r.domain_id = id;
   r.auth = d_iter->auth;
+  r.dr.d_type = d_iter->qtype;
+  r.dr.d_name = qname.empty() ? domain : (qname+domain);
+  r.dr.d_ttl = d_iter->ttl;
+  r.dr.d_content = d_iter->recordContent;
 
-  d_iter++;
+  ++d_iter;
 
   return true;
 }
@@ -1294,19 +1312,22 @@ bool Bind2Backend::list(const DNSName& target, int id, bool include_disabled)
   return true;
 }
 
-bool Bind2Backend::handle::get_list(DNSResourceRecord &r)
+bool Bind2Backend::handle::get_list(DNSZoneRecord& r)
 {
-  if(d_qname_iter!=d_qname_end) {
-    r.qname=d_qname_iter->qname.empty() ? domain : (d_qname_iter->qname+domain);
-    r.domain_id=id;
-    r.content=(d_qname_iter)->content;
-    r.qtype=(d_qname_iter)->qtype;
-    r.ttl=(d_qname_iter)->ttl;
-    r.auth = d_qname_iter->auth;
-    d_qname_iter++;
-    return true;
+  if (d_qname_iter == d_qname_end) {
+    return false;
   }
-  return false;
+
+  r.domain_id = id;
+  r.auth = d_qname_iter->auth;
+  r.dr.d_type = d_qname_iter->qtype;
+  r.dr.d_name = d_qname_iter->qname.empty() ? domain : (d_qname_iter->qname+domain);
+  r.dr.d_ttl = d_qname_iter->ttl;
+  r.dr.d_content = d_qname_iter->recordContent;
+
+  ++d_qname_iter;
+
+  return true;
 }
 
 bool Bind2Backend::superMasterBackend(const string &ip, const DNSName& domain, const vector<DNSResourceRecord>&nsset, string *nameserver, string *account, DNSBackend **db)
@@ -1421,11 +1442,12 @@ bool Bind2Backend::searchRecords(const string &pattern, int maxResults, vector<D
 
       for(recordstorage_t::const_iterator ri = rhandle->begin(); result.size() < static_cast<vector<DNSResourceRecord>::size_type>(maxResults) && ri != rhandle->end(); ri++) {
         DNSName name = ri->qname.empty() ? i->d_name : (ri->qname+i->d_name);
-        if (sm.match(name) || sm.match(ri->content)) {
+        string content = ri->recordContent->getZoneRepresentation();
+        if (sm.match(name) || sm.match(content)) {
           DNSResourceRecord r;
           r.qname=name;
           r.domain_id=i->d_id;
-          r.content=ri->content;
+          r.content=std::move(content);
           r.qtype=ri->qtype;
           r.ttl=ri->ttl;
           r.auth = ri->auth;
