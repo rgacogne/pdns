@@ -119,6 +119,9 @@ class TestTCPLimits(DNSDistTest):
 
         end = time.time()
 
+        print(count)
+        print(start)
+        print(end)
         self.assertAlmostEquals(count / 10, self._maxTCPConnDuration, delta=2)
         self.assertAlmostEquals(end - start, self._maxTCPConnDuration, delta=2)
 
