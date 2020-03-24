@@ -346,7 +346,7 @@ public:
       releaseStatement();
       throw SSqlException("Could not get next result from mysql statement: " + d_query + string(": ") + error);
     }
-    mysql_stmt_reset(d_stmt);
+    //mysql_stmt_reset(d_stmt);
     if (d_req_bind) {
       for(int i=0;i<d_parnum;i++) {
         if (d_req_bind[i].buffer) delete [] (char*)d_req_bind[i].buffer;
