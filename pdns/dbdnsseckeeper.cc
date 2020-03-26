@@ -214,7 +214,7 @@ bool DNSSECKeeper::getFromMeta(const DNSName& zname, const std::string& key, std
   static int ttl = ::arg().asNum("domain-metadata-cache-ttl");
   bool isset = false;
   value.clear();
-  unsigned int now = time(0);
+  unsigned int now = time(nullptr);
 
   if(!((++s_ops) % 100000)) {
     cleanup();

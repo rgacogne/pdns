@@ -327,7 +327,7 @@ void fillSOAData(const DNSZoneRecord& in, SOAData& sd)
   sd.minimum = src->d_st.minimum;
 }
 
-std::shared_ptr<DNSRecordContent> makeSOAContent(const SOAData& sd)
+std::shared_ptr<SOARecordContent> makeSOAContent(const SOAData& sd)
 {
     struct soatimes st;
     st.serial = sd.serial;

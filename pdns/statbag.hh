@@ -93,26 +93,31 @@ public:
   void ringAccount(const char* name, const string &item)
   {
     if(d_doRings)  {
-      if(!d_rings.count(name))
+      const auto& it = d_rings.find(name);
+      if (it == d_rings.end()) {
 	throw runtime_error("Attempting to account to non-existent ring '"+std::string(name)+"'");
-
-      d_rings[name].account(item);
+      }
+      it->second.account(item);
     }
   }
   void ringAccount(const char* name, const ComboAddress &item)
   {
     if(d_doRings) {
-      if(!d_comborings.count(name))
+      const auto& it = d_comborings.find(name);
+      if (it == d_comborings.end()) {
 	throw runtime_error("Attempting to account to non-existent comboring '"+std::string(name)+"'");
-      d_comborings[name].account(item);
+      }
+      it->second.account(item);
     }
   }
   void ringAccount(const char* name, const DNSName &dnsname, const QType &qtype)
   {
     if(d_doRings) {
-      if(!d_dnsnameqtyperings.count(name))
+      const auto& it = d_dnsnameqtyperings.find(name);
+      if (it == d_dnsnameqtyperings.end()) {
 	throw runtime_error("Attempting to account to non-existent dnsname+qtype ring '"+std::string(name)+"'");
-      d_dnsnameqtyperings[name].account(std::make_tuple(dnsname, qtype));
+      }
+      it->second.account(std::make_tuple(dnsname, qtype));
     }
   }
 

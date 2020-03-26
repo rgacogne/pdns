@@ -131,13 +131,13 @@ void DNSPacket::addRecord(DNSZoneRecord&& rr)
   if(d_compress) {
     std::string ser = const_cast<DNSZoneRecord&>(rr).dr.d_content->serialize(rr.dr.d_name);
     auto hash = boost::hash< std::pair<DNSName, std::string> >()({rr.dr.d_name, ser});
-    if(d_dedup.count(hash)) { // might be a dup
-      for(auto i=d_rrs.begin();i!=d_rrs.end();++i) {
-        if(rr.dr == i->dr)  // XXX SUPER SLOW
+    auto pair = d_dedup.insert(hash);
+    if (pair.second == false) { // might be a dup
+      for (const auto &i : d_rrs) {
+        if(rr.dr == i.dr)  // XXX SUPER SLOW
           return;
       }
     }
-    d_dedup.insert(hash);
   }
 
   d_rrs.push_back(std::move(rr));
@@ -357,6 +357,8 @@ void DNSPacket::setQuestion(int op, const DNSName &qd, int newqtype)
 std::unique_ptr<DNSPacket> DNSPacket::replyPacket() const
 {
   auto r=make_unique<DNSPacket>(false);
+  r->d_rawpacket.reserve(sizeof(dnsheader) + qdomain.wirelength() + /* qtype */ sizeof(uint16_t) + /* qclass */ sizeof(uint16_t));
+
   r->setSocket(d_socket);
   r->d_anyLocal=d_anyLocal;
   r->setRemote(&d_remote);

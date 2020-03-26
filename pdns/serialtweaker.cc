@@ -40,7 +40,13 @@ uint32_t localtime_format_YYYYMMDDSS(time_t t, uint32_t seq)
 
 uint32_t calculateEditSOA(uint32_t old_serial, const string& kind, const DNSName& zonename)
 {
-  if(pdns_iequals(kind,"INCEPTION-INCREMENT")) {
+  static const std::string inceptionIncrement("INCEPTION-INCREMENT");
+  static const std::string incrementWeeks("INCREMENT-WEEKS");
+  static const std::string epoch("EPOCH");
+  static const std::string inceptionEpoch("INCEPTION-EPOCH");
+  static const std::string none("NONE");
+
+  if(pdns_iequals(kind, inceptionIncrement)) {
     time_t inception = getStartOfWeek();
     uint32_t inception_serial = localtime_format_YYYYMMDDSS(inception, 1);
     uint32_t dont_increment_after = localtime_format_YYYYMMDDSS(inception + 2*86400, 99);
@@ -54,19 +60,19 @@ uint32_t calculateEditSOA(uint32_t old_serial, const string& kind, const DNSName
       return old_serial + 1;
     }
   }
-  else if(pdns_iequals(kind,"INCREMENT-WEEKS")) {
+  else if(pdns_iequals(kind, incrementWeeks)) {
     time_t inception = getStartOfWeek();
     return (old_serial + (inception / (7*86400)));
   }
-  else if(pdns_iequals(kind,"EPOCH")) {
+  else if(pdns_iequals(kind, epoch)) {
     return time(0);
   }
-  else if(pdns_iequals(kind,"INCEPTION-EPOCH")) {
+  else if(pdns_iequals(kind, inceptionEpoch)) {
     uint32_t inception = getStartOfWeek();
     if (old_serial < inception)
       return inception;
   }
-  else if(pdns_iequals(kind,"NONE")) {
+  else if(pdns_iequals(kind, none)) {
     // do nothing to serial. needed because a metadata of "" will use the default-soa-edit setting instead.
   }
   else if(!kind.empty()) {
@@ -162,15 +168,18 @@ bool makeIncreasedSOARecord(SOAData& sd, const string& increaseKind, const strin
 }
 
 DNSZoneRecord makeEditedDNSZRFromSOAData(DNSSECKeeper& dk, const SOAData& sd, DNSResourceRecord::Place place) {
-  SOAData edited = sd;
-  edited.serial = calculateEditSOA(sd.serial, dk, sd.qname);
+  auto serial = calculateEditSOA(sd.serial, dk, sd.qname);
 
   DNSRecord soa;
   soa.d_name = sd.qname;
   soa.d_type = QType::SOA;
   soa.d_ttl = sd.ttl;
   soa.d_place = place;
-  soa.d_content = makeSOAContent(edited);
+  auto soaContent = makeSOAContent(sd);
+  if (soaContent) {
+    soaContent->d_st.serial = serial;
+  }
+  soa.d_content = soaContent;
 
   DNSZoneRecord dzr;
   dzr.domain_id = sd.domain_id;

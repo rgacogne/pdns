@@ -1012,7 +1012,7 @@ bool GSQLBackend::getAllDomainMetadata(const DNSName& name, std::map<std::string
       ASSERT_ROW_COLUMNS("get-all-domain-metadata-query", row, 2);
 
       if (d_dnssecQueries || !isDnssecDomainMetadata(row[0]))
-        meta[row[0]].push_back(row[1]);
+        meta[row[0]].push_back(std::move(row[1]));
     }
 
     d_GetAllDomainMetadataQuery_stmt->reset();
@@ -1043,7 +1043,7 @@ bool GSQLBackend::getDomainMetadata(const DNSName& name, const std::string& kind
     while(d_GetDomainMetadataQuery_stmt->hasNextRow()) {
       d_GetDomainMetadataQuery_stmt->nextRow(row);
       ASSERT_ROW_COLUMNS("get-domain-metadata-query", row, 1);
-      meta.push_back(row[0]);
+      meta.push_back(std::move(row[0]));
     }
 
     d_GetDomainMetadataQuery_stmt->reset();

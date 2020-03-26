@@ -167,7 +167,7 @@ bool Bind2Backend::getNSEC3PARAM(const DNSName& name, NSEC3PARAMRecordContent* n
   vector<string> meta;
   getDomainMetadata(name, "NSEC3PARAM", meta);
   if(!meta.empty())
-    value=*meta.begin();
+    value=std::move(*meta.begin());
   else
     return false; // No NSEC3 zone
 
@@ -203,7 +203,7 @@ bool Bind2Backend::getAllDomainMetadata(const DNSName& name, std::map<std::strin
     SSqlStatement::row_t row;
     while(d_getAllDomainMetadataQuery_stmt->hasNextRow()) {
       d_getAllDomainMetadataQuery_stmt->nextRow(row);
-      meta[row[0]].push_back(row[1]);
+      meta[row[0]].push_back(std::move(row[1]));
     }
 
     d_getAllDomainMetadataQuery_stmt->reset();
@@ -228,7 +228,7 @@ bool Bind2Backend::getDomainMetadata(const DNSName& name, const std::string& kin
     SSqlStatement::row_t row;
     while(d_getDomainMetadataQuery_stmt->hasNextRow()) {
       d_getDomainMetadataQuery_stmt->nextRow(row);
-      meta.push_back(row[0]);
+      meta.push_back(std::move(row[0]));
     }
 
     d_getDomainMetadataQuery_stmt->reset();
@@ -444,7 +444,7 @@ bool Bind2Backend::getTSIGKey(const DNSName& name, DNSName* algorithm, string* c
       d_getTSIGKeyQuery_stmt->nextRow(row);
       if(row.size() >= 2 && (algorithm->empty() || *algorithm == DNSName(row[0]))) {
         *algorithm = DNSName(row[0]);
-        *content = row[1];
+        *content = std::move(row[1]);
       }
     }
 
@@ -507,8 +507,8 @@ bool Bind2Backend::getTSIGKeys(std::vector< struct TSIGKey > &keys)
       struct TSIGKey key;
       key.name = DNSName(row[0]);
       key.algorithm = DNSName(row[1]);
-      key.key = row[2];
-      keys.push_back(key);
+      key.key = std::move(row[2]);
+      keys.push_back(std::move(key));
     }
 
     d_getTSIGKeysQuery_stmt->reset();

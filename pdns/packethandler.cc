@@ -311,6 +311,10 @@ int PacketHandler::doChaosRequest(const DNSPacket& p, std::unique_ptr<DNSPacket>
 vector<DNSZoneRecord> PacketHandler::getBestReferralNS(DNSPacket& p, const SOAData& sd, const DNSName &target)
 {
   vector<DNSZoneRecord> ret;
+  if (target == sd.qname) {
+    return ret;
+  }
+
   DNSZoneRecord rr;
   DNSName subdomain(target);
   do {
@@ -318,7 +322,7 @@ vector<DNSZoneRecord> PacketHandler::getBestReferralNS(DNSPacket& p, const SOADa
       break;
     B.lookup(QType(QType::NS), subdomain, sd.domain_id, &p);
     while(B.get(rr)) {
-      ret.push_back(rr); // this used to exclude auth NS records for some reason
+      ret.push_back(std::move(rr)); // this used to exclude auth NS records for some reason
     }
     if(!ret.empty())
       return ret;
@@ -444,7 +448,7 @@ int PacketHandler::doAdditionalProcessingAndDropAA(DNSPacket& p, std::unique_ptr
 {
   DNSZoneRecord rr;
   SOAData sd;
-  sd.db=0;
+  sd.db = nullptr;
 
   if(p.qtype.getCode()!=QType::AXFR) { // this packet needs additional processing
     // we now have a copy, push_back on packet might reallocate!

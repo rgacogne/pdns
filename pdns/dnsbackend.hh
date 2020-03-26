@@ -157,7 +157,7 @@ public:
     std::vector<std::string> meta;
     if (getDomainMetadata(name, kind, meta)) {
       if(!meta.empty()) {
-        value = *meta.begin();
+        value = std::move(*meta.begin());
         return true;
       }
     }
@@ -438,4 +438,4 @@ void fillSOAData(const string &content, SOAData &data);
 // same but more karmic
 void fillSOAData(const DNSZoneRecord& in, SOAData& data);
 // the reverse
-std::shared_ptr<DNSRecordContent> makeSOAContent(const SOAData& sd);
+std::shared_ptr<SOARecordContent> makeSOAContent(const SOAData& sd);
