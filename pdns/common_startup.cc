@@ -390,6 +390,62 @@ static void sendout(std::unique_ptr<DNSPacket>& a)
   avg_latency=(int)(0.999*avg_latency+0.001*diff);
 }
 
+#include <condition_variable>
+#include "gettime.hh"
+
+static std::condition_variable s_conditionVar;
+static std::mutex s_conditionMutex;
+static std::atomic<uint64_t> s_pendingQueries{0};
+
+struct StopWatch
+{
+  StopWatch(bool realTime=false): d_needRealTime(realTime)
+  {
+  }
+  struct timespec d_start{0,0};
+  bool d_needRealTime{false};
+
+  void start() {
+    if(gettime(&d_start, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+
+  }
+
+  void set(const struct timespec& from) {
+    d_start = from;
+  }
+
+  double udiff() const {
+    struct timespec now;
+    if(gettime(&now, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+
+    return 1000000.0*(now.tv_sec - d_start.tv_sec) + (now.tv_nsec - d_start.tv_nsec)/1000.0;
+  }
+
+  double udiffAndSet() {
+    struct timespec now;
+    if(gettime(&now, d_needRealTime) < 0)
+      unixDie("Getting timestamp");
+
+    auto ret= 1000000.0*(now.tv_sec - d_start.tv_sec) + (now.tv_nsec - d_start.tv_nsec)/1000.0;
+    d_start = now;
+    return ret;
+  }
+
+};
+
+static void dropResponse(std::unique_ptr<DNSPacket>& a)
+{
+  if (!a) {
+    return;
+  }
+
+  if (--s_pendingQueries == 0) {
+    s_conditionVar.notify_all();
+  }
+}
+
 //! The qthread receives questions over the internet via the Nameserver class, and hands them to the Distributor for further processing
 static void qthread(unsigned int num)
 try
@@ -638,6 +694,36 @@ void mainthread()
     Communicator.go(); 
 
   TN->go(); // tcp nameserver launch
+
+  vector<uint8_t> buffer;
+  DNSPacketWriter pw(buffer, DNSName("www.example.com."), QType::AAAA, QClass::IN);
+  pw.addOpt(512, 0, 0);;
+  pw.commit();
+  DNSDistributor* distributor = DNSDistributor::Create(::arg().asNum("distributor-threads", 1)); // the big dispatcher!
+
+  StopWatch sw;
+  sw.start();
+  size_t count = 100000;
+  for (size_t idx = 0; idx < count; idx++) {
+    DNSPacket question(true);
+    question.d_dt.set(); // timing
+    if (question.parse(reinterpret_cast<const char*>(&buffer.at(0)), buffer.size()) < 0) {
+      exit(1);
+    }
+
+    try {
+      ++s_pendingQueries;
+      distributor->question(question, &dropResponse);
+    }
+    catch(DistributorFatal& df) { // when this happens, we have leaked loads of memory. Bailing out time.
+      _exit(1);
+    }
+  }
+
+  std::unique_lock<std::mutex> lk(s_conditionMutex);
+  s_conditionVar.wait(lk, [] { return s_pendingQueries == 0; });
+  cerr<<"Done "<<count<<" queries in "<<std::to_string(sw.udiff())<<": "<<std::to_string(count/sw.udiff()*1000*1000)<<" qps"<<endl;
+  exit(0);
 
   unsigned int max_rthreads= ::arg().asNum("receiver-threads", 1);
   g_distributors.resize(max_rthreads);
