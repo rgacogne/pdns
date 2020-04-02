@@ -29,12 +29,21 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   /* dnsdist's version */
+  DNSDistPacketCache pcSkipCookies(10000);
+  pcSkipCookies.setECSParsingEnabled(true);
+  pcSkipCookies.setCookieHashing(false);
+
+  DNSDistPacketCache pcHashCookies(10000);
+  pcHashCookies.setECSParsingEnabled(true);
+  pcHashCookies.setCookieHashing(true);
+
   try {
     uint16_t qtype;
     uint16_t qclass;
     unsigned int consumed;
-    DNSName qname(reinterpret_cast<const char*>(data), size, sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-    DNSDistPacketCache::getKey(qname.toString(), consumed, data, size, false);
+    const DNSName qname(reinterpret_cast<const char*>(data), size, sizeof(dnsheader), false, &qtype, &qclass, &consumed);
+    pcSkipCookies.getKey(qname.toString(), consumed, data, size, false);
+    pcHashCookies.getKey(qname.toString(), consumed, data, size, false);
     boost::optional<Netmask> subnet;
     DNSDistPacketCache::getClientSubnet(reinterpret_cast<const char*>(data), consumed, size, subnet);
   }
