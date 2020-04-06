@@ -32,6 +32,9 @@
 #include "pdns/packetcache.hh"
 #include "dnspacket.hh"
 #include "dns.hh"
+#include "statbag.hh"
+
+extern StatBag S;
 
 // this has to be somewhere central, and not in a file that requires Lua
 // this is so the geoipbackend can set this pointer if loaded for lua-record.cc
@@ -223,6 +226,7 @@ vector<DNSBackend *>BackendMakerClass::all(bool metadataOnly)
 bool DNSBackend::getSOA(const DNSName &domain, SOAData &sd)
 {
   this->lookup(QType(QType::SOA),domain,-1);
+  S.inc("backend-queries");
 
   DNSResourceRecord rr;
   rr.auth = true;

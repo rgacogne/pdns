@@ -50,10 +50,11 @@
 extern StatBag S;
 
 vector<UeberBackend *>UeberBackend::instances;
-pthread_mutex_t UeberBackend::instances_lock=PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t UeberBackend::instances_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // initially we are blocked
-bool UeberBackend::d_go=false;
+bool UeberBackend::d_go = false;
+AtomicCounter* UeberBackend::s_backendQueries = nullptr;
 pthread_mutex_t  UeberBackend::d_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t UeberBackend::d_cond = PTHREAD_COND_INITIALIZER;
 
@@ -95,7 +96,9 @@ bool UeberBackend::loadModules(const vector<string>& modules, const string& path
 void UeberBackend::go(void)
 {
   pthread_mutex_lock(&d_mut);
-  d_go=true;
+  d_go = true;
+  S.declare("backend-queries", "Number of queries sent to the backend(s)");
+  s_backendQueries = S.getPointer("backend-queries");
   pthread_cond_broadcast(&d_cond);
   pthread_mutex_unlock(&d_mut);
 }
@@ -632,6 +635,7 @@ void UeberBackend::lookup(const QType &qtype,const DNSName &qname, int zoneId, D
       d_answers.clear();
       d_handle.d_hinterBackend = backends.at(d_handle.i++);
       d_handle.d_hinterBackend->lookup(QType::ANY, qname, zoneId, pkt_p);
+      ++(*s_backendQueries);
     } 
     else if (cstat == 0) {
       //      cout<<"UeberBackend::lookup("<<qname<<"|"<<DNSRecordContent::NumberToType(qtype.getCode())<<"): NEGcached"<<endl;
@@ -755,6 +759,7 @@ bool UeberBackend::handle::get(DNSZoneRecord &r)
       
       d_hinterBackend = parent->backends.at(i++);
       d_hinterBackend->lookup(qtype, qname, parent->d_domain_id, pkt_p);
+      ++(*s_backendQueries);
     }
     else {
       break;
