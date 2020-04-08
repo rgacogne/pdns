@@ -29,7 +29,7 @@ class PacketCache : public boost::noncopyable
 {
 public:
 
-  /* hash the packet from the provided position, which should point right after tje qname. This skips:
+  /* hash the packet from the provided position, which should point right after the qname. This skips:
      - the query ID ;
      - EDNS Cookie options, if any ;
      - EDNS Client Subnet options, if any and skipECS is true.
@@ -59,7 +59,7 @@ public:
     /* already hashed above */
     pos += 13;
 
-    const uint16_t rdLen = ((static_cast<unsigned char>(packet.at(pos)) * 256) + static_cast<unsigned char>(packet.at(pos + 1)));
+    const uint16_t rdLen = (static_cast<uint16_t>(static_cast<uint8_t>(packet.at(pos))) * 256) + static_cast<uint8_t>(packet.at(pos + 1));
     /* skip the rd length */
     /* already hashed above */
     pos += 2;
@@ -74,7 +74,6 @@ public:
     uint16_t rdataRead = 0;
     uint16_t optionCode;
     uint16_t optionLen;
-
     while (pos < packetSize && rdataRead < rdLen && getNextEDNSOption(&packet.at(pos), rdLen - rdataRead, optionCode, optionLen)) {
       if (optionLen > (rdLen - rdataRead - 4)) {
         if (packetSize > pos) {
@@ -116,7 +115,7 @@ public:
   static uint32_t hashHeaderAndQName(const std::string& packet, size_t& pos)
   {
     uint32_t currentHash = 0;
-    size_t packetSize = packet.size();
+    const size_t packetSize = packet.size();
     assert(packetSize >= sizeof(dnsheader));
     currentHash = burtle(reinterpret_cast<const unsigned char*>(&packet.at(2)), sizeof(dnsheader) - 2, currentHash); // rest of dnsheader, skip id
     pos = sizeof(dnsheader);
@@ -199,7 +198,7 @@ public:
     /* already compared above */
     pos += 13;
 
-    const uint16_t rdLen = ((static_cast<unsigned char>(query.at(pos)) * 256) + static_cast<unsigned char>(query.at(pos + 1)));
+    const uint16_t rdLen = (static_cast<uint16_t>(static_cast<uint8_t>(query.at(pos))) * 256) + static_cast<uint8_t>(query.at(pos + 1));
     /* skip the rd length */
     /* already compared above */
     pos += sizeof(uint16_t);
