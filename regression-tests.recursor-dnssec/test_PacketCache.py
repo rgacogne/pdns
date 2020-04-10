@@ -1,5 +1,6 @@
 import clientsubnetoption
 import cookiesoption
+import paddingoption
 import dns
 import os
 import requests
@@ -96,9 +97,12 @@ e 3600 IN A 192.0.2.42
         self.checkPacketCacheMetrics(1, 1)
 
         eco1 = cookiesoption.CookiesOption(b'deadbeef', b'deadbeef')
-        eco2 = cookiesoption.CookiesOption(b'deadc0de', b'deadc0de')
+        eco2 = cookiesoption.CookiesOption(b'deadc0de', b'deadbeefdeadc0de')
         ecso1 = clientsubnetoption.ClientSubnetOption('192.0.2.1', 32)
         ecso2 = clientsubnetoption.ClientSubnetOption('192.0.2.2', 32)
+        ecso3 = clientsubnetoption.ClientSubnetOption('0.0.0.0', 0)
+        epo1 = paddingoption.PaddingOption(16)
+        epo2 = paddingoption.PaddingOption(256)
 
         # we add a cookie, should not match anymore
         query = dns.message.make_query(qname, 'A', want_dnssec=True, options=[eco1])
@@ -136,9 +140,30 @@ e 3600 IN A 192.0.2.42
         self.checkPacketCacheMetrics(4, 3)
 
         # first cookie but different ECS option, should still match (we ignore EDNS Client Subnet
-        # in the recursor's packet cache, but ECS-specific responses are not cached
+        # in the recursor's packet cache, but ECS-specific responses are not cached)
         query = dns.message.make_query(qname, 'A', want_dnssec=True, options=[eco1, ecso2])
         res = self.sendUDPQuery(query)
         self.assertRcodeEqual(res, dns.rcode.NOERROR)
         self.assertRRsetInAnswer(res, expected)
         self.checkPacketCacheMetrics(5, 3)
+
+        # same cookie, different ECS size (0 source), should NOT match (source 0 has very specific requirements)
+        query = dns.message.make_query(qname, 'A', want_dnssec=True, options=[eco1, ecso3])
+        res = self.sendUDPQuery(query)
+        self.assertRcodeEqual(res, dns.rcode.NOERROR)
+        self.assertRRsetInAnswer(res, expected)
+        self.checkPacketCacheMetrics(5, 4)
+
+        # cookie1 + padding 1, should not match
+        query = dns.message.make_query(qname, 'A', want_dnssec=True, options=[eco1, epo1])
+        res = self.sendUDPQuery(query)
+        self.assertRcodeEqual(res, dns.rcode.NOERROR)
+        self.assertRRsetInAnswer(res, expected)
+        self.checkPacketCacheMetrics(5, 5)
+
+        # cookie2 + padding2, should match the previous one
+        query = dns.message.make_query(qname, 'A', want_dnssec=True, options=[eco2, epo2])
+        res = self.sendUDPQuery(query)
+        self.assertRcodeEqual(res, dns.rcode.NOERROR)
+        self.assertRRsetInAnswer(res, expected)
+        self.checkPacketCacheMetrics(6, 5)
