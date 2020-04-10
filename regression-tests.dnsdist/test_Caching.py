@@ -4,6 +4,7 @@ import time
 import dns
 import clientsubnetoption
 import cookiesoption
+import paddingoption
 from dnsdisttests import DNSDistTest
 
 class TestCaching(DNSDistTest):
@@ -498,6 +499,84 @@ class TestCaching(DNSDistTest):
         # second query should be served from the cache
         (_, receivedResponse) = self.sendUDPQuery(query, response=None, useQueue=False)
         receivedResponse.id = response.id
+        self.assertEquals(receivedResponse, response)
+
+    def testCacheDifferentCookieSizes(self):
+        """
+        Cache: The size of cookies should be ignored by the cache
+        """
+        ttl = 600
+        name = 'cache-different-cookie-sizes.cache.tests.powerdns.com.'
+        eco = cookiesoption.CookiesOption(b'deadbeef', b'deadbeef')
+        query = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, payload=4096, options=[eco])
+        response = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    ttl,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.AAAA,
+                                    '::1')
+        response.answer.append(rrset)
+
+        # first query to fill the cache
+        (receivedQuery, receivedResponse) = self.sendUDPQuery(query, response)
+        self.assertTrue(receivedQuery)
+        self.assertTrue(receivedResponse)
+        receivedQuery.id = query.id
+        self.assertEquals(query, receivedQuery)
+        self.assertEquals(receivedResponse, response)
+
+        eco = cookiesoption.CookiesOption(b'badc0fee', b'badc0feedeadbeef')
+        query = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, payload=4096, options=[eco])
+        # second query should be served from the cache
+        (_, receivedResponse) = self.sendUDPQuery(query, response=None, useQueue=False)
+        receivedResponse.id = response.id
+        self.assertEquals(receivedResponse, response)
+
+    def testCacheDifferentPaddingSizes(self):
+        """
+        Cache: The size of the padding should be ignored by the cache
+        """
+        ttl = 600
+        name = 'cache-different-padding-sizes.cache.tests.powerdns.com.'
+        epo = paddingoption.PaddingOption(8)
+        query = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, payload=4096, options=[epo])
+        response = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    ttl,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.AAAA,
+                                    '::1')
+        response.answer.append(rrset)
+
+        # first query to fill the cache
+        (receivedQuery, receivedResponse) = self.sendUDPQuery(query, response)
+        self.assertTrue(receivedQuery)
+        self.assertTrue(receivedResponse)
+        receivedQuery.id = query.id
+        self.assertEquals(query, receivedQuery)
+        self.assertEquals(receivedResponse, response)
+
+        epo = paddingoption.PaddingOption(128)
+        query = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, payload=4096, options=[epo])
+        # second query should be served from the cache
+        (_, receivedResponse) = self.sendUDPQuery(query, response=None, useQueue=False)
+        receivedResponse.id = response.id
+        self.assertEquals(receivedResponse, response)
+
+        # but the same query _without_ padding should not be served from the cache
+        query = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, payload=4096, options=[])
+        response = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    ttl,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.AAAA,
+                                    '2001:DB8::42')
+        response.answer.append(rrset)
+        (receivedQuery, receivedResponse) = self.sendUDPQuery(query, response)
+        self.assertTrue(receivedQuery)
+        self.assertTrue(receivedResponse)
+        receivedQuery.id = query.id
+        self.assertEquals(query, receivedQuery)
         self.assertEquals(receivedResponse, response)
 
     def testCacheCookies(self):
