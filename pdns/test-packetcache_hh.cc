@@ -9,6 +9,7 @@
 #include "dnswriter.hh"
 #include "dnsrecords.hh"
 #include "ednscookies.hh"
+#include "ednspadding.hh"
 #include "ednssubnet.hh"
 #include "packetcache.hh"
 
@@ -53,7 +54,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheAuthCollision) {
     pw1.getHeader()->rd = true;
     pw1.getHeader()->qr = false;
     pw1.getHeader()->id = 0x42;
-    opt.source = Netmask("10.0.152.74/32");
+    opt.source = Netmask("10.1.163.137/32");
     ednsOptions.clear();
     ednsOptions.push_back(std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(opt)));
     pw1.addOpt(512, 0, 0, ednsOptions);
@@ -67,7 +68,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheAuthCollision) {
     pw2.getHeader()->rd = true;
     pw2.getHeader()->qr = false;
     pw2.getHeader()->id = 0x84;
-    opt.source = Netmask("10.2.70.250/32");
+    opt.source = Netmask("10.2.46.37/32");
     ednsOptions.clear();
     ednsOptions.push_back(std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(opt)));
     pw2.addOpt(512, 0, 0, ednsOptions);
@@ -125,7 +126,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheAuthCollision) {
     pw1.getHeader()->rd = true;
     pw1.getHeader()->qr = false;
     pw1.getHeader()->id = 0x42;
-    opt.source = Netmask("10.0.34.159/32");
+    opt.source = Netmask("10.0.137.131/32");
     ednsOptions.clear();
     ednsOptions.push_back(std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(opt)));
     pw1.addOpt(512, 0, EDNSOpts::DNSSECOK, ednsOptions);
@@ -139,7 +140,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheAuthCollision) {
     pw2.getHeader()->rd = true;
     pw2.getHeader()->qr = false;
     pw2.getHeader()->id = 0x84;
-    opt.source = Netmask("10.0.179.58/32");
+    opt.source = Netmask("10.1.68.253/32");
     ednsOptions.clear();
     ednsOptions.push_back(std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(opt)));
     /* no EDNSOpts::DNSSECOK !! */
@@ -395,6 +396,168 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheRecCollision) {
     /* we do match if we skip the cookie as well */
     BOOST_CHECK(PacketCache::queryMatches(spacket1, spacket2, qname, optionsToSkip));
   }
+}
+
+BOOST_AUTO_TEST_CASE(test_PCEDNSOptions) {
+  DNSName qname("www.powerdns.com.");
+  uint16_t qtype = QType::AAAA;
+
+  DNSPacketWriter::optvect_t ednsOptions;
+  EDNSSubnetOpts ecsOpt;
+  EDNSCookiesOpt cookiesOpt;
+
+  /* hash to <name, query> */
+  std::map<uint32_t, std::tuple<std::string, std::vector<uint8_t>>> queryHashes;
+
+  auto addEntry = [&queryHashes, qname, qtype](const std::string& entryName, boost::optional<DNSPacketWriter::optvect_t> ednsOpts, bool skipECS=false, const std::string existingEntry="") {
+
+    vector<uint8_t> query;
+    DNSPacketWriter pw(query, qname, qtype, QClass::IN, 0);
+    pw.getHeader()->rd = 1;
+    pw.getHeader()->id = 0x42;
+    if (ednsOpts) {
+      pw.addOpt(512, 0, 0, *ednsOpts);
+    }
+    pw.commit();
+
+    std::string queryStr(reinterpret_cast<const char*>(query.data()), query.size());
+    auto hash = PacketCache::canHashPacket(queryStr, skipECS);
+
+    bool shouldCollide = !existingEntry.empty();
+    const auto& it = queryHashes.find(hash);
+    if (shouldCollide) {
+      if (it == queryHashes.end()) {
+        cerr<<"Error, the entry "<<entryName<<" should match an existing one and didn't"<<endl;
+        BOOST_CHECK(false);
+      }
+      else {
+        BOOST_CHECK_EQUAL(std::get<0>(it->second), existingEntry);
+
+        const auto& cachedQuery = std::get<1>(it->second);
+        std::unordered_set<uint16_t> optionsToIgnore = { EDNSOptionCode::COOKIE, EDNSOptionCode::PADDING };
+        if (skipECS) {
+          optionsToIgnore.insert(EDNSOptionCode::ECS);
+        }
+
+        if (!PacketCache::queryMatches(queryStr, std::string(reinterpret_cast<const char*>(cachedQuery.data()), cachedQuery.size()), qname, optionsToIgnore)) {
+          cerr<<"Error the entry "<<entryName<<" hashes as "<<std::get<0>(it->second)<<" but doesn't match"<<endl;
+          BOOST_CHECK(false);
+        }
+      }
+    }
+    else if (!shouldCollide && it != queryHashes.end()) {
+      cerr<<"Error, the entry "<<entryName<<" should NOT match an existing one and matched "<<std::get<0>(it->second)<<endl;
+      BOOST_CHECK(false);
+    }
+
+    if (it == queryHashes.end()) {
+      queryHashes[hash] = std::make_tuple(entryName, query);
+    }
+  };
+
+  addEntry("query without EDNS", boost::none);
+  addEntry("query with EDNS but no options", DNSPacketWriter::optvect_t());
+
+  ecsOpt.source = Netmask("192.0.2.1/32");
+  ednsOptions = { std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(ecsOpt)) };
+  addEntry("query with ECS 192.0.2.1/32", ednsOptions);
+
+  ecsOpt.source = Netmask("192.0.2.2/32");
+  ednsOptions = { std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(ecsOpt)) };
+  addEntry("query with ECS 192.0.2.2/32", ednsOptions);
+
+  ecsOpt.source = Netmask("0.0.0.0/0");
+  ednsOptions = { std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(ecsOpt)) };
+  addEntry("query with ECS 0.0.0.0/0", ednsOptions);
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeef");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)) };
+  addEntry("query with EDNS cookie of deadbeef", ednsOptions);
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeefdeadc0de");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)) };
+  /* should collide with the previous one, since we skip cookies */
+  addEntry("query with EDNS cookie of deadbeefdeadc0de", ednsOptions, false, "query with EDNS cookie of deadbeef");
+
+  ednsOptions = { std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(4)) };
+  addEntry("query with EDNS padding of 4 bytes", ednsOptions);
+
+  ednsOptions = { std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(5)) };
+  /* should collide with the previous one since we skip padding */
+  addEntry("query with EDNS padding of 5 bytes", ednsOptions, false, "query with EDNS padding of 4 bytes");
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeef");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)), std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(4)) };
+  addEntry("query with EDNS cookie of deadbeef plus padding of 4 bytes", ednsOptions);
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeefdeadc0de");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)), std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(5)) };
+  /* should match the previous since the content (and size!) of both cookies and padding are ignored */
+  addEntry("query with EDNS cookie of deadbeefdeadc0de plus padding of 5 bytes", ednsOptions, false, "query with EDNS cookie of deadbeef plus padding of 4 bytes");
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeefdeadc0de");
+  ednsOptions = { std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(5)), std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)) };
+  /* should NOT match the previous since the options are not in the same order, and so the hashes will differ */
+  addEntry("query with padding of 5 bytes plus EDNS cookie of deadbeefdeadc0de", ednsOptions, false);
+
+  /* ****************** */
+  /* we now clear the cache and do the same tests while skipping ECS */
+  queryHashes.clear();
+
+  addEntry("query without EDNS", boost::none, true);
+  addEntry("query with EDNS but no options", DNSPacketWriter::optvect_t(), true);
+
+  ecsOpt.source = Netmask("192.0.2.1/32");
+  ednsOptions = { std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(ecsOpt)) };
+  addEntry("query with ECS 192.0.2.1/32", ednsOptions, true);
+
+  ecsOpt.source = Netmask("192.0.2.2/32");
+  ednsOptions = { std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(ecsOpt)) };
+  addEntry("query with ECS 192.0.2.2/32", ednsOptions, true, "query with ECS 192.0.2.1/32");
+
+  ecsOpt.source = Netmask("0.0.0.0/0");
+  ednsOptions = { std::make_pair(EDNSOptionCode::ECS, makeEDNSSubnetOptsString(ecsOpt)) };
+  addEntry("query with ECS 0.0.0.0/0", ednsOptions, true);
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeef");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)) };
+  addEntry("query with EDNS cookie of deadbeef", ednsOptions, true);
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeefdeadc0de");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)) };
+  /* should collide with the previous one, since we skip cookies */
+  addEntry("query with EDNS cookie of deadbeefdeadc0de", ednsOptions, true, "query with EDNS cookie of deadbeef");
+
+  ednsOptions = { std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(4)) };
+  addEntry("query with EDNS padding of 4 bytes", ednsOptions, true);
+
+  ednsOptions = { std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(5)) };
+  /* should collide with the previous one since we skip padding */
+  addEntry("query with EDNS padding of 5 bytes", ednsOptions, true, "query with EDNS padding of 4 bytes");
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeef");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)), std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(4)) };
+  addEntry("query with EDNS cookie of deadbeef plus padding of 4 bytes", ednsOptions, true);
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeefdeadc0de");
+  ednsOptions = { std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)), std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(5)) };
+  /* should match the previous since the content (and size!) of both cookies and padding are ignored */
+  addEntry("query with EDNS cookie of deadbeefdeadc0de plus padding of 5 bytes", ednsOptions, true, "query with EDNS cookie of deadbeef plus padding of 4 bytes");
+
+  cookiesOpt.client = string("deadbeef");
+  cookiesOpt.server = string("deadbeefdeadc0de");
+  ednsOptions = { std::make_pair(EDNSOptionCode::PADDING, makeEDNSPaddingOptString(5)), std::make_pair(EDNSOptionCode::COOKIE, makeEDNSCookiesOptString(cookiesOpt)) };
+  /* should NOT match the previous since the options are not in the same order, and so the hashes will differ */
+  addEntry("query with padding of 5 bytes plus EDNS cookie of deadbeefdeadc0de", ednsOptions, false);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

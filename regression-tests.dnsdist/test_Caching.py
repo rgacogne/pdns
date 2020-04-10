@@ -2168,7 +2168,7 @@ class TestCachingCollisionNoECSParsing(DNSDistTest):
         Cache: Collision with no ECS parsing
         """
         name = 'collision-no-ecs-parsing.cache.tests.powerdns.com.'
-        ecso = clientsubnetoption.ClientSubnetOption('10.0.226.63', 32)
+        ecso = clientsubnetoption.ClientSubnetOption('10.0.84.182', 32)
         query = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, options=[ecso], payload=512)
         query.flags = dns.flags.RD
         response = dns.message.make_response(query)
@@ -2190,7 +2190,7 @@ class TestCachingCollisionNoECSParsing(DNSDistTest):
         # second query will hash to the same key, triggering a collision which
         # will not be detected because the qname, qtype, qclass and flags will
         # match and EDNS Client Subnet parsing has not been enabled
-        ecso2 = clientsubnetoption.ClientSubnetOption('10.1.60.19', 32)
+        ecso2 = clientsubnetoption.ClientSubnetOption('10.1.51.18', 32)
         query2 = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, options=[ecso2], payload=512)
         query2.flags = dns.flags.RD
         (_, receivedResponse) = self.sendUDPQuery(query2, response=None, useQueue=False)
@@ -2210,7 +2210,7 @@ class TestCachingCollisionWithECSParsing(DNSDistTest):
         Cache: Collision with ECS parsing
         """
         name = 'collision-with-ecs-parsing.cache.tests.powerdns.com.'
-        ecso = clientsubnetoption.ClientSubnetOption('10.0.150.206', 32)
+        ecso = clientsubnetoption.ClientSubnetOption('10.0.131.51', 32)
         query = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, options=[ecso], payload=512)
         query.flags = dns.flags.RD
         response = dns.message.make_response(query)
@@ -2232,7 +2232,7 @@ class TestCachingCollisionWithECSParsing(DNSDistTest):
         # second query will hash to the same key, triggering a collision which
         # _will_ be detected this time because the qname, qtype, qclass and flags will
         # match but EDNS Client Subnet parsing is now enabled and will detect the issue
-        ecso2 = clientsubnetoption.ClientSubnetOption('10.0.212.51', 32)
+        ecso2 = clientsubnetoption.ClientSubnetOption('10.1.77.106', 32)
         query2 = dns.message.make_query(name, 'AAAA', 'IN', use_edns=True, options=[ecso2], payload=512)
         query2.flags = dns.flags.RD
         response2 = dns.message.make_response(query2)

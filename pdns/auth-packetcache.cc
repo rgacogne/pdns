@@ -110,7 +110,7 @@ bool AuthPacketCache::get(DNSPacket& p, DNSPacket& cached)
 
 bool AuthPacketCache::entryMatches(cmap_t::index<HashTag>::type::iterator& iter, const std::string& query, const DNSName& qname, uint16_t qtype, bool tcp)
 {
-  static const std::unordered_set<uint16_t> skippedEDNSTypes{ EDNSOptionCode::COOKIE };
+  static const std::unordered_set<uint16_t> skippedEDNSTypes{ EDNSOptionCode::COOKIE, EDNSOptionCode::PADDING };
   return iter->tcp == tcp && iter->qtype == qtype && iter->qname == qname && queryMatches(iter->query, query, qname, skippedEDNSTypes);
 }
 

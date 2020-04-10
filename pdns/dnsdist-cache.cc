@@ -430,10 +430,11 @@ uint32_t DNSDistPacketCache::getKey(const std::string& qname, uint16_t consumed,
   if (packetLen > ((sizeof(dnsheader) + consumed))) {
     if (!d_cookieHashing) {
       /* skip EDNS Cookie options if any */
-      result = PacketCache::hashAfterQname(string_view(reinterpret_cast<const char*>(packet), packetLen), result, sizeof(dnsheader) + consumed, false);
+      result = PacketCache::hashAfterQname(string_view(reinterpret_cast<const char*>(packet), packetLen), result, sizeof(dnsheader) + consumed, false, true);
     }
     else {
-      result = burtle(packet + sizeof(dnsheader) + consumed, packetLen - (sizeof(dnsheader) + consumed), result);
+      /* don't skip EDNS Cookie options, but still skip EDNS padding ones */
+      result = PacketCache::hashAfterQname(string_view(reinterpret_cast<const char*>(packet), packetLen), result, sizeof(dnsheader) + consumed, false, false);
     }
   }
   result = burtle((const unsigned char*) &tcp, sizeof(tcp), result);

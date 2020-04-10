@@ -241,6 +241,7 @@ testrunner_SOURCES = \
 	dolog.hh \
 	ednsoptions.cc ednsoptions.hh \
 	ednscookies.cc ednscookies.hh \
+	ednspadding.cc ednspadding.hh \
 	ednssubnet.cc ednssubnet.hh \
 	gettime.cc gettime.hh \
 	iputils.cc iputils.hh \

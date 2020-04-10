@@ -46,7 +46,7 @@ bool RecursorPacketCache::qrMatch(const packetCache_t::index<HashTag>::type::ite
     return false;
   }
 
-  static const std::unordered_set<uint16_t> optionsToSkip{ EDNSOptionCode::COOKIE, EDNSOptionCode::ECS };
+  static const std::unordered_set<uint16_t> optionsToSkip{ EDNSOptionCode::COOKIE, EDNSOptionCode::ECS, EDNSOptionCode::PADDING };
   return queryMatches(iter->d_query, queryPacket, qname, optionsToSkip);
 }
 

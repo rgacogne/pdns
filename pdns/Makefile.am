@@ -1277,7 +1277,8 @@ testrunner_SOURCES = \
 	dnswriter.cc \
 	ednsoptions.cc ednsoptions.hh \
 	ednscookies.cc ednscookies.hh \
-	ednssubnet.cc \
+	ednspadding.cc ednspadding.hh \
+	ednssubnet.cc ednssubnet.hh \
 	gettime.cc gettime.hh \
 	gss_context.cc gss_context.hh \
 	ipcipher.cc ipcipher.hh \
