@@ -135,6 +135,11 @@ public:
 
   //! fills the soadata struct with the SOA details. Returns false if there is no SOA.
   virtual bool getSOA(const DNSName &name, SOAData &soadata);
+  //! whether SOA lookups should be done only via the getSOA() calls, or if a regular ANY lookup can be done.
+  virtual bool hasSpecialCaseSOA() const
+  {
+    return false;
+  }
 
   virtual bool replaceRRSet(uint32_t domain_id, const DNSName& qname, const QType& qt, const vector<DNSResourceRecord>& rrset)
   {

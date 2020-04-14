@@ -432,28 +432,75 @@ bool UeberBackend::getSOAUncached(const DNSName &domain, SOAData &sd)
   d_question.qname=domain;
   d_question.zoneId=-1;
 
-  for(vector<DNSBackend *>::const_iterator i=backends.begin();i!=backends.end();++i)
-    if((*i)->getSOA(domain, sd)) {
-      if(domain != sd.qname) {
-        throw PDNSException("getSOA() returned an SOA for the wrong zone. Question: '"+domain.toLogString()+"', answer: '"+sd.qname.toLogString()+"'");
-      }
-      if(d_cache_ttl) {
-        DNSZoneRecord rr;
-        rr.dr.d_name = sd.qname;
-        rr.dr.d_type = QType::SOA;
-        rr.dr.d_content = makeSOAContent(sd);
-        rr.dr.d_ttl = sd.ttl;
-        rr.domain_id = sd.domain_id;
+  for (vector<DNSBackend *>::const_iterator i = backends.begin(); i != backends.end(); ++i) {
+    if ((*i)->hasSpecialCaseSOA()) {
+      if ((*i)->getSOA(domain, sd)) {
+        if (domain != sd.qname) {
+          throw PDNSException("getSOA() returned an SOA for the wrong zone. Question: '"+domain.toLogString()+"', answer: '"+sd.qname.toLogString()+"'");
+        }
 
-        addCache(d_question, d_question.qtype, {rr});
+        if (d_cache_ttl) {
+          DNSZoneRecord rr;
+          rr.dr.d_name = sd.qname;
+          rr.dr.d_type = QType::SOA;
+          rr.dr.d_content = makeSOAContent(sd);
+          rr.dr.d_ttl = sd.ttl;
+          rr.domain_id = sd.domain_id;
 
+          addCache(d_question, d_question.qtype, {rr});
+        }
+        return true;
       }
-      return true;
     }
+    else {
+      (*i)->lookup(QType(QType::ANY), domain, -1);
+      S.inc("backend-queries");
+      std::vector<DNSZoneRecord> records;
 
-  if (d_negcache_ttl) {
-    addNegCache(d_question, d_question.qtype);
+      DNSZoneRecord dzr;
+      dzr.auth = true;
+      bool foundSOA = false;
+
+      while ((*i)->get(dzr)) {
+        if (dzr.dr.d_type == QType::SOA) {
+          fillSOAData(dzr, sd);
+          sd.qname = domain;
+          if (!sd.nameserver.countLabels()) {
+            sd.nameserver = DNSName(arg()["default-soa-name"]);
+          }
+          if (!sd.hostmaster.countLabels()) {
+            if (!arg().isEmpty("default-soa-mail")) {
+              sd.hostmaster = DNSName(arg()["default-soa-mail"]);
+            }
+            else {
+              sd.hostmaster = DNSName("hostmaster") + domain;
+            }
+          }
+          sd.db = *i;
+
+          foundSOA = true;
+        }
+
+        records.push_back(std::move(dzr));
+      }
+
+      if (records.empty()) {
+        /* no record at all, insert a NXDOMAIN */
+        addNegCache(d_question, QType::ANY);
+      }
+      else {
+        addCache(d_question, QType::ANY, std::move(records));
+
+        if (!foundSOA) {
+          addNegCache(d_question, QType::SOA);
+        }
+      }
+
+      return foundSOA;
+    }
   }
+
+  addNegCache(d_question, d_question.qtype);
 
   return false;
 }

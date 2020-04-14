@@ -228,17 +228,15 @@ bool DNSBackend::getSOA(const DNSName &domain, SOAData &sd)
   this->lookup(QType(QType::SOA),domain,-1);
   S.inc("backend-queries");
 
-  DNSResourceRecord rr;
-  rr.auth = true;
+  DNSZoneRecord dzr;
+  dzr.auth = true;
 
   int hits=0;
 
-  while(this->get(rr)) {
-    if (rr.qtype != QType::SOA) throw PDNSException("Got non-SOA record when asking for SOA");
+  while (this->get(dzr)) {
+    if (dzr.dr.d_type != QType::SOA) throw PDNSException("Got non-SOA record when asking for SOA");
     hits++;
-    fillSOAData(rr.content, sd);
-    sd.domain_id=rr.domain_id;
-    sd.ttl=rr.ttl;
+    fillSOAData(dzr, sd);
   }
 
   if(!hits)
