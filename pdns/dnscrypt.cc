@@ -29,8 +29,13 @@
 
 DNSCryptPrivateKey::DNSCryptPrivateKey()
 {
-  sodium_memzero(key, sizeof(key));
-  sodium_mlock(key, sizeof(key));
+  auto tmp = sodium_malloc(DNSCRYPT_PRIVATE_KEY_SIZE);
+  if (tmp == nullptr) {
+    throw std::runtime_error("Error allocating memory for DNSCrypt private key:" + stringerror());
+  }
+
+  key = std::unique_ptr(tmp, sodium_free);
+  tmp = nullptr;
 }
 
 void DNSCryptPrivateKey::loadFromFile(const std::string& keyFile)
@@ -57,7 +62,6 @@ void DNSCryptPrivateKey::saveToFile(const std::string& keyFile) const
 
 DNSCryptPrivateKey::~DNSCryptPrivateKey()
 {
-  sodium_munlock(key, sizeof(key));
 }
 
 DNSCryptExchangeVersion DNSCryptQuery::getVersion() const
@@ -94,13 +98,13 @@ int DNSCryptQuery::computeSharedKey()
   if (version == DNSCryptExchangeVersion::VERSION1) {
     res = crypto_box_beforenm(d_sharedKey,
                               d_header.clientPK,
-                              d_pair->privateKey.key);
+                              d_pair->privateKey.getKey());
   }
   else if (version == DNSCryptExchangeVersion::VERSION2) {
 #ifdef HAVE_CRYPTO_BOX_CURVE25519XCHACHA20POLY1305_EASY
     res = crypto_box_curve25519xchacha20poly1305_beforenm(d_sharedKey,
                                                           d_header.clientPK,
-                                                          d_pair->privateKey.key);
+                                                          d_pair->privateKey.getKey());
 #else /* HAVE_CRYPTO_BOX_CURVE25519XCHACHA20POLY1305_EASY */
     res = -1;
 #endif /* HAVE_CRYPTO_BOX_CURVE25519XCHACHA20POLY1305_EASY */
@@ -259,7 +263,7 @@ void DNSCryptContext::saveCertFromFile(const DNSCryptCert& cert, const std::stri
 
 void DNSCryptContext::generateResolverKeyPair(DNSCryptPrivateKey& privK, unsigned char pubK[DNSCRYPT_PUBLIC_KEY_SIZE])
 {
-  int res = crypto_box_keypair(pubK, privK.key);
+  int res = crypto_box_keypair(pubK, privK.getKey());
 
   if (res != 0) {
     throw std::runtime_error("Error generating DNSCrypt resolver keys");
@@ -269,7 +273,7 @@ void DNSCryptContext::generateResolverKeyPair(DNSCryptPrivateKey& privK, unsigne
 void DNSCryptContext::computePublicKeyFromPrivate(const DNSCryptPrivateKey& privK, unsigned char* pubK)
 {
   int res = crypto_scalarmult_base(pubK,
-                                   privK.key);
+                                   privK.getKey());
 
   if (res != 0) {
     throw std::runtime_error("Error computing dnscrypt public key from the private one");
@@ -546,7 +550,7 @@ void DNSCryptQuery::getDecrypted(bool tcp, char* packet, uint16_t packetSize, ui
                                  packetSize - sizeof(DNSCryptQueryHeader),
                                  nonce,
                                  d_header.clientPK,
-                                 d_pair->privateKey.key);
+                                 d_pair->privateKey.getKey());
 #endif /* HAVE_CRYPTO_BOX_EASY_AFTERNM */
 
   if (res != 0) {
@@ -629,7 +633,7 @@ uint16_t DNSCryptQuery::computePaddingSize(uint16_t unpaddedLen, size_t maxLen) 
   unsigned char nonce[DNSCRYPT_NONCE_SIZE];
   memcpy(nonce, d_header.clientNonce, (DNSCRYPT_NONCE_SIZE / 2));
   memcpy(&(nonce[DNSCRYPT_NONCE_SIZE / 2]), d_header.clientNonce, (DNSCRYPT_NONCE_SIZE / 2));
-  crypto_stream((unsigned char*) &rnd, sizeof(rnd), nonce, d_pair->privateKey.key);
+  crypto_stream((unsigned char*) &rnd, sizeof(rnd), nonce, d_pair->privateKey.getKey());
 
   paddedSize = unpaddedLen + rnd % (maxLen - unpaddedLen + 1);
   paddedSize += DNSCRYPT_PADDED_BLOCK_SIZE - (paddedSize % DNSCRYPT_PADDED_BLOCK_SIZE);
@@ -739,7 +743,7 @@ int DNSCryptQuery::encryptResponse(char* response, uint16_t responseLen, uint16_
                             responseLen + paddingSize,
                             responseHeader.nonce,
                             d_header.clientPK,
-                            d_pair->privateKey.key);
+                            d_pair->privateKey.getKey());
 #endif /* HAVE_CRYPTO_BOX_EASY_AFTERNM */
 
   if (res == 0) {
@@ -815,7 +819,7 @@ int DNSCryptContext::encryptQuery(char* query, uint16_t queryLen, uint16_t query
                           queryLen + paddingSize,
                           nonce,
                           cert->signedData.resolverPK,
-                          clientPrivateKey.key);
+                          clientPrivateKey.getKey());
   }
   else if (version == DNSCryptExchangeVersion::VERSION2) {
 #ifdef HAVE_CRYPTO_BOX_CURVE25519XCHACHA20POLY1305_EASY
@@ -824,7 +828,7 @@ int DNSCryptContext::encryptQuery(char* query, uint16_t queryLen, uint16_t query
                                                       queryLen + paddingSize,
                                                       nonce,
                                                       cert->signedData.resolverPK,
-                                                      clientPrivateKey.key);
+                                                      clientPrivateKey.getKey());
 #endif /* HAVE_CRYPTO_BOX_CURVE25519XCHACHA20POLY1305_EASY */
   }
   else {

@@ -156,8 +156,16 @@ public:
   ~DNSCryptPrivateKey();
   void loadFromFile(const std::string& keyFile);
   void saveToFile(const std::string& keyFile) const;
+  const unsigned char* getKey() const
+  {
+    if (key) {
+      return key.get();
+    }
+    return nullptr;
+  }
 
-  unsigned char key[DNSCRYPT_PRIVATE_KEY_SIZE];
+private:
+  std::unique_ptr<unsigned char, void(*)(void*)> key{nullptr, sodium_free};
 };
 
 struct DNSCryptCertificatePair
