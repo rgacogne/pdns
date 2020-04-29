@@ -182,6 +182,7 @@ GSQLBackend::GSQLBackend(const string &mode, const string &suffix)
   d_DeleteCommentsQuery_stmt = NULL;
   d_SearchRecordsQuery_stmt = NULL;
   d_SearchCommentsQuery_stmt = NULL;
+  d_GetBestAuth_stmt.reset();
 }
 
 void GSQLBackend::setNotified(uint32_t domain_id, uint32_t serial)

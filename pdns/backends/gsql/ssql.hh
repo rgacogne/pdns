@@ -34,7 +34,7 @@ public:
   {
   }
   
-  string txtReason()
+  const string& txtReason() const
   {
     return d_reason;
   }

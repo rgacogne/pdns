@@ -99,7 +99,7 @@ public:
   void lookup(const QType &, const DNSName &qdomain, int zoneId, DNSPacket *pkt_p=nullptr);
 
   /** Determines if we are authoritative for a zone, and at what level */
-  bool getAuth(const DNSName &target, const QType &qtype, SOAData* sd, bool cachedOk=true);
+  bool getAuth(const DNSName &target, bool lookingForDS, SOAData* sd, bool cachedOk=true);
   bool getSOA(const DNSName &domain, SOAData &sd);
   /** Load SOA info from backends, ignoring the cache.*/
   bool getSOAUncached(const DNSName &domain, SOAData &sd);

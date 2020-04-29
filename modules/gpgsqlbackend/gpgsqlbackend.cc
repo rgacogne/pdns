@@ -74,6 +74,58 @@ bool gPgSQLBackend::inTransaction()
   return false;
 }
 
+bool gPgSQLBackend::getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSResourceRecord>& records)
+{
+  if (d_GetBestAuth_stmt == nullptr) {
+    return false;
+  }
+
+  try {
+    reconnectIfNeeded();
+
+    auto stmt = dynamic_cast<SPgSQLStatement*>(d_GetBestAuth_stmt.get());
+    if (stmt == nullptr) {
+      return false;
+    }
+
+    stmt->
+      bind("target", target)->
+      bind("possibleZones", possibleZones)->
+      execute();
+
+    while (d_GetBestAuth_stmt->hasNextRow()) {
+      DNSResourceRecord r;
+      SSqlStatement::row_t row;
+      try {
+        d_GetBestAuth_stmt->nextRow(row);
+
+        if (row.size() != 8) {
+          throw PDNSException("getBetsAuth returned wrong number of columns, expected 8, got " + std::to_string(row.size()));
+        }
+      }
+      catch (const SSqlException& e) {
+        throw PDNSException("GSQLBackend get: "+e.txtReason());
+      }
+      try {
+        extractRecord(row, r);
+        records.push_back(std::move(r));
+      }
+      catch (...) {
+        continue;
+      }
+    }
+    d_GetBestAuth_stmt->reset();
+
+    if (records.empty()) {
+      return false;
+    }
+    return true;
+  }
+  catch (const SSqlException &e) {
+    throw PDNSException("GSQLBackend unable to lookup the best auth for '" + target.toLogString() + "':"+e.txtReason());
+  }
+}
+
 class gPgSQLFactory : public BackendFactory
 {
 public:
