@@ -114,6 +114,9 @@ public:
       d_DeleteCommentsQuery_stmt = d_db->prepare(d_DeleteCommentsQuery, 1);
       d_SearchRecordsQuery_stmt = d_db->prepare(d_SearchRecordsQuery, 3);
       d_SearchCommentsQuery_stmt = d_db->prepare(d_SearchCommentsQuery, 3);
+      if (!d_GetBestAuthQuery.empty()) {
+        d_GetBestAuth_stmt = d_db->prepare(d_GetBestAuthQuery, 2);
+      }
     }
   }
 
@@ -177,6 +180,7 @@ public:
     d_DeleteCommentsQuery_stmt.reset();
     d_SearchRecordsQuery_stmt.reset();
     d_SearchCommentsQuery_stmt.reset();
+    d_GetBestAuth_stmt.reset();
   }
 
   void lookup(const QType &, const DNSName &qdomain, int zoneId, DNSPacket *p=nullptr) override;
@@ -342,6 +346,8 @@ private:
   string d_SearchRecordsQuery;
   string d_SearchCommentsQuery;
 
+  string d_GetBestAuthQuery;
+
   unique_ptr<SSqlStatement>* d_query_stmt;
 
   unique_ptr<SSqlStatement> d_NoIdQuery_stmt;
@@ -406,6 +412,7 @@ private:
 
 protected:
   std::unique_ptr<SSql> d_db{nullptr};
+  std::unique_ptr<SSqlStatement> d_GetBestAuth_stmt{nullptr};
   bool d_dnssecQueries;
   bool d_inTransaction{false};
 };

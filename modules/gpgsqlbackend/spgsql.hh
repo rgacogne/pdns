@@ -55,3 +55,64 @@ private:
   static bool s_dolog;
   bool d_in_trx;
 };
+
+class SPgSQLStatement: public SSqlStatement
+{
+public:
+  SPgSQLStatement(const string& query, bool dolog, int nparams, SPgSQL* db);
+  SSqlStatement* bind(const string& name, bool value) override;
+  SSqlStatement* bind(const string& name, int value) override;
+  SSqlStatement* bind(const string& name, uint32_t value) override;
+  SSqlStatement* bind(const string& name, long value) override;
+  SSqlStatement* bind(const string& name, unsigned long value) override;
+  SSqlStatement* bind(const string& name, long long value) override;
+  SSqlStatement* bind(const string& name, unsigned long long value) override;
+  SSqlStatement* bind(const string& name, const std::string& value) override;
+  SSqlStatement* bind(const string& name, const std::vector<DNSName>& values);
+  SSqlStatement* bindNull(const string& name) override;
+
+  SSqlStatement* execute() override;
+  bool hasNextRow()override;
+  SSqlStatement* nextRow(row_t& row) override;
+  SSqlStatement* getResult(result_t& result) override;
+  SSqlStatement* reset() override;
+  const std::string& getQuery() override
+  {
+    return d_query;
+  }
+  void nextResult();
+
+  ~SPgSQLStatement()
+  {
+    releaseStatement();
+  }
+
+private:
+  PGconn* d_db() {
+    return d_parent->db();
+  }
+
+  void releaseStatement() {
+    d_prepared = false;
+    reset();
+  }
+
+  void prepareStatement();
+  void allocate();
+
+  string d_query;
+  SPgSQL *d_parent;
+  PGresult *d_res_set;
+  PGresult *d_res;
+  bool d_dolog;
+  DTime d_dtime; // only used if d_dolog is set
+  bool d_prepared;
+  int d_nparams;
+  int d_paridx;
+  char **paramValues;
+  int *paramLengths;
+  int d_residx;
+  int d_resnum;
+  int d_fnum;
+  int d_cur_set;
+};

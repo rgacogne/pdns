@@ -32,6 +32,7 @@
 #include <dlfcn.h>
 #include <string>
 #include <map>
+#include <unordered_map>
 #include <sys/types.h>
 #include <sstream>
 #include <errno.h>
@@ -294,7 +295,43 @@ void UeberBackend::getUpdatedMasters(vector<DomainInfo>* domains)
   }
 }
 
-bool UeberBackend::getAuth(const DNSName &target, const QType& qtype, SOAData* sd, bool cachedOk)
+static bool tryGetBestAuth(DNSBackend* backend, const DNSName& target, std::unordered_map<DNSName, std::vector<DNSZoneRecord>>& records, SOAData* sd, bool& done)
+{
+  std::vector<DNSZoneRecord> recs;
+  std::vector<DNSName> possibleZones;
+  possibleZones.reserve(target.countLabels());
+  DNSName shorter(target);
+  while (shorter.chopOff()) {
+    possibleZones.emplace_back(shorter);
+  }
+
+  if (!backend->getBestAuth(target, possibleZones, recs)) {
+    return false;
+  }
+
+  bool found = false;
+  if (!recs.empty()) {
+    records[target].reserve(records[target].size() + recs.size());
+
+    for (auto& rec : recs) {
+      if (rec.dr.d_type == QType::SOA) {
+        fillSOAData(rec, *sd);
+        sd->qname = rec.dr.d_name;
+        /* we need to return the records so they are cached once we have all the records, somehow */
+        found = true;
+      }
+
+      records[rec.dr.d_name].push_back(std::move(rec));
+    }
+    if (found) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd, bool cachedOk)
 {
   // A backend can respond to our authority request with the 'best' match it
   // has. For example, when asked for a.b.c.example.com. it might respond with
@@ -303,14 +340,19 @@ bool UeberBackend::getAuth(const DNSName &target, const QType& qtype, SOAData* s
   // backend again for b.c.example.com., c.example.com. and example.com.
   // If a backend has no match it may respond with an empty qname.
 
-  bool found = false;
+  bool foundChildZone = false;
   int cstat;
   DNSName shorter(target);
   vector<pair<size_t, SOAData> > bestmatch (backends.size(), make_pair(target.wirelength()+1, SOAData()));
+  std::unordered_map<DNSName, std::vector<DNSZoneRecord>> records;
+
+  cerr<<"in "<<__func__<<" for target "<<target<<" and DS "<<lookingForDS<<endl;
   do {
 
+    cerr<<"in main loop, shorter is "<<shorter<<endl;
     // Check cache
     if(cachedOk && (d_cache_ttl || d_negcache_ttl)) {
+      cerr<<"looking for a SOA for "<<shorter<<" from the cache"<<endl;
       d_question.qtype = QType::SOA;
       d_question.qname = shorter;
       d_question.zoneId = -1;
@@ -318,6 +360,7 @@ bool UeberBackend::getAuth(const DNSName &target, const QType& qtype, SOAData* s
       cstat = cacheHas(d_question,d_answers);
 
       if(cstat == 1 && !d_answers.empty() && d_cache_ttl) {
+        cerr<<"FOUND a SOA for "<<shorter<<" from the cache"<<endl;
         DLOG(g_log<<Logger::Error<<"has pos cache entry: "<<shorter<<endl);
         fillSOAData(d_answers[0], *sd);
 
@@ -325,39 +368,60 @@ bool UeberBackend::getAuth(const DNSName &target, const QType& qtype, SOAData* s
         sd->qname = shorter;
         goto found;
       } else if(cstat == 0 && d_negcache_ttl) {
+        cerr<<"NEG CACHE a SOA for "<<shorter<<" from the cache"<<endl;
         DLOG(g_log<<Logger::Error<<"has neg cache entry: "<<shorter<<endl);
         continue;
       }
     }
 
+    cerr<<"about to check backends for a SOA for "<<shorter<<endl;
     // Check backends
     {
       vector<DNSBackend *>::const_iterator i = backends.begin();
       vector<pair<size_t, SOAData> >::iterator j = bestmatch.begin();
       for(; i != backends.end() && j != bestmatch.end(); ++i, ++j) {
-
         DLOG(g_log<<Logger::Error<<"backend: "<<i-backends.begin()<<", qname: "<<shorter<<endl);
 
         if(j->first < shorter.wirelength()) {
+          cerr<<"skipped "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
           DLOG(g_log<<Logger::Error<<"skipped, we already found a shorter best match in this backend: "<<j->second.qname<<endl);
           continue;
         } else if(j->first == shorter.wirelength()) {
+          cerr<<"use best match "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
           DLOG(g_log<<Logger::Error<<"use shorter best match: "<<j->second.qname<<endl);
           *sd = j->second;
           break;
         } else {
+          bool done = false;
+          if (tryGetBestAuth(*i, shorter, records, sd, done)) {
+            if (done) {
+              j->first = sd->qname.wirelength();
+              j->second = *sd;
+              if(sd->qname == shorter) {
+                cerr<<"breaking "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
+                break;
+              }
+            }
+            continue;
+          }
+            
+          cerr<<"lookup "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
           DLOG(g_log<<Logger::Error<<"lookup: "<<shorter<<endl);
           if((*i)->getAuth(shorter, sd)) {
+            cerr<<"got true for "<<shorter<<" / "<<sd->qname<<" from backend "<<(*i)->getPrefix()<<endl;
             DLOG(g_log<<Logger::Error<<"got: "<<sd->qname<<endl);
             if(!sd->qname.empty() && !shorter.isPartOf(sd->qname)) {
+              cerr<<"INVALID  "<<shorter<<" / "<<sd->qname<<" from backend "<<(*i)->getPrefix()<<endl;
               throw PDNSException("getAuth() returned an SOA for the wrong zone. Zone '"+sd->qname.toLogString()+"' is not part of '"+shorter.toLogString()+"'");
             }
             j->first = sd->qname.wirelength();
             j->second = *sd;
             if(sd->qname == shorter) {
+              cerr<<"breaking "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
               break;
             }
           } else {
+            cerr<<"no match "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
             DLOG(g_log<<Logger::Error<<"no match for: "<<shorter<<endl);
           }
         }
@@ -366,12 +430,15 @@ bool UeberBackend::getAuth(const DNSName &target, const QType& qtype, SOAData* s
       // Add to cache
       if(i == backends.end()) {
         if(d_negcache_ttl) {
+          cerr<<"add neg cache entry for "<<shorter<<endl;
+
           DLOG(g_log<<Logger::Error<<"add neg cache entry:"<<shorter<<endl);
           d_question.qname=shorter;
           addNegCache(d_question);
         }
         continue;
       } else if(d_cache_ttl) {
+        cerr<<"add positive cache entry for "<<sd->qname<<endl;
         DLOG(g_log<<Logger::Error<<"add pos cache entry: "<<sd->qname<<endl);
         d_question.qtype = QType::SOA;
         d_question.qname = sd->qname;
@@ -388,17 +455,24 @@ bool UeberBackend::getAuth(const DNSName &target, const QType& qtype, SOAData* s
       }
     }
 
+    cerr<<"reach the check with shorter "<<shorter<<" target is "<<target<<endl;
+
 found:
-    if(found == (qtype == QType::DS) || target != shorter) {
+    /* if we are looking for a DS, we need the parent zone, not the child zone,
+       so we need to continue if we found the child zone (target == shorter) */
+    if (!lookingForDS || target != shorter) {
+      cerr<<"found "<<sd->qname<<endl;
       DLOG(g_log<<Logger::Error<<"found: "<<sd->qname<<endl);
       return true;
     } else {
+      cerr<<"chasing next "<<sd->qname<<endl;
+      foundChildZone = true;
       DLOG(g_log<<Logger::Error<<"chasing next: "<<sd->qname<<endl);
-      found = true;
     }
 
   } while(shorter.chopOff());
-  return found;
+  cerr<<"returning found"<<endl;
+  return foundChildZone;
 }
 
 bool UeberBackend::getSOA(const DNSName &domain, SOAData &sd)
