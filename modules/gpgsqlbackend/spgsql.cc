@@ -32,217 +32,184 @@
 #include "pdns/namespaces.hh"
 #include <algorithm>
 
-class SPgSQLStatement: public SSqlStatement
+SPgSQLStatement::SPgSQLStatement(const string& query, bool dolog, int nparams, SPgSQL* db)
 {
-public:
-  SPgSQLStatement(const string& query, bool dolog, int nparams, SPgSQL* db) {
-    d_query = query;
-    d_dolog = dolog;
-    d_parent = db;
-    d_prepared = false;
-    d_nparams = nparams;
-    d_res = NULL;
-    d_res_set = NULL;
-    paramValues = NULL;
-    paramLengths = NULL;
-    d_paridx = 0;
-    d_residx = 0;
-    d_resnum = 0;
-    d_fnum = 0;
-    d_cur_set = 0;
-  }
+  d_query = query;
+  d_dolog = dolog;
+  d_parent = db;
+  d_prepared = false;
+  d_nparams = nparams;
+  d_res = NULL;
+  d_res_set = NULL;
+  paramValues = NULL;
+  paramLengths = NULL;
+  d_paridx = 0;
+  d_residx = 0;
+  d_resnum = 0;
+  d_fnum = 0;
+  d_cur_set = 0;
+}
 
-  SSqlStatement* bind(const string& name, bool value) { return bind(name, string(value ? "t" : "f")); }
-  SSqlStatement* bind(const string& name, int value) { return bind(name, std::to_string(value)); }
-  SSqlStatement* bind(const string& name, uint32_t value) { return bind(name, std::to_string(value)); }
-  SSqlStatement* bind(const string& name, long value) { return bind(name, std::to_string(value)); }
-  SSqlStatement* bind(const string& name, unsigned long value) { return bind(name, std::to_string(value)); }
-  SSqlStatement* bind(const string& name, long long value) { return bind(name, std::to_string(value)); }
-  SSqlStatement* bind(const string& name, unsigned long long value) { return bind(name, std::to_string(value)); }
-  SSqlStatement* bind(const string& name, const std::string& value) {
-    prepareStatement();
-    allocate();
-    if (d_paridx>=d_nparams) {
-      releaseStatement();
-      throw SSqlException("Attempt to bind more parameters than query has: " + d_query);
-    }
-    paramValues[d_paridx] = new char[value.size()+1];
-    memset(paramValues[d_paridx], 0, sizeof(char)*(value.size()+1));
-    value.copy(paramValues[d_paridx], value.size());
-    paramLengths[d_paridx] = value.size();
-    d_paridx++;
-    return this;
-  }
-  SSqlStatement* bindNull(const string& name) { prepareStatement(); d_paridx++; return this; } // these are set null in allocate()
-  SSqlStatement* execute() {
-    prepareStatement();
-    if (d_dolog) {
-      g_log<<Logger::Warning<< "Query "<<((long)(void*)this)<<": " << d_query << endl;
-      d_dtime.set();
-    }
-    d_res_set = PQexecParams(d_db(), d_query.c_str(), d_nparams, NULL, paramValues, paramLengths, NULL, 0);
-    ExecStatusType status = PQresultStatus(d_res_set);
-    if (status != PGRES_COMMAND_OK && status != PGRES_TUPLES_OK && status != PGRES_NONFATAL_ERROR) {
-      string errmsg(PQresultErrorMessage(d_res_set));
-      releaseStatement();
-      throw SSqlException("Fatal error during query: " + d_query + string(": ") + errmsg);
-    }
-    d_cur_set = 0;
-    if(d_dolog) {
-      auto diff = d_dtime.udiffNoReset();
-      g_log<<Logger::Warning<< "Query "<<((long)(void*)this)<<": "<< diff <<" usec to execute"<<endl;
-    }
-
-    nextResult();
-    return this;
-  }
-
-  void nextResult() {
-    if (d_res_set == NULL) return; // no refcursor
-    if (d_cur_set >= PQntuples(d_res_set)) {
-      PQclear(d_res_set);
-      d_res_set = NULL;
-      return;
-    }
-    // this code handles refcursors if they are returned
-    // by stored procedures. you can return more than one
-    // if you return SETOF refcursor.
-    if (PQftype(d_res_set, 0) == 1790) { // REFCURSOR
-#if PG_VERSION_NUM > 90000
-      // PQescapeIdentifier was added to libpq in postgresql 9.0
-      char *val = PQgetvalue(d_res_set, d_cur_set++, 0);
-      char *portal =  PQescapeIdentifier(d_db(), val, strlen(val));
-      string cmd = string("FETCH ALL FROM \"") + string(portal) + string("\"");
-      PQfreemem(portal);
-#else
-      string portal = string(PQgetvalue(d_res_set, d_cur_set++, 0));
-      string cmd = string("FETCH ALL FROM \"") + portal + string("\"");
-#endif
-      // execute FETCH
-      if (d_dolog)
-         g_log<<Logger::Warning<<"Query: "<<cmd<<endl;
-      d_res = PQexec(d_db(),cmd.c_str());
-      d_resnum = PQntuples(d_res);
-      d_fnum = PQnfields(d_res);
-      d_residx = 0;
-    } else {
-      d_res = d_res_set;
-      d_res_set = NULL;
-      d_resnum = PQntuples(d_res);
-      d_fnum = PQnfields(d_res);
-    }
-  }
-
-  bool hasNextRow()
-  {
-    if(d_dolog && d_residx == d_resnum) {
-      g_log<<Logger::Warning<< "Query "<<((long)(void*)this)<<": "<<d_dtime.udiff()<<" total usec to last row"<<endl;
-    }
-
-    return d_residx<d_resnum;
-  }
-
-  SSqlStatement* nextRow(row_t& row) {
-    int i;
-    row.clear();
-    if (d_residx>=d_resnum || !d_res) return this;
-    row.reserve(PQnfields(d_res));
-    for(i=0;i<PQnfields(d_res);i++) {
-      if (PQgetisnull(d_res, d_residx, i)) {
-        row.emplace_back("");
-      } else if (PQftype(d_res, i) == 16) { // BOOLEAN
-        char *val = PQgetvalue(d_res, d_residx, i);
-        row.emplace_back(val[0] == 't' ? "1" : "0");
-      } else {
-        row.emplace_back(PQgetvalue(d_res, d_residx, i));
-      }
-    }
-    d_residx++;
-    if (d_residx >= d_resnum) {
-      PQclear(d_res);
-      d_res = NULL;
-      nextResult();
-    }
-    return this;
-  }
-
-  SSqlStatement* getResult(result_t& result) {
-    result.clear();
-    if (d_res == NULL) return this;
-    result.reserve(d_resnum);
-    row_t row;
-    while(hasNextRow()) { nextRow(row); result.push_back(std::move(row)); }
-    return this;
-  }
-
-  SSqlStatement* reset() {
-     int i;
-     if (d_res)
-       PQclear(d_res);
-     if (d_res_set)
-       PQclear(d_res_set);
-     d_res_set = NULL;
-     d_res = NULL;
-     d_paridx = d_residx = d_resnum = 0;
-     if (paramValues)
-       for(i=0;i<d_nparams;i++)
-         if (paramValues[i]) delete [] paramValues[i];
-     delete [] paramValues;
-     paramValues = NULL;
-     delete [] paramLengths;
-     paramLengths = NULL;
-     return this;
-  }
-
-  const std::string& getQuery() { return d_query; }
-
-  ~SPgSQLStatement() {
+SSqlStatement* SPgSQLStatement::bind(const string& name, bool value) { return bind(name, string(value ? "t" : "f")); }
+SSqlStatement* SPgSQLStatement::bind(const string& name, int value) { return bind(name, std::to_string(value)); }
+SSqlStatement* SPgSQLStatement::bind(const string& name, uint32_t value) { return bind(name, std::to_string(value)); }
+SSqlStatement* SPgSQLStatement::bind(const string& name, long value) { return bind(name, std::to_string(value)); }
+SSqlStatement* SPgSQLStatement::bind(const string& name, unsigned long value) { return bind(name, std::to_string(value)); }
+SSqlStatement* SPgSQLStatement::bind(const string& name, long long value) { return bind(name, std::to_string(value)); }
+SSqlStatement* SPgSQLStatement::bind(const string& name, unsigned long long value) { return bind(name, std::to_string(value)); }
+SSqlStatement* SPgSQLStatement::bind(const string& name, const std::string& value) {
+  prepareStatement();
+  allocate();
+  if (d_paridx>=d_nparams) {
     releaseStatement();
+    throw SSqlException("Attempt to bind more parameters than query has: " + d_query);
   }
-private:
-  PGconn* d_db() {
-    return d_parent->db();
+  paramValues[d_paridx] = new char[value.size()+1];
+  memset(paramValues[d_paridx], 0, sizeof(char)*(value.size()+1));
+  value.copy(paramValues[d_paridx], value.size());
+  paramLengths[d_paridx] = value.size();
+  d_paridx++;
+  return this;
+}
+SSqlStatement* SPgSQLStatement::bindNull(const string& name) { prepareStatement(); d_paridx++; return this; } // these are set null in allocate()
+
+SSqlStatement* SPgSQLStatement::execute() {
+  prepareStatement();
+  if (d_dolog) {
+    g_log<<Logger::Warning<< "Query "<<((long)(void*)this)<<": " << d_query << endl;
+    d_dtime.set();
+  }
+  d_res_set = PQexecParams(d_db(), d_query.c_str(), d_nparams, NULL, paramValues, paramLengths, NULL, 0);
+  ExecStatusType status = PQresultStatus(d_res_set);
+  if (status != PGRES_COMMAND_OK && status != PGRES_TUPLES_OK && status != PGRES_NONFATAL_ERROR) {
+    string errmsg(PQresultErrorMessage(d_res_set));
+    releaseStatement();
+    throw SSqlException("Fatal error during query: " + d_query + string(": ") + errmsg);
+  }
+  d_cur_set = 0;
+  if(d_dolog) {
+    auto diff = d_dtime.udiffNoReset();
+    g_log<<Logger::Warning<< "Query "<<((long)(void*)this)<<": "<< diff <<" usec to execute"<<endl;
   }
 
-  void releaseStatement() {
-    d_prepared = false;
-    reset();
+  nextResult();
+  return this;
+}
+
+void SPgSQLStatement::nextResult() {
+  if (d_res_set == NULL) return; // no refcursor
+  if (d_cur_set >= PQntuples(d_res_set)) {
+    PQclear(d_res_set);
+    d_res_set = NULL;
+    return;
+  }
+  // this code handles refcursors if they are returned
+  // by stored procedures. you can return more than one
+  // if you return SETOF refcursor.
+  if (PQftype(d_res_set, 0) == 1790) { // REFCURSOR
+#if PG_VERSION_NUM > 90000
+    // PQescapeIdentifier was added to libpq in postgresql 9.0
+    char *val = PQgetvalue(d_res_set, d_cur_set++, 0);
+    char *portal =  PQescapeIdentifier(d_db(), val, strlen(val));
+    string cmd = string("FETCH ALL FROM \"") + string(portal) + string("\"");
+    PQfreemem(portal);
+#else
+    string portal = string(PQgetvalue(d_res_set, d_cur_set++, 0));
+    string cmd = string("FETCH ALL FROM \"") + portal + string("\"");
+#endif
+    // execute FETCH
+    if (d_dolog)
+      g_log<<Logger::Warning<<"Query: "<<cmd<<endl;
+    d_res = PQexec(d_db(),cmd.c_str());
+    d_resnum = PQntuples(d_res);
+    d_fnum = PQnfields(d_res);
+    d_residx = 0;
+  } else {
+    d_res = d_res_set;
+    d_res_set = NULL;
+    d_resnum = PQntuples(d_res);
+    d_fnum = PQnfields(d_res);
+  }
+}
+
+bool SPgSQLStatement::hasNextRow()
+{
+  if(d_dolog && d_residx == d_resnum) {
+    g_log<<Logger::Warning<< "Query "<<((long)(void*)this)<<": "<<d_dtime.udiff()<<" total usec to last row"<<endl;
   }
 
-  void prepareStatement() {
-    if (d_prepared) return;
-    paramValues=NULL;
-    d_cur_set=d_paridx=d_residx=d_resnum=d_fnum=0;
-    paramLengths=NULL;
-    d_res=NULL;
-    d_res_set=NULL;
-    d_prepared = true;
-  }
+  return d_residx<d_resnum;
+}
 
-  void allocate() {
-     if (paramValues != NULL) return;
-     paramValues = new char*[d_nparams];
-     paramLengths = new int[d_nparams];
-     memset(paramValues, 0, sizeof(char*)*d_nparams);
-     memset(paramLengths, 0, sizeof(int)*d_nparams);
+SSqlStatement* SPgSQLStatement::nextRow(row_t& row) {
+  int i;
+  row.clear();
+  if (d_residx>=d_resnum || !d_res) return this;
+  row.reserve(PQnfields(d_res));
+  for(i=0;i<PQnfields(d_res);i++) {
+    if (PQgetisnull(d_res, d_residx, i)) {
+      row.emplace_back("");
+    } else if (PQftype(d_res, i) == 16) { // BOOLEAN
+      char *val = PQgetvalue(d_res, d_residx, i);
+      row.emplace_back(val[0] == 't' ? "1" : "0");
+    } else {
+      row.emplace_back(PQgetvalue(d_res, d_residx, i));
+    }
   }
+  d_residx++;
+  if (d_residx >= d_resnum) {
+    PQclear(d_res);
+    d_res = NULL;
+    nextResult();
+  }
+  return this;
+}
 
-  string d_query;
-  SPgSQL *d_parent;
-  PGresult *d_res_set;
-  PGresult *d_res;
-  bool d_dolog;
-  DTime d_dtime; // only used if d_dolog is set
-  bool d_prepared;
-  int d_nparams;
-  int d_paridx;
-  char **paramValues;
-  int *paramLengths;
-  int d_residx;
-  int d_resnum;
-  int d_fnum;
-  int d_cur_set;
-};
+SSqlStatement* SPgSQLStatement::getResult(result_t& result) {
+  result.clear();
+  if (d_res == NULL) return this;
+  result.reserve(d_resnum);
+  row_t row;
+  while(hasNextRow()) { nextRow(row); result.push_back(std::move(row)); }
+  return this;
+}
+
+SSqlStatement* SPgSQLStatement::reset() {
+  int i;
+  if (d_res)
+    PQclear(d_res);
+  if (d_res_set)
+    PQclear(d_res_set);
+  d_res_set = NULL;
+  d_res = NULL;
+  d_paridx = d_residx = d_resnum = 0;
+  if (paramValues)
+    for(i=0;i<d_nparams;i++)
+      if (paramValues[i]) delete [] paramValues[i];
+  delete [] paramValues;
+  paramValues = NULL;
+  delete [] paramLengths;
+  paramLengths = NULL;
+  return this;
+}
+
+void SPgSQLStatement::prepareStatement() {
+  if (d_prepared) return;
+  paramValues=NULL;
+  d_cur_set=d_paridx=d_residx=d_resnum=d_fnum=0;
+  paramLengths=NULL;
+  d_res=NULL;
+  d_res_set=NULL;
+  d_prepared = true;
+}
+
+void SPgSQLStatement::allocate() {
+  if (paramValues != NULL) return;
+  paramValues = new char*[d_nparams];
+  paramLengths = new int[d_nparams];
+  memset(paramValues, 0, sizeof(char*)*d_nparams);
+  memset(paramLengths, 0, sizeof(int)*d_nparams);
+}
 
 bool SPgSQL::s_dolog;
 

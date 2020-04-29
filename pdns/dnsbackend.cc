@@ -260,22 +260,23 @@ bool DNSBackend::getSOA(const DNSName &domain, SOAData &sd)
   return true;
 }
 
-bool DNSBackend::get(DNSZoneRecord& dzr)
+DNSZoneRecord DNSBackend::convert(DNSResourceRecord& rr)
 {
-  //  cout<<"DNSBackend::get(DNSZoneRecord&) called - translating into DNSResourceRecord query"<<endl;
-  DNSResourceRecord rr;
-  if(!this->get(rr))
-    return false;
+  DNSResourceRecord dzr;
   dzr.auth = rr.auth;
   dzr.domain_id = rr.domain_id;
   dzr.scopeMask = rr.scopeMask;
-  if(rr.qtype.getCode() == QType::TXT && !rr.content.empty() && rr.content[0]!='"')
+  if (rr.qtype.getCode() == QType::TXT && !rr.content.empty() && rr.content[0] != '"') {
     rr.content = "\""+ rr.content + "\"";
-  if(rr.qtype.getCode() == QType::SOA) {
+  }
+
+  if (rr.qtype.getCode() == QType::SOA) {
     try {
       dzr.dr = DNSRecord(rr);
     } catch(...) {
       vector<string> parts;
+      parts.reserve(7);
+
       stringtok(parts, rr.content, " \t");
       if(parts.size() < 1)
         rr.content = arg()["default-soa-name"];
@@ -299,10 +300,29 @@ bool DNSBackend::get(DNSZoneRecord& dzr)
       dzr.dr = DNSRecord(rr);
     }
     catch(...) {
-      while(this->get(rr));
       throw;
     }
   }
+
+  return dzr;
+}
+
+bool DNSBackend::get(DNSZoneRecord& dzr)
+{
+  //  cout<<"DNSBackend::get(DNSZoneRecord&) called - translating into DNSResourceRecord query"<<endl;
+  DNSResourceRecord rr;
+  if (!this->get(rr)) {
+    return false;
+  }
+
+  try {
+    dzr = this->convert(rr);
+  }
+  catch(...) {
+    while(this->get(rr));
+    throw;
+  }
+
   return true;
 }
 
@@ -322,6 +342,9 @@ void fillSOAData(const DNSZoneRecord& in, SOAData& sd)
   sd.ttl = in.dr.d_ttl;
 
   auto src=getRR<SOARecordContent>(in.dr);
+  if (src == nullptr) {
+    throw std::runtime_error("Unable to convert the content of record to fill SOA data");
+  }
   sd.nameserver = src->d_mname;
   sd.hostmaster = src->d_rname;
   sd.serial = src->d_st.serial;
@@ -381,4 +404,20 @@ void fillSOAData(const string &content, SOAData &data)
   catch(const std::out_of_range& oor) {
     throw PDNSException("Out of range exception parsing "+content);
   }
+}
+
+bool DNSBackend::getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSZoneRecord>& records)
+{
+  std::vector<DNSResourceRecord> resourceRecords;
+  if (!getBestAuth(target, possibleZones, resourceRecords)) {
+    return false;
+  }
+
+  records.reserve(resourceRecords.size());
+
+  for (auto& record : resourceRecords) {
+    records.push_back(this->convert(record));
+  }
+
+  return true;
 }
