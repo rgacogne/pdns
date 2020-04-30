@@ -296,7 +296,7 @@ void UeberBackend::getUpdatedMasters(vector<DomainInfo>* domains)
   }
 }
 
-static bool tryGetBestAuth(DNSBackend* backend, const DNSName& target, std::unordered_map<DNSName, std::vector<DNSZoneRecord>>& records, SOAData* sd, bool& done)
+bool UeberBackend::tryGetAllSOAs(DNSBackend* backend, const DNSName& target, SOAData* sd)
 {
   std::vector<DNSZoneRecord> recs;
   std::vector<DNSName> possibleZones;
@@ -306,27 +306,40 @@ static bool tryGetBestAuth(DNSBackend* backend, const DNSName& target, std::unor
     possibleZones.emplace_back(shorter);
   }
 
+  cerr<<__func__<<" "<<__LINE__<<": calling backend getBestAuth"<<endl;
   if (!backend->getBestAuth(target, possibleZones, recs)) {
+    cerr<<__func__<<" "<<__LINE__<<": getBestAuth returned false"<<endl;
     return false;
   }
 
+  cerr<<__func__<<" "<<__LINE__<<": getBestAuth returned true"<<endl;
   bool found = false;
   if (!recs.empty()) {
-    records[target].reserve(records[target].size() + recs.size());
+    //records[target].reserve(records[target].size() + recs.size());
 
     for (auto& rec : recs) {
+      cerr<<"Got a record "<<rec.dr.d_name<<" "<<QType(rec.dr.d_type).getName()<<endl;
       if (rec.dr.d_type == QType::SOA) {
         fillSOAData(rec, *sd);
         sd->qname = rec.dr.d_name;
         /* we need to return the records so they are cached once we have all the records, somehow */
+        Question cacheQuestion;
+        cacheQuestion.qtype = QType::SOA;
+        cacheQuestion.qname = rec.dr.d_name;
+        cacheQuestion.zoneId = -1;
+
+        addCache(d_question, {std::move(rec)});
+
         found = true;
       }
 
-      records[rec.dr.d_name].push_back(std::move(rec));
+      //records[rec.dr.d_name].push_back(std::move(rec));
     }
     if (found) {
       return true;
     }
+  } else {
+    cerr<<"but not recods.."<<endl;
   }
 
   return false;
@@ -346,6 +359,19 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
   DNSName shorter(target);
   vector<pair<size_t, SOAData> > bestmatch (backends.size(), make_pair(target.wirelength()+1, SOAData()));
   std::unordered_map<DNSName, std::vector<DNSZoneRecord>> records;
+
+#warning we should do a cache lookup first
+  for (size_t idx = 0; idx < backends.size(); idx++) {
+    const auto& backend = backends.at(idx);
+    if (tryGetAllSOAs(backend, target, sd)) {
+      auto& best = bestmatch.at(idx);
+      best.first = sd->qname.wirelength();
+      best.second = *sd;
+      if (best.first == target.wirelength()) {
+        break;
+      }
+    }
+  }
 
   cerr<<"in "<<__func__<<" for target "<<target<<" and DS "<<lookingForDS<<endl;
   do {
@@ -393,6 +419,7 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
           *sd = j->second;
           break;
         } else {
+/*
           bool done = false;
           if (tryGetBestAuth(*i, shorter, records, sd, done)) {
             if (done) {
@@ -405,6 +432,7 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
             }
             continue;
           }
+*/
             
           cerr<<"lookup "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
           DLOG(g_log<<Logger::Error<<"lookup: "<<shorter<<endl);

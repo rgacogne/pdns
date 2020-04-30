@@ -115,7 +115,7 @@ public:
       d_SearchRecordsQuery_stmt = d_db->prepare(d_SearchRecordsQuery, 3);
       d_SearchCommentsQuery_stmt = d_db->prepare(d_SearchCommentsQuery, 3);
       if (!d_GetBestAuthQuery.empty()) {
-        d_GetBestAuth_stmt = d_db->prepare(d_GetBestAuthQuery, 2);
+        d_GetBestAuth_stmt = d_db->prepare(d_GetBestAuthQuery, 1);
       }
     }
   }
@@ -345,7 +345,6 @@ private:
 
   string d_SearchRecordsQuery;
   string d_SearchCommentsQuery;
-
   string d_GetBestAuthQuery;
 
   unique_ptr<SSqlStatement>* d_query_stmt;
