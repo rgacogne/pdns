@@ -60,7 +60,7 @@ public:
     return bind(name, value.makeLowerCase().toStringRootDot());
   }
   virtual SSqlStatement* bindNull(const string& name)=0;
-  virtual SSqlStatement* execute()=0;;
+  virtual SSqlStatement* execute()=0;
   virtual bool hasNextRow()=0;
   virtual SSqlStatement* nextRow(row_t& row)=0;
   virtual SSqlStatement* getResult(result_t& result)=0;

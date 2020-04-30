@@ -71,6 +71,28 @@ SSqlStatement* SPgSQLStatement::bind(const string& name, const std::string& valu
   d_paridx++;
   return this;
 }
+SSqlStatement* SPgSQLStatement::bind(const string& name, const std::vector<DNSName>& values)
+{
+  if (values.empty()) {
+    static const std::string emptyArray("{}");
+    return bind(name, emptyArray);
+  }
+
+  std::string array("{");
+  bool first = true;
+  for (const auto& value : values) {
+    if (first) {
+      first = false;
+    }
+    else {
+      array += ",";
+    }
+    array += boost::replace_all_copy(value.makeLowerCase().toStringRootDot(), ",", "\\,");
+  }
+  array += "}";
+  return bind(name, array);
+}
+
 SSqlStatement* SPgSQLStatement::bindNull(const string& name) { prepareStatement(); d_paridx++; return this; } // these are set null in allocate()
 
 SSqlStatement* SPgSQLStatement::execute() {

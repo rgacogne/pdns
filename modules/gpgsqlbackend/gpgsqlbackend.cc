@@ -76,6 +76,8 @@ bool gPgSQLBackend::inTransaction()
 
 bool gPgSQLBackend::getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSResourceRecord>& records)
 {
+#warning should be d_GetAllSOAsQuery
+
   if (d_GetBestAuth_stmt == nullptr) {
     return false;
   }
@@ -88,10 +90,8 @@ bool gPgSQLBackend::getBestAuth(const DNSName& target, const std::vector<DNSName
       return false;
     }
 
-    stmt->
-      bind("target", target)->
-      bind("possibleZones", possibleZones)->
-      execute();
+    stmt->bind("soas", possibleZones);
+    stmt->execute();
 
     while (d_GetBestAuth_stmt->hasNextRow()) {
       DNSResourceRecord r;
@@ -215,6 +215,7 @@ public:
     declare(suffix, "search-records-query", "", record_query+" name LIKE $1 OR content LIKE $2 LIMIT $3");
     declare(suffix, "search-comments-query", "", "SELECT domain_id,name,type,modified_at,account,comment FROM comments WHERE name LIKE $1 OR comment LIKE $2 LIMIT $3");
 
+    declare(suffix, "get-all-soas-query", "", "SELECT content, ttl, prio, type, domain_id, disabled::int, name, auth::int FROM records WHERE disabled = false and type = 'SOA' AND name = ANY($1::text[])");
   }
 
   DNSBackend *make(const string &suffix="")

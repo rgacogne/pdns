@@ -258,7 +258,7 @@ bool DNSBackend::getSOA(const DNSName &domain, SOAData &sd)
 
 DNSZoneRecord DNSBackend::convert(DNSResourceRecord& rr)
 {
-  DNSResourceRecord dzr;
+  DNSZoneRecord dzr;
   dzr.auth = rr.auth;
   dzr.domain_id = rr.domain_id;
   dzr.scopeMask = rr.scopeMask;

@@ -123,6 +123,8 @@ GSQLBackend::GSQLBackend(const string &mode, const string &suffix)
   d_SearchRecordsQuery = getArg("search-records-query");
   d_SearchCommentsQuery = getArg("search-comments-query");
 
+  d_GetBestAuthQuery = getArg("get-all-soas-query");
+
   d_query_stmt = NULL;
   d_NoIdQuery_stmt = NULL;
   d_IdQuery_stmt = NULL;
