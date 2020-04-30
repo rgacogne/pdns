@@ -68,6 +68,7 @@ public:
   SSqlStatement* bind(const string& name, long long value) override;
   SSqlStatement* bind(const string& name, unsigned long long value) override;
   SSqlStatement* bind(const string& name, const std::string& value) override;
+  using SSqlStatement::bind; // explicitly import bind(const string& name, const DNSName& value)
   SSqlStatement* bind(const string& name, const std::vector<DNSName>& values);
   SSqlStatement* bindNull(const string& name) override;
 

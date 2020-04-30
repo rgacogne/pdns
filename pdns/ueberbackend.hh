@@ -164,4 +164,6 @@ private:
   int cacheHas(const Question &q, vector<DNSZoneRecord> &rrs);
   void addNegCache(const Question &q, const QType& qtype);
   void addCache(const Question &q, const QType& qtype, vector<DNSZoneRecord>&& rrs);
+
+  bool tryGetAllSOAs(DNSBackend* backend, const DNSName& target, SOAData* sd);
 };
