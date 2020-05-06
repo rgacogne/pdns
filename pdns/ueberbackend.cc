@@ -299,18 +299,126 @@ void UeberBackend::getUpdatedMasters(vector<DomainInfo>* domains)
   }
 }
 
+void UeberBackend::lookupAndGet(const DNSName& qname, const QType& qtype, int zoneId, const DNSPakcet* pkt, std::vector<DNSZoneRecord>& results)
+{
+  this->lookup(qtype, qname, zoneId, pkt);
+  DNSZoneRecord dzr;
+  while (this->get(dzr)) {
+    results.push_back(std::move(dzr));
+  }
+}
+
+void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint16_t qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& results)
+{
+  if (!from.isPartOf(to)) {
+    return;
+  }
+
+  if (possibleNames.size() == 1) {
+    lookupAndGet(possibleNames.at(0), QType(qtype), zoneId, pkt, results);
+    return;
+  }
+
+  const DNSName& best = possibleNames.at(0);
+  std::unordered_map<DNSName, std::vector<DNSZoneRecord>> recordsByName;
+  std::vector<DNSName> toCheck;
+  toCheck.reserve(possibleNames.size());  
+
+  for (auto it = possibleNames.begin(); it != possibleNames.end(); ++it) {
+    // returns -1 for miss, 0 for negative match, 1 for hit
+    int res = cacheHas(name, QType(qtype), zoneId, recordsByName[name]);
+    if (res == 1) {
+      /* found a cached RRset for this name/type */
+      if (it == possibleNames.begin()) {
+        /* and it's the best possible one, we are done */
+        results = std::move(recordsByName[name]);
+        return;
+      }
+      else {
+        /* we still have some more specific names to check,
+           but no need to check any name less specific that this one */
+        break;
+      }
+    }
+    else if (res == 0) {
+      /* we know there is no RRset for this name/type */
+      continue;
+    }
+    else {
+      /* miss, let's continue */
+      toCheck.push_back(*it);
+    }
+  }
+
+  if (toCheck.size() == 1) {
+    lookupAndGet(toCheck.at(0), QType(qtype), zoneId, pkt, results);
+    return;
+  }
+#warning we have no way of knowing if every backend returned ANY records or only specific ones
+#warning we also need to stop caching once we reach the "best" record since we might not have sent a query to all backends for the "higher" ones
+  for (auto& backend : backends) {
+    bool backendDone = false;
+    std::vector<DNSZoneRecord> backendRecords;
+    if (backend->getBestRRSet(toCheck, qtype, zoneId, backendRecords) == true) {
+      backendDone = true;
+      for (auto& record : backendRecords) {
+        recordsByName[record.dr.d_name].push_back(std::move(record));
+      }
+    }
+    else {
+      for (const auto& name : toCheck) {
+        auto& currentRecords = recordsByName[name];
+        std::vector<DNSZoneRecord> backendRecords;
+        backend->lookup(QType(qtype), name, zoneId);
+        DNSZoneRecord dzr;
+        while (backend->get(dzr)) {
+          currentRecords.push_back(std::move(dzr));
+        }
+        if (!currentRecords.empty()) {
+          /* we have a RRset at this level, no need to check the higher ones */
+          break;          
+        }
+      }
+    }
+  }
+
+  for (const auto& name : toCheck) {
+    auto& it = recordsByName.find(name);
+    if (it != recordsByName.end()) {
+      if (it->second.empty()) {
+        addNegCache(name, QType(qtype), zoneId);
+      }
+      else {
+        addCache(name, QType(qtype), zoneId, vector<DNSZoneRecord>(it->second));
+        /* we need to stop once we find a name with records, because we
+           might have skipped some or all backends for the higher ones */
+        break;
+      }
+    }
+  }
+
+  for (const auto& name : possibleNames) {
+    auto& it = recordsByName.find(name);
+    if (it != recordsByName.end() && !it->second.empty()) {
+      results = std::move(it->second);
+      return;
+    }
+  }
+}
+
 bool UeberBackend::tryGetAllSOAs(DNSBackend* backend, const DNSName& target, SOAData* sd)
 {
   std::vector<DNSZoneRecord> recs;
   std::vector<DNSName> possibleZones;
   possibleZones.reserve(target.countLabels());
   DNSName shorter(target);
-  while (shorter.chopOff()) {
+  do {
     possibleZones.emplace_back(shorter);
   }
+  while (shorter.chopOff());
 
   cerr<<__func__<<" "<<__LINE__<<": calling backend getBestAuth"<<endl;
-  if (!backend->getBestAuth(target, possibleZones, recs)) {
+  if (!backend->getAllSOAs(possibleZones, recs)) {
     cerr<<__func__<<" "<<__LINE__<<": getBestAuth returned false"<<endl;
     return false;
   }
@@ -345,7 +453,9 @@ bool UeberBackend::tryGetAllSOAs(DNSBackend* backend, const DNSName& target, SOA
     cerr<<"but not recods.."<<endl;
   }
 
-  return false;
+  /* mark as empty, with a 0-length */
+  sd->qname = DNSName();
+  return true;
 }
 
 bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd, bool cachedOk)
@@ -381,7 +491,7 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
 
     cerr<<"in main loop, shorter is "<<shorter<<endl;
     // Check cache
-    if(cachedOk && (d_cache_ttl || d_negcache_ttl)) {
+    if (cachedOk && (d_cache_ttl || d_negcache_ttl)) {
       cerr<<"looking for a SOA for "<<shorter<<" from the cache"<<endl;
       d_question.qtype = QType::SOA;
       d_question.qname = shorter;
@@ -394,7 +504,7 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
         DLOG(g_log<<Logger::Error<<"has pos cache entry: "<<shorter<<endl);
         fillSOAData(d_answers[0], *sd);
 
-        sd->db = 0;
+        sd->db = nullptr;
         sd->qname = shorter;
         goto found;
       } else if(cstat == 0 && d_negcache_ttl) {
@@ -600,12 +710,11 @@ void UeberBackend::cleanup()
   for_each(backends.begin(),backends.end(),del);
 }
 
-// returns -1 for miss, 0 for negative match, 1 for hit
-int UeberBackend::cacheHas(const Question &q, vector<DNSZoneRecord> &rrs)
+int UeberBackend::cacheHas(const DNSName& name, const QType& qtype, int zoneId, vector<DNSZoneRecord>& rrs)
 {
   extern AuthQueryCache QC;
 
-  if (!d_cache_ttl && !d_negcache_ttl) {
+  if (d_cache_ttl == 0 && d_negcache_ttl == 0) {
     return -1;
   }
 
@@ -613,7 +722,7 @@ int UeberBackend::cacheHas(const Question &q, vector<DNSZoneRecord> &rrs)
   //  g_log<<Logger::Warning<<"looking up: '"<<q.qname<<"'|N|"<<q.qtype.getName()<<"|"<<q.zoneId<<endl;
 
   std::vector<DNSZoneRecord> anyRecs;
-  bool ret = QC.getEntry(q.qname, QType::ANY, anyRecs, q.zoneId);
+  bool ret = QC.getEntry(name, QType::ANY, anyRecs, zoneId);
 
   if (ret) {
     if (anyRecs.empty()) {// negatively cached
@@ -621,7 +730,7 @@ int UeberBackend::cacheHas(const Question &q, vector<DNSZoneRecord> &rrs)
     }
 
     for (auto& rec : anyRecs) {
-      if (q.qtype.getCode() == QType::ANY || rec.dr.d_type == q.qtype.getCode()) {
+      if (qtype.getCode() == QType::ANY || rec.dr.d_type == qtype.getCode()) {
         rrs.push_back(std::move(rec));
       }
     }
@@ -636,8 +745,8 @@ int UeberBackend::cacheHas(const Question &q, vector<DNSZoneRecord> &rrs)
 
   // miss for ANY, see if by any chance we have a cached entry for the exact type (mostly SOA)
   // or a negative cache entry (all types)
-  if (q.qtype != QType::ANY) {
-    ret = QC.getEntry(q.qname, q.qtype, rrs, q.zoneId);
+  if (qtype != QType::ANY) {
+    ret = QC.getEntry(name, qtype, rrs, zoneId);
     if (ret) {
       if (rrs.empty()) {
         // negatively cached
@@ -650,36 +759,53 @@ int UeberBackend::cacheHas(const Question &q, vector<DNSZoneRecord> &rrs)
   return -1;
 }
 
-void UeberBackend::addNegCache(const Question &q, const QType& qtype)
+// returns -1 for miss, 0 for negative match, 1 for hit
+int UeberBackend::cacheHas(const Question &q, vector<DNSZoneRecord>& rrs)
+{
+  return cacheHas(q.qname, q.qtype, q.zoneId, rrs);
+}
+
+void UeberBackend::addNegCache(const DNSName& name, const QType& qtype, int zoneId)
 {
   extern AuthQueryCache QC;
-  if (!d_negcache_ttl) {
+  if (d_negcache_ttl == 0) {
     return;
   }
 
   // we should also not be storing negative answers if a pipebackend does scopeMask, but we can't pass a negative scopeMask in an empty set!
-  QC.insert(q.qname, qtype, vector<DNSZoneRecord>(), d_negcache_ttl, q.zoneId);
+  QC.insert(name, qtype, vector<DNSZoneRecord>(), d_negcache_ttl, zoneId);
 }
 
-void UeberBackend::addCache(const Question &q, const QType& qtype, vector<DNSZoneRecord>&& rrs)
+void UeberBackend::addNegCache(const Question &q, const QType& qtype)
+{
+  addNegCache(q.qname, qtype, q.zoneId);
+}
+
+void UeberBackend::addCache(const DNSName& name, const QType& qtype, int zoneId, vector<DNSZoneRecord>&& rrs)
 {
   extern AuthQueryCache QC;
 
-  if (!d_cache_ttl) {
+  if (d_cache_ttl == 0) {
     return;
   }
 
   unsigned int store_ttl = d_cache_ttl;
-  for(const auto& rr : rrs) {
+  for (const auto& rr : rrs) {
     if (rr.dr.d_ttl < d_cache_ttl) {
       store_ttl = rr.dr.d_ttl;
     }
+
     if (rr.scopeMask) {
       return;
     }
   }
 
-  QC.insert(q.qname, qtype, std::move(rrs), store_ttl, q.zoneId);
+  QC.insert(name, qtype, std::move(rrs), store_ttl, zoneId);
+}
+
+void UeberBackend::addCache(const Question &q, const QType& qtype, vector<DNSZoneRecord>&& rrs)
+{
+  addCache(q.qname, qtype, q.zoneId, std::move(rrs));
 }
 
 void UeberBackend::alsoNotifies(const DNSName &domain, set<string> *ips)

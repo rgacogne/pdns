@@ -123,7 +123,8 @@ GSQLBackend::GSQLBackend(const string &mode, const string &suffix)
   d_SearchRecordsQuery = getArg("search-records-query");
   d_SearchCommentsQuery = getArg("search-comments-query");
 
-  d_GetBestAuthQuery = getArg("get-all-soas-query");
+  d_GetAllRecordsQuery = getArg("get-all-records-query");
+  d_GetAllRecordsInZoneQuery = getArg("get-all-records-in-zone-query");
 
   d_query_stmt = NULL;
   d_NoIdQuery_stmt = NULL;
@@ -184,7 +185,8 @@ GSQLBackend::GSQLBackend(const string &mode, const string &suffix)
   d_DeleteCommentsQuery_stmt = NULL;
   d_SearchRecordsQuery_stmt = NULL;
   d_SearchCommentsQuery_stmt = NULL;
-  d_GetBestAuth_stmt.reset();
+  d_GetAllRecords_stmt.reset();
+  d_GetAllRecordsInZone_stmt.reset();
 }
 
 void GSQLBackend::setNotified(uint32_t domain_id, uint32_t serial)
@@ -1392,6 +1394,56 @@ void GSQLBackend::getAllDomains(vector<DomainInfo> *domains, bool include_disabl
   }
   catch (SSqlException &e) {
     throw PDNSException("Database error trying to retrieve all domains:" + e.txtReason());
+  }
+}
+
+bool GSQLBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& targetRecords)
+{
+  if ((zoneId == -1 && d_GetAllRecords_stmt == nullptr) || d_GetAllRecordsInZone_stmt == nullptr) {
+    return false;
+  }
+
+  try {
+    reconnectIfNeeded();
+
+    auto& stmt = (zoneId == -1) ? d_GetAllRecords_stmt : d_GetAllRecordsInZone_stmt;
+
+    if (zoneId == -1) {
+      stmt->
+        bind("names", possibleZones)->
+        execute();
+    }
+    else {
+      stmt->
+        bind("zoneId", zoneId)->
+        bind("names", possibleZones)->
+        execute();
+    }
+
+    while (stmt->hasNextRow()) {
+      DNSResourceRecord r;
+      SSqlStatement::row_t row;
+      try {
+        stmt->nextRow(row);
+        ASSERT_ROW_COLUMNS((zoneId == -1) ? "get-all-records-query" : "get-all-records-in-zone-query", row, 8);
+      }
+      catch (const SSqlException& e) {
+        throw PDNSException("GSQLBackend get: " + e.txtReason());
+      }
+      try {
+        extractRecord(row, r);
+        targetRecords.push_back(std::move(r));
+      }
+      catch (...) {
+        continue;
+      }
+    }
+    stmt->reset();
+
+    return true;
+  }
+  catch (const SSqlException &e) {
+    throw PDNSException("GSQLBackend unable to lookup all the records beginning with '" + possibleZones.at(0).toLogString() + "': " + e.txtReason());
   }
 }
 

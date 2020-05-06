@@ -311,18 +311,20 @@ int PacketHandler::doChaosRequest(const DNSPacket& p, std::unique_ptr<DNSPacket>
 vector<DNSZoneRecord> PacketHandler::getBestReferralNS(DNSPacket& p, const SOAData& sd, const DNSName &target)
 {
   vector<DNSZoneRecord> ret;
-  DNSZoneRecord rr;
+  std::vector<DNSName> possibleNames;
   DNSName subdomain(target);
+
   do {
-    if(subdomain == sd.qname) // stop at SOA
+    if (subdomain == sd.qname) {
+      // stop at SOA
       break;
-    B.lookup(QType(QType::NS), subdomain, sd.domain_id, &p);
-    while(B.get(rr)) {
-      ret.push_back(rr); // this used to exclude auth NS records for some reason
     }
-    if(!ret.empty())
-      return ret;
-  } while( subdomain.chopOff() );   // 'www.powerdns.org' -> 'powerdns.org' -> 'org' -> ''
+    possibleNames.push_back(subdomain);
+  }
+  while (subdomain.chopOff());   // 'www.powerdns.org' -> 'powerdns.org' -> 'org' -> ''
+
+  B.getBestRRSet(possibleNames, QType::NS, sd.domain_id, nullptr, ret);
+
   return ret;
 }
 

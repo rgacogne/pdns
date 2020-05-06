@@ -406,10 +406,10 @@ void fillSOAData(const string &content, SOAData &data)
   }
 }
 
-bool DNSBackend::getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSZoneRecord>& records)
+bool DNSBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records)
 {
   std::vector<DNSResourceRecord> resourceRecords;
-  if (!getBestAuth(target, possibleZones, resourceRecords)) {
+  if (!getBestRRSet(possibleZones, stopOnTypeFound, zoneId, pkt, resourceRecords)) {
     return false;
   }
 

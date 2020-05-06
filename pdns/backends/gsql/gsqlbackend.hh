@@ -114,8 +114,11 @@ public:
       d_DeleteCommentsQuery_stmt = d_db->prepare(d_DeleteCommentsQuery, 1);
       d_SearchRecordsQuery_stmt = d_db->prepare(d_SearchRecordsQuery, 3);
       d_SearchCommentsQuery_stmt = d_db->prepare(d_SearchCommentsQuery, 3);
-      if (!d_GetBestAuthQuery.empty()) {
-        d_GetBestAuth_stmt = d_db->prepare(d_GetBestAuthQuery, 1);
+      if (!d_GetAllRecordsQuery.empty()) {
+        d_GetAllRecords_stmt = d_db->prepare(d_GetAllRecordsQuery, 1);
+      }
+      if (!d_GetAllRecordsInZoneQuery.empty()) {
+        d_GetAllRecordsInZone_stmt = d_db->prepare(d_GetAllRecordsInZoneQuery, 2);
       }
     }
   }
@@ -180,7 +183,8 @@ public:
     d_DeleteCommentsQuery_stmt.reset();
     d_SearchRecordsQuery_stmt.reset();
     d_SearchCommentsQuery_stmt.reset();
-    d_GetBestAuth_stmt.reset();
+    d_GetAllRecords_stmt.reset();
+    d_GetAllRecordsInZone_stmt.reset();
   }
 
   void lookup(const QType &, const DNSName &qdomain, int zoneId, DNSPacket *p=nullptr) override;
@@ -241,6 +245,8 @@ public:
   string directBackendCmd(const string &query) override;
   bool searchRecords(const string &pattern, int maxResults, vector<DNSResourceRecord>& result) override;
   bool searchComments(const string &pattern, int maxResults, vector<Comment>& result) override;
+
+  bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& targetRecords) override;
 
 protected:
   bool createDomain(const DNSName &domain, const string &type, const string &masters, const string &account);
@@ -345,7 +351,8 @@ private:
 
   string d_SearchRecordsQuery;
   string d_SearchCommentsQuery;
-  string d_GetBestAuthQuery;
+  string d_GetAllRecordsQuery;
+  string d_GetAllRecordsInZoneQuery;
 
   unique_ptr<SSqlStatement>* d_query_stmt;
 
@@ -408,10 +415,11 @@ private:
   unique_ptr<SSqlStatement> d_DeleteCommentsQuery_stmt;
   unique_ptr<SSqlStatement> d_SearchRecordsQuery_stmt;
   unique_ptr<SSqlStatement> d_SearchCommentsQuery_stmt;
+  unique_ptr<SSqlStatement> d_GetAllRecords_stmt{nullptr};
+  unique_ptr<SSqlStatement> d_GetAllRecordsInZone_stmt{nullptr};
 
 protected:
   std::unique_ptr<SSql> d_db{nullptr};
-  std::unique_ptr<SSqlStatement> d_GetBestAuth_stmt{nullptr};
   bool d_dnssecQueries;
   bool d_inTransaction{false};
 };

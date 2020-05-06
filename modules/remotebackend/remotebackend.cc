@@ -224,20 +224,30 @@ bool RemoteBackend::list(const DNSName& target, int domain_id, bool include_disa
    return true;
 }
 
+DNSResourceRecord RemoteBackend::ResourceRecordFromRow(const Json& row) const
+{
+  DNSResourceRecord rr;
+  rr.qtype = stringFromJson(row, "qtype");
+  rr.qname = DNSName(stringFromJson(row, "qname"));
+  rr.qclass = QClass::IN;
+  rr.content = stringFromJson(row, "content");
+  rr.ttl = row["ttl"].int_value();
+  rr.domain_id = intFromJson(row, "domain_id", -1);
+  if (d_dnssec) {
+    rr.auth = intFromJson(row, "auth", 1);
+  }
+  else {
+    rr.auth = 1;
+  }
+  rr.scopeMask = row["scopeMask"].int_value();
+
+  return rr;
+}
+
 bool RemoteBackend::get(DNSResourceRecord &rr) {
    if (d_index == -1) return false;
 
-   rr.qtype = stringFromJson(d_result["result"][d_index], "qtype");
-   rr.qname = DNSName(stringFromJson(d_result["result"][d_index], "qname"));
-   rr.qclass = QClass::IN;
-   rr.content = stringFromJson(d_result["result"][d_index], "content");
-   rr.ttl = d_result["result"][d_index]["ttl"].int_value();
-   rr.domain_id = intFromJson(d_result["result"][d_index], "domain_id", -1);
-   if (d_dnssec)
-     rr.auth = intFromJson(d_result["result"][d_index], "auth", 1);
-   else
-     rr.auth = 1;
-   rr.scopeMask = d_result["result"][d_index]["scopeMask"].int_value();
+   rr = ResourceRecordFromRow(d_result["result"][d_index]);
    d_index++;
 
    // id index is out of bounds, we know the results end here.
@@ -707,6 +717,8 @@ bool RemoteBackend::createSlaveDomain(const string &ip, const DNSName& domain, c
 
 bool RemoteBackend::replaceRRSet(uint32_t domain_id, const DNSName& qname, const QType& qtype, const vector<DNSResourceRecord>& rrset) {
    Json::array json_rrset;
+   json_rrset.reserve(rrset.size());
+
    for(const auto& rr: rrset) {
       json_rrset.push_back(Json::object{
         { "qtype", rr.qtype.getName() },
@@ -761,6 +773,7 @@ bool RemoteBackend::feedRecord(const DNSResourceRecord &rr, const DNSName &order
 
 bool RemoteBackend::feedEnts(int domain_id, map<DNSName,bool>& nonterm) {
    Json::array nts;
+   nts.reserve(nonterm.size());
 
    for(const auto& t: nonterm)
      nts.push_back(Json::object{
@@ -785,6 +798,7 @@ bool RemoteBackend::feedEnts(int domain_id, map<DNSName,bool>& nonterm) {
 
 bool RemoteBackend::feedEnts3(int domain_id, const DNSName& domain, map<DNSName,bool>& nonterm, const NSEC3PARAMRecordContent& ns3prc, bool narrow) {
    Json::array nts;
+   nts.reserve(nonterm.size());
 
    for(const auto& t: nonterm)
      nts.push_back(Json::object{
@@ -1005,6 +1019,64 @@ void RemoteBackend::setFresh(uint32_t domain_id) {
    if (this->send(query) == false || this->recv(answer) == false) {
       g_log<<Logger::Error<<kBackendId<<" Failed to execute RPC for RemoteBackend::setFresh("<<domain_id<<")"<<endl;
    }
+}
+
+bool RemoteBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
+{
+  if (!d_implementGetBestRRSet) {
+    return false;
+  }
+
+  Json::array zones;
+  zones.reserve(possibleZones.size());
+
+  for(const auto& zone : possibleZones)
+    zones.push_back(Json::object{
+       { "zone", zone.toStringNoDot() }
+     });
+   string localIP="0.0.0.0";
+   string remoteIP="0.0.0.0";
+   string realRemote="0.0.0.0/0";
+
+   if (pkt) {
+     localIP = pkt->getLocal().toString();
+     realRemote = pkt->getRealRemote().toString();
+     remoteIP = pkt->getRemote().toString();
+   }
+
+  const Json query = Json::object{
+    { "method", "getBestRRSet" },
+    { "parameters", Json::object{
+        { "local", localIP },
+        { "real-remote", realRemote },
+        { "remote", remoteIP },
+        { "stop-on-type-found", stopOnTypeFound.getName() },
+        { "zones", std::move(zones) },
+        { "zone-id", zoneId }
+      }
+    }
+  };
+
+  Json answer;
+  if (this->send(query) == false || this->recv(answer) == false) {
+    return false;
+  }
+
+  if (answer["result"].is_array() == false) {
+    /* this call is not implemented, let's not try again */
+    d_implementGetBestRRSet = false;
+    return false;
+  }
+
+  auto& rows = answer["result"].array_items();
+  records.reserve(rows.size());
+
+  for (const auto& row : rows) {
+    DNSResourceRecord drr = ResourceRecordFromRow(row);
+    records.push_back(std::move(drr));
+  }
+
+  return true;
 }
 
 DNSBackend *RemoteBackend::maker()

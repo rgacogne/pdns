@@ -275,12 +275,15 @@ bool PipeBackend::get(DNSResourceRecord &r)
   if(d_abiVersion >= 3)
     extraFields = 2;
 
-  try{
+  try {
+    vector<string> parts;
     launch();
     for(;;) {
       d_coproc->receive(line);
-      vector<string>parts;
+      parts.clear();
+      parts.reserve(8 + extraFields);
       stringtok(parts,line,"\t");
+
       if(parts.empty()) {
         g_log<<Logger::Error<<kBackendId<<" Coprocess returned empty line in query for "<<d_qname<<endl;
         throw PDNSException("Format error communicating with coprocess");
@@ -345,6 +348,37 @@ bool PipeBackend::get(DNSResourceRecord &r)
     cleanup();
     throw;
   }
+  return true;
+}
+
+bool PipeBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
+{
+  bool done = false;
+  for (const auto& zone : possibleZones) {
+    /* we pass the expected type, not ANY (except if the type is ANY itself of course)
+       so that the remote end knows that the query is for SOA, NS or CNAME, for example,
+       meaning that it can return the "best" match right away */
+    lookup(stopOnTypeFound, zone, zoneId, pkt);
+
+    DNSResourceRecord drr;
+    while (get(drr) == true) {
+      if (stopOnTypeFound != QType::ANY && drr.qtype != stopOnTypeFound) {
+        continue;
+      }
+
+      if (drr.qname.wirelength() < zone.wirelength()) {
+        /* we have a best match */
+        done = true;
+      }
+
+      records.push_back(std::move(drr));
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
   return true;
 }
 
