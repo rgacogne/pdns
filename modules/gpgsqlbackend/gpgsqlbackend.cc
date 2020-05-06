@@ -74,58 +74,6 @@ bool gPgSQLBackend::inTransaction()
   return false;
 }
 
-bool gPgSQLBackend::getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSResourceRecord>& records)
-{
-#warning should be d_GetAllSOAsQuery
-
-  if (d_GetBestAuth_stmt == nullptr) {
-    return false;
-  }
-
-  try {
-    reconnectIfNeeded();
-
-    auto stmt = dynamic_cast<SPgSQLStatement*>(d_GetBestAuth_stmt.get());
-    if (stmt == nullptr) {
-      return false;
-    }
-
-    stmt->bind("soas", possibleZones);
-    stmt->execute();
-
-    while (d_GetBestAuth_stmt->hasNextRow()) {
-      DNSResourceRecord r;
-      SSqlStatement::row_t row;
-      try {
-        d_GetBestAuth_stmt->nextRow(row);
-
-        if (row.size() != 8) {
-          throw PDNSException("getBetsAuth returned wrong number of columns, expected 8, got " + std::to_string(row.size()));
-        }
-      }
-      catch (const SSqlException& e) {
-        throw PDNSException("GSQLBackend get: "+e.txtReason());
-      }
-      try {
-        extractRecord(row, r);
-        records.push_back(std::move(r));
-      }
-      catch (...) {
-        continue;
-      }
-    }
-    d_GetBestAuth_stmt->reset();
-
-    if (records.empty()) {
-      return false;
-    }
-    return true;
-  }
-  catch (const SSqlException &e) {
-    throw PDNSException("GSQLBackend unable to lookup the best auth for '" + target.toLogString() + "':"+e.txtReason());
-  }
-}
-
 class gPgSQLFactory : public BackendFactory
 {
 public:
@@ -215,7 +163,8 @@ public:
     declare(suffix, "search-records-query", "", record_query+" name LIKE $1 OR content LIKE $2 LIMIT $3");
     declare(suffix, "search-comments-query", "", "SELECT domain_id,name,type,modified_at,account,comment FROM comments WHERE name LIKE $1 OR comment LIKE $2 LIMIT $3");
 
-    declare(suffix, "get-all-soas-query", "", "SELECT content, ttl, prio, type, domain_id, disabled::int, name, auth::int FROM records WHERE disabled = false and type = 'SOA' AND name = ANY($1::text[])");
+    declare(suffix, "get-all-records-query", "", "SELECT content, ttl, prio, type, domain_id, disabled::int, name, auth::int FROM records WHERE disabled = false AND name = ANY ($1::text[])");
+    declare(suffix, "get-all-records-in-zone-query", "", "SELECT content, ttl, prio, type, domain_id, disabled::int, name, auth::int FROM records WHERE disabled = false AND domain_id = $1 AND name = ANY ($2::text[])");
   }
 
   DNSBackend *make(const string &suffix="")

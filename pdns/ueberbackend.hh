@@ -134,6 +134,10 @@ public:
   void reload();
   bool searchRecords(const string &pattern, int maxResults, vector<DNSResourceRecord>& result);
   bool searchComments(const string &pattern, int maxResults, vector<Comment>& result);
+
+  //void getBestRRSet(const std::vector<DNSName>& possibleNames, uint16_t qtype, int zoneId, std::vector<DNSZoneRecord>& results);
+  void getBestRRSet(const std::vector<DNSName>& possibleNames, uint16_t qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& results);
+
 private:
   handle d_handle;
   vector<DNSZoneRecord> d_answers;
@@ -158,9 +162,12 @@ private:
   static bool d_go;
   bool d_stale;
 
-  int cacheHas(const Question &q, vector<DNSZoneRecord> &rrs);
+  int cacheHas(const Question& q, vector<DNSZoneRecord>& rrs);
+  int cacheHas(const DNSName& name, const QType& qtype, int zoneId, vector<DNSZoneRecord>& rrs);
   void addNegCache(const Question &q);
+  void addNegCache(const DNSName& name, const QType& qtype, int zoneId);
   void addCache(const Question &q, vector<DNSZoneRecord>&& rrs);
+  void addCache(const DNSName& name, const QType& qtype, int zoneId, vector<DNSZoneRecord>&& rrs);
 
   bool tryGetAllSOAs(DNSBackend* backend, const DNSName& target, SOAData* sd);
 };

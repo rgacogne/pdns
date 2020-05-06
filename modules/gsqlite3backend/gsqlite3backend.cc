@@ -153,6 +153,10 @@ public:
     declare(suffix, "delete-comments-query", "", "DELETE FROM comments WHERE domain_id=:domain_id");
     declare(suffix, "search-records-query", "", record_query+" name LIKE :value OR content LIKE :value2 LIMIT :limit");
     declare(suffix, "search-comments-query", "", "SELECT domain_id,name,type,modified_at,account,comment FROM comments WHERE name LIKE :value OR comment LIKE :value2 LIMIT :limit");
+
+    // not implemented, we can't bind an arbitrary number of values to a prepared statement. We also don't have a huge latency issue
+    declare(suffix, "get-all-records-query", "", "");
+    declare(suffix, "get-all-records-in-zone-query", "", "");
   }
 
   //! Constructs a new gSQLite3Backend object.

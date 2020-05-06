@@ -193,10 +193,13 @@ class RemoteBackend : public DNSBackend
   void alsoNotifies(const DNSName &domain, set<string> *ips) override;
   void getUnfreshSlaveInfos(vector<DomainInfo>* domains) override;
   void setFresh(uint32_t domain_id) override;
+  bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records) override;
 
   static DNSBackend *maker();
 
   private:
+    DNSResourceRecord ResourceRecordFromRow(const Json& row) const;
+
     int build();
     std::unique_ptr<Connector> connector;
     bool d_dnssec;
@@ -204,6 +207,7 @@ class RemoteBackend : public DNSBackend
     int d_index;
     int64_t d_trxid;
     std::string d_connstr;
+    bool d_implementGetBestRRSet{true};
 
     bool send(Json &value);
     bool recv(Json &value);

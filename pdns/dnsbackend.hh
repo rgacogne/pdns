@@ -136,12 +136,12 @@ public:
   //! fills the soadata struct with the SOA details. Returns false if there is no SOA.
   virtual bool getSOA(const DNSName &name, SOAData &soadata);
 
-  virtual bool getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSResourceRecord>& records)
+  virtual bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
   {
     return false;
   }
 
-  virtual bool getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSZoneRecord>& records);
+  virtual bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records);
 
   virtual bool replaceRRSet(uint32_t domain_id, const DNSName& qname, const QType& qt, const vector<DNSResourceRecord>& rrset)
   {

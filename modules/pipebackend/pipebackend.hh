@@ -53,6 +53,7 @@ public:
   void lookup(const QType&, const DNSName& qdomain, int zoneId, DNSPacket *p=nullptr) override;
   bool list(const DNSName& target, int domain_id, bool include_disabled=false) override;
   bool get(DNSResourceRecord &r) override;
+  bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records) override;
   string directBackendCmd(const string &query) override;
   static DNSBackend *maker();
   

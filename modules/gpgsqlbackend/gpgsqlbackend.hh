@@ -32,13 +32,7 @@ class gPgSQLBackend : public GSQLBackend
 {
 public:
   gPgSQLBackend(const string &mode, const string &suffix); //!< Makes our connection to the database. Throws an exception if it fails.
-
-  bool getBestAuth(const DNSName& target, const std::vector<DNSName>& possibleZones, std::vector<DNSResourceRecord>& targetRecords) override;
-
 protected:
   void reconnect() override;
   bool inTransaction() override;
-
-private:
-  std::unique_ptr<SSqlStatement> d_BestAuth_stmt;
 };

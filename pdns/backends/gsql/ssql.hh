@@ -59,6 +59,10 @@ public:
   SSqlStatement* bind(const string& name, const DNSName& value) {
     return bind(name, value.makeLowerCase().toStringRootDot());
   }
+  virtual SSqlStatement* bind(const string& name, const std::vector<DNSName>& values)
+  {
+    throw std::runtime_error("Binding a list of DNS names is not supported by this SQL backend");
+  }
   virtual SSqlStatement* bindNull(const string& name)=0;
   virtual SSqlStatement* execute()=0;
   virtual bool hasNextRow()=0;
