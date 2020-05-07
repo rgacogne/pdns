@@ -296,9 +296,9 @@ void UeberBackend::getUpdatedMasters(vector<DomainInfo>* domains)
   }
 }
 
-void UeberBackend::lookupAndGet(const DNSName& qname, const QType& qtype, int zoneId, const DNSPakcet* pkt, std::vector<DNSZoneRecord>& results)
+void UeberBackend::lookupAndGet(const DNSName& qname, const QType& qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& results)
 {
-  this->lookup(qtype, qname, zoneId, pkt);
+  this->lookup(qtype, qname, zoneId, const_cast<DNSPacket*>(pkt));
   DNSZoneRecord dzr;
   while (this->get(dzr)) {
     results.push_back(std::move(dzr));
@@ -307,10 +307,134 @@ void UeberBackend::lookupAndGet(const DNSName& qname, const QType& qtype, int zo
 
 void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint16_t qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& results)
 {
-  if (!from.isPartOf(to)) {
+  // A backend can respond to our getBestRRSet request with the 'best' match it
+  // has. For example, when asked for a.b.c.example.com. it might respond with
+  // com. We then store that and keep querying the other backends in case one
+  // of them has a more specific entry, but don't bother asking this specific
+  // backend again for b.c.example.com., c.example.com. and example.com.
+  // If a backend has no match it may respond with an empty qname.
+  // We also try to take advantage of a backend's capability to handle
+  // a batch of names when possible, as that increases performance a lot
+  // with high-latency backends (SQL, remote).
+
+  if (possibleNames.size() == 1) {
+    lookupAndGet(possibleNames.at(0), QType(qtype), zoneId, pkt, results);
     return;
   }
 
+  DNSName shorter(target);
+  std::unordered_map<DNSName, std::vector<DNSZoneRecord>> records;
+
+  std::unordered_map<DNSName, std::vector<DNSZoneRecord>> recordsByName;
+  std::vector<DNSName> toCheck;
+  toCheck.reserve(possibleNames.size());  
+
+  for (auto it = possibleNames.begin(); it != possibleNames.end(); ++it) {
+    // returns -1 for miss, 0 for negative match, 1 for hit
+    int res = cacheHas(*it, QType(qtype), zoneId, recordsByName[*it]);
+    if (res == 1) {
+      /* found a cached RRset for this name/type */
+      if (it == possibleNames.begin()) {
+        /* and it's the best possible one, we are done */
+        results = std::move(recordsByName[*it]);
+        return;
+      }
+      else {
+        /* we still have some more specific names to check,
+           but no need to check any name less specific that this one */
+        break;
+      }
+    }
+    else if (res == 0) {
+      /* we know there is no RRset for this name/type */
+      continue;
+    }
+    else {
+      /* miss, let's continue */
+      toCheck.push_back(*it);
+    }
+  }
+
+  std::vector<size_t> bestmatch(backends.size(), toCheck.at(0).wirelength()+1, {});
+
+  for (size_t idx = 0; idx < backends.size(); idx++) {
+    const auto& backend = backends.at(idx);
+#warning careful, here, true should mean that we really have something FOR THIS TYPE
+    DNSName best;
+    if (tryGetAllRRSets(backend, toCheck, recordsByName, best)) {
+      auto& bestIt = bestmatch.at(idx);
+      *bestIt = best.wirelength();
+      // we cannot stop here, we need to get the RRSets from all the backend
+      // we can, however, remove the "higher" names from toCheck
+      // since we already have a better option
+      for (auto it = toCheck.begin(); it != toCheck.end(); ) {
+        if (it->wirelength() < best.wirelength()) {
+          toCheck.erase(it, toCheck.end());
+          break;
+        }
+        else {
+          ++it;
+        }
+      }
+    }
+  }
+
+  do {
+    cerr<<"in main loop, shorter is "<<shorter<<endl;
+    // Check backends
+    {
+      bool skipped = true;
+      auto backendIt = backends.begin();
+      auto bestIt = bestmatch.begin();
+      for (; backendIt != backends.end() && bestIt != bestmatch.end(); ++backendIt, ++bestIt) {
+        DLOG(g_log<<Logger::Error<<"backend: "<<backendIt-backends.begin()<<", qname: "<<shorter<<endl);
+
+        if (*bestIt <= shorter.wirelength()) {
+          cerr<<"skipped "<<shorter<<" for backend "<<(*backendIt)->getPrefix()<<endl;
+          DLOG(g_log<<Logger::Error<<"skipped, we already found a shorter best match in this backend: "<<*bestIt<<endl);
+          continue;
+        }
+
+        skipped = false;
+        cerr<<"lookup "<<shorter<<" for backend "<<(*backendIt)->getPrefix()<<endl;
+        DLOG(g_log<<Logger::Error<<"lookup: "<<shorter<<endl);
+#warning this doesnt exist. Also we should filter the records
+        if ((*backendIt)->lookupAndGet(shorter, QType(QType::ANY), zoneId, pkt, recordsByName[shorter])) {
+          cerr<<"got true for "<<shorter<<" "<<" from backend "<<(*backendIt)->getPrefix()<<endl;
+          DLOG(g_log<<Logger::Error<<"got: "<<s<<endl);
+          if (hasRecord(recordsByName[shorter], qtype)) {
+            *bestIt = shorter.wirelength();
+          }
+        } else {
+          cerr<<"no match "<<shorter<<" for backend "<<(*backendIt)->getPrefix()<<endl;
+          DLOG(g_log<<Logger::Error<<"no match for: "<<shorter<<endl);
+        }
+      }
+
+      if (!skipped) {
+        if (recordsByName[shorter].empty()) {
+          // Add to cache
+          addNegCache(shorter, qtype);
+        }
+      } else {
+        addCache(shorter, qtype, {recordsByName[shorter]});
+      }
+
+      if (!recordsByName[shorter].empty()) {
+        results = filterRecords(recordsByName[shorter], qtype);
+        return;
+      }
+    }
+
+    cerr<<"reach the check with shorter "<<shorter<<" target is "<<target<<endl;
+
+  } while(shorter.chopOff());
+  cerr<<"EOF"<<endl;
+}
+
+#if 0
+void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint16_t qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& results)
+{
   if (possibleNames.size() == 1) {
     lookupAndGet(possibleNames.at(0), QType(qtype), zoneId, pkt, results);
     return;
@@ -323,12 +447,12 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
 
   for (auto it = possibleNames.begin(); it != possibleNames.end(); ++it) {
     // returns -1 for miss, 0 for negative match, 1 for hit
-    int res = cacheHas(name, QType(qtype), zoneId, recordsByName[name]);
+    int res = cacheHas(*it, QType(qtype), zoneId, recordsByName[*it]);
     if (res == 1) {
       /* found a cached RRset for this name/type */
       if (it == possibleNames.begin()) {
         /* and it's the best possible one, we are done */
-        results = std::move(recordsByName[name]);
+        results = std::move(recordsByName[*it]);
         return;
       }
       else {
@@ -351,7 +475,9 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
     lookupAndGet(toCheck.at(0), QType(qtype), zoneId, pkt, results);
     return;
   }
-#warning we have no way of knowing if every backend returned ANY records or only specific ones
+
+  // we do know that every backend will return ALL records (ANY queries)
+
 #warning we also need to stop caching once we reach the "best" record since we might not have sent a query to all backends for the "higher" ones
   for (auto& backend : backends) {
     bool backendDone = false;
@@ -365,7 +491,7 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
     else {
       for (const auto& name : toCheck) {
         auto& currentRecords = recordsByName[name];
-        std::vector<DNSZoneRecord> backendRecords;
+        backendRecords.clear();
         backend->lookup(QType(qtype), name, zoneId);
         DNSZoneRecord dzr;
         while (backend->get(dzr)) {
@@ -380,7 +506,7 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
   }
 
   for (const auto& name : toCheck) {
-    auto& it = recordsByName.find(name);
+    auto it = recordsByName.find(name);
     if (it != recordsByName.end()) {
       if (it->second.empty()) {
         addNegCache(name, QType(qtype), zoneId);
@@ -395,13 +521,14 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
   }
 
   for (const auto& name : possibleNames) {
-    auto& it = recordsByName.find(name);
+    auto it = recordsByName.find(name);
     if (it != recordsByName.end() && !it->second.empty()) {
       results = std::move(it->second);
       return;
     }
   }
 }
+#endif
 
 bool UeberBackend::tryGetAllSOAs(DNSBackend* backend, const DNSName& target, SOAData* sd)
 {
@@ -415,7 +542,7 @@ bool UeberBackend::tryGetAllSOAs(DNSBackend* backend, const DNSName& target, SOA
   while (shorter.chopOff());
 
   cerr<<__func__<<" "<<__LINE__<<": calling backend getBestAuth"<<endl;
-  if (!backend->getAllSOAs(possibleZones, recs)) {
+  if (!backend->getAllRRSets(possibleZones, -1, nullptr, recs)) {
     cerr<<__func__<<" "<<__LINE__<<": getBestAuth returned false"<<endl;
     return false;
   }
@@ -465,7 +592,6 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
   // If a backend has no match it may respond with an empty qname.
 
   bool foundChildZone = false;
-  int cstat;
   DNSName shorter(target);
   vector<pair<size_t, SOAData> > bestmatch (backends.size(), make_pair(target.wirelength()+1, SOAData()));
   std::unordered_map<DNSName, std::vector<DNSZoneRecord>> records;
@@ -494,7 +620,7 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
       d_question.qname = shorter;
       d_question.zoneId = -1;
 
-      cstat = cacheHas(d_question,d_answers);
+      int cstat = cacheHas(d_question,d_answers);
 
       if(cstat == 1 && !d_answers.empty() && d_cache_ttl) {
         cerr<<"FOUND a SOA for "<<shorter<<" from the cache"<<endl;
@@ -527,6 +653,7 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
           cerr<<"use best match "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
           DLOG(g_log<<Logger::Error<<"use shorter best match: "<<j->second.qname<<endl);
           *sd = j->second;
+          sd->db = *i;
           break;
         } else {
 /*
@@ -555,6 +682,7 @@ bool UeberBackend::getAuth(const DNSName &target, bool lookingForDS, SOAData* sd
             }
             j->first = sd->qname.wirelength();
             j->second = *sd;
+            sd->db = *i;
             if(sd->qname == shorter) {
               cerr<<"breaking "<<shorter<<" for backend "<<(*i)->getPrefix()<<endl;
               break;

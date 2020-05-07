@@ -97,13 +97,14 @@ public:
   };
 
   void lookup(const QType &, const DNSName &qdomain, int zoneId, DNSPacket *pkt_p=nullptr);
-
+  bool get(DNSZoneRecord &r);
+  void lookupAndGet(const DNSName& qname, const QType& qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& results);
+  
   /** Determines if we are authoritative for a zone, and at what level */
   bool getAuth(const DNSName &target, bool lookingForDS, SOAData* sd, bool cachedOk=true);
   bool getSOA(const DNSName &domain, SOAData &sd);
   /** Load SOA info from backends, ignoring the cache.*/
   bool getSOAUncached(const DNSName &domain, SOAData &sd);
-  bool get(DNSZoneRecord &r);
   void getAllDomains(vector<DomainInfo> *domains, bool include_disabled=false);
 
   void getUnfreshSlaveInfos(vector<DomainInfo>* domains);

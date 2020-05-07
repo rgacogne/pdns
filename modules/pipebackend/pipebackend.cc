@@ -351,35 +351,34 @@ bool PipeBackend::get(DNSResourceRecord &r)
   return true;
 }
 
-bool PipeBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
+/* we override the default getSOA to allow our backend to return
+   a 'best' match. There is no drawback if the backend doesn't
+   support that except a bit of code duplication */
+bool PipeBackend::getSOA(const DNSName& domain, SOAData& sd)
 {
-  bool done = false;
-  for (const auto& zone : possibleZones) {
-    /* we pass the expected type, not ANY (except if the type is ANY itself of course)
-       so that the remote end knows that the query is for SOA, NS or CNAME, for example,
-       meaning that it can return the "best" match right away */
-    lookup(stopOnTypeFound, zone, zoneId, pkt);
+  lookup(QType(QType::SOA), domain, -1);
 
-    DNSResourceRecord drr;
-    while (get(drr) == true) {
-      if (stopOnTypeFound != QType::ANY && drr.qtype != stopOnTypeFound) {
-        continue;
-      }
-
-      if (drr.qname.wirelength() < zone.wirelength()) {
-        /* we have a best match */
-        done = true;
-      }
-
-      records.push_back(std::move(drr));
+  bool found = false;
+  DNSResourceRecord drr;
+  drr.auth = true;
+  
+  while (get(drr) == true) {
+    if (drr.qtype != QType::SOA) {
+      throw PDNSException("Got non-SOA record when asking for SOA from our pipe backend");
     }
-
-    if (done) {
-      break;
-    }
+    found = true;
+    fillSOAData(drr.content, sd);
+    sd.qname = drr.qname;    
+    sd.domain_id = drr.domain_id;
+    sd.ttl = drr.ttl;
   }
 
-  return true;
+  if (found) {
+    fillSOADefaults(sd.qname, sd);
+    return true;
+  }
+
+  return false;
 }
 
 //

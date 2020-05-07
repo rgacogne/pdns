@@ -31,7 +31,7 @@ static const char *kBackendId = "[RemoteBackend]";
  * we need to do some treatment to the value before
  * sending it downwards.
  */
-bool Connector::send(Json& value) {
+bool Connector::send(const Json& value) {
     return send_message(value)>0;
 }
 
@@ -73,7 +73,7 @@ RemoteBackend::RemoteBackend(const std::string &suffix)
 
 RemoteBackend::~RemoteBackend() { }
 
-bool RemoteBackend::send(Json& value) {
+bool RemoteBackend::send(const Json& value) {
    try {
      return connector->send(value);
    } catch (PDNSException &ex) {
@@ -1019,6 +1019,64 @@ void RemoteBackend::setFresh(uint32_t domain_id) {
    if (this->send(query) == false || this->recv(answer) == false) {
       g_log<<Logger::Error<<kBackendId<<" Failed to execute RPC for RemoteBackend::setFresh("<<domain_id<<")"<<endl;
    }
+}
+
+/* we override the default getSOA to allow our backend to return
+   a 'best' match. If the backend doesn't support that we
+   will fallback to the default getSOA implementation. */
+bool RemoteBackend::getSOA(const DNSName &name, SOAData &soadata)
+{
+  if (!d_implementGetBestSOA) {
+    return DNSBackend::getSOA(name, soadata);
+  }
+
+  Json::array zones;
+  DNSName shorter(name);
+  do {
+    zones.push_back(Json::object{
+        { "zone", shorter.toStringNoDot() }
+      });
+  }
+  while (shorter.chopOff());
+
+  const Json query = Json::object{
+    { "method", "getBestSOA" },
+    { "parameters", Json::object{
+        { "zones", std::move(zones) },
+      }
+    }
+  };
+
+  Json answer;
+  if (this->send(query) == false || this->recv(answer) == false) {
+    return false;
+  }
+
+  if (answer["result"].is_array() == false) {
+    /* this call is not implemented, let's not try again */
+    d_implementGetBestSOA = false;
+    return false;
+  }
+
+  auto& rows = answer["result"].array_items();
+
+  bool found = false;
+  for (const auto& row : rows) {
+    DNSResourceRecord drr = ResourceRecordFromRow(row);
+    if (drr.qtype != QType::SOA) {
+      continue;
+    }
+    soadata.qname = drr.qname;
+    soadata.domain_id = drr.domain_id;
+    soadata.ttl = drr.ttl;
+    fillSOAData(drr.content, soadata);    
+  }
+
+  if (found) {
+    fillSOADefaults(soadata.qname, soadata);
+  }
+
+  return true;  
 }
 
 bool RemoteBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)

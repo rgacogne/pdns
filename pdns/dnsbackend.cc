@@ -222,38 +222,52 @@ vector<DNSBackend *>BackendMakerClass::all(bool metadataOnly)
 */
 bool DNSBackend::getSOA(const DNSName &domain, SOAData &sd)
 {
-  this->lookup(QType(QType::SOA),domain,-1);
+  this->lookup(QType(QType::SOA), domain, -1);
 
   DNSResourceRecord rr;
   rr.auth = true;
 
-  int hits=0;
+  int hits = 0;
 
-  while(this->get(rr)) {
-    if (rr.qtype != QType::SOA) throw PDNSException("Got non-SOA record when asking for SOA");
+  while (this->get(rr)) {
+    if (rr.qtype != QType::SOA) {
+      throw PDNSException("Got non-SOA record when asking for SOA");
+    }
     hits++;
     fillSOAData(rr.content, sd);
-    sd.domain_id=rr.domain_id;
-    sd.ttl=rr.ttl;
+    sd.domain_id = rr.domain_id;
+    sd.ttl = rr.ttl;
   }
 
-  if(!hits)
+  if (!hits) {
     return false;
-  sd.qname = domain;
-  if(!sd.nameserver.countLabels())
-    sd.nameserver= DNSName(arg()["default-soa-name"]);
+  }
 
-  if(!sd.hostmaster.countLabels()) {
-    if (!arg().isEmpty("default-soa-mail")) {
-      sd.hostmaster= DNSName(arg()["default-soa-mail"]);
+  sd.qname = domain;
+  fillSOADefaults(domain, sd);
+  sd.db = this;
+
+  return true;
+}
+
+void DNSBackend::fillSOADefaults(const DNSName& domain, SOAData& sd)
+{
+  if (sd.nameserver.countLabels() == 0) {
+    static const DNSName defaultSOAName = DNSName(arg()["default-soa-name"]);
+    sd.nameserver = defaultSOAName;
+  }
+
+  if (sd.hostmaster.countLabels() == 0) {
+    static const bool defaultSOAEmpty = arg().isEmpty("default-soa-mail");
+    if (!defaultSOAEmpty) {
+      static const DNSName defaultSOAMail = DNSName(arg()["default-soa-mail"]);
+      sd.hostmaster = defaultSOAMail;
       // attodot(sd.hostmaster); FIXME400
     }
-    else
-      sd.hostmaster=DNSName("hostmaster")+domain;
+    else {
+      sd.hostmaster = DNSName("hostmaster") + domain;
+    }
   }
-
-  sd.db=this;
-  return true;
 }
 
 DNSZoneRecord DNSBackend::convert(DNSResourceRecord& rr)
@@ -402,10 +416,10 @@ void fillSOAData(const string &content, SOAData &data)
   }
 }
 
-bool DNSBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records)
+bool DNSBackend::getAllRRSets(const std::vector<DNSName>& possibleZones, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records)
 {
   std::vector<DNSResourceRecord> resourceRecords;
-  if (!getBestRRSet(possibleZones, stopOnTypeFound, zoneId, pkt, resourceRecords)) {
+  if (!getAllRRSets(possibleZones, zoneId, pkt, resourceRecords)) {
     return false;
   }
 
