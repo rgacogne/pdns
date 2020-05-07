@@ -136,12 +136,13 @@ public:
   //! fills the soadata struct with the SOA details. Returns false if there is no SOA.
   virtual bool getSOA(const DNSName &name, SOAData &soadata);
 
-  virtual bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
+  /* return all types for the specified names */
+  virtual bool getAllRRSets(const std::vector<DNSName>& names, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
   {
     return false;
   }
 
-  virtual bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records);
+  virtual bool getAllRRSets(const std::vector<DNSName>& names, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records);
 
   virtual bool replaceRRSet(uint32_t domain_id, const DNSName& qname, const QType& qt, const vector<DNSResourceRecord>& rrset)
   {
@@ -387,6 +388,7 @@ public:
   const string& getPrefix() { return d_prefix; };
 
   static DNSZoneRecord convert(DNSResourceRecord& rr);
+  static void fillSOADefaults(const DNSName& domain, SOAData& sd);
 
 protected:
   bool mustDo(const string &key);

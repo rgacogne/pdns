@@ -51,7 +51,7 @@ using json11::Json;
 class Connector {
    public:
     virtual ~Connector() {};
-    bool send(Json &value);
+    bool send(const Json &value);
     bool recv(Json &value);
     virtual int send_message(const Json &input) = 0;
     virtual int recv_message(Json &output) = 0;
@@ -193,6 +193,8 @@ class RemoteBackend : public DNSBackend
   void alsoNotifies(const DNSName &domain, set<string> *ips) override;
   void getUnfreshSlaveInfos(vector<DomainInfo>* domains) override;
   void setFresh(uint32_t domain_id) override;
+
+  bool getSOA(const DNSName &name, SOAData &soadata) override;
   bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records) override;
 
   static DNSBackend *maker();
@@ -208,8 +210,9 @@ class RemoteBackend : public DNSBackend
     int64_t d_trxid;
     std::string d_connstr;
     bool d_implementGetBestRRSet{true};
+    bool d_implementGetBestSOA{true};
 
-    bool send(Json &value);
+    bool send(const Json &value);
     bool recv(Json &value);
  
     string asString(const Json& value) {

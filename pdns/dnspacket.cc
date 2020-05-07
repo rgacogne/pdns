@@ -201,7 +201,7 @@ unsigned int DNSPacket::getMinTTL()
   return minttl;
 }
 
-bool DNSPacket::isEmpty()
+bool DNSPacket::isEmpty() const
 {
   return (d_rrs.empty());
 }
@@ -576,7 +576,7 @@ catch(std::exception& e) {
   return -1;
 }
 
-unsigned int DNSPacket::getMaxReplyLen()
+unsigned int DNSPacket::getMaxReplyLen() const
 {
   return d_maxreplylen;
 }

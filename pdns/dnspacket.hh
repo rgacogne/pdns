@@ -105,7 +105,7 @@ public:
   void wrapup();  // writes out queued rrs, and generates the binary packet. also shuffles. also rectifies dnsheader 'd', and copies it to the stringbuffer
   void spoofQuestion(const DNSPacket& qd); //!< paste in the exact right case of the question. Useful for PacketCache
   unsigned int getMinTTL(); //!< returns lowest TTL of any record in the packet
-  bool isEmpty(); //!< returns true if there are no rrs in the packet
+  bool isEmpty() const; //!< returns true if there are no rrs in the packet
 
   vector<DNSZoneRecord*> getAPRecords(); //!< get a vector with DNSZoneRecords that need additional processing
   vector<DNSZoneRecord*> getAnswerRecords(); //!< get a vector with DNSZoneRecords that are answers
@@ -114,7 +114,7 @@ public:
   std::unique_ptr<DNSPacket> replyPacket() const; //!< convenience function that creates a virgin answer packet to this question
 
   void commitD(); //!< copies 'd' into the stringbuffer
-  unsigned int getMaxReplyLen(); //!< retrieve the maximum length of the packet we should send in response
+  unsigned int getMaxReplyLen() const; //!< retrieve the maximum length of the packet we should send in response
   void setMaxReplyLen(int bytes); //!< set the max reply len (used when retrieving from the packet cache, and this changed)
 
   bool couldBeCached() const; //!< returns 0 if this query should bypass the packet cache
