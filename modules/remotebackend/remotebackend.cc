@@ -1079,22 +1079,22 @@ bool RemoteBackend::getSOA(const DNSName &name, SOAData &soadata)
   return true;  
 }
 
-bool RemoteBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
+bool RemoteBackend::getAllRRSets(const std::vector<DNSName>& names, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
 {
-  if (!d_implementGetBestRRSet) {
+  if (!d_implementGetAllRRSets) {
     return false;
   }
 
-  Json::array zones;
-  zones.reserve(possibleZones.size());
+  Json::array namesArray;
+  namesArray.reserve(names.size());
 
-  for(const auto& zone : possibleZones)
-    zones.push_back(Json::object{
-       { "zone", zone.toStringNoDot() }
+  for(const auto& name : names)
+    namesArray.push_back(Json::object{
+       { "name", name.toStringNoDot() }
      });
-   string localIP="0.0.0.0";
-   string remoteIP="0.0.0.0";
-   string realRemote="0.0.0.0/0";
+   string localIP = "0.0.0.0";
+   string remoteIP = "0.0.0.0";
+   string realRemote = "0.0.0.0/0";
 
    if (pkt) {
      localIP = pkt->getLocal().toString();
@@ -1103,13 +1103,12 @@ bool RemoteBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, cons
    }
 
   const Json query = Json::object{
-    { "method", "getBestRRSet" },
+    { "method", "getAllRRSets" },
     { "parameters", Json::object{
         { "local", localIP },
         { "real-remote", realRemote },
         { "remote", remoteIP },
-        { "stop-on-type-found", stopOnTypeFound.getName() },
-        { "zones", std::move(zones) },
+        { "names", std::move(namesArray) },
         { "zone-id", zoneId }
       }
     }
@@ -1122,7 +1121,7 @@ bool RemoteBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, cons
 
   if (answer["result"].is_array() == false) {
     /* this call is not implemented, let's not try again */
-    d_implementGetBestRRSet = false;
+    d_implementGetAllRRSets = false;
     return false;
   }
 
