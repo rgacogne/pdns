@@ -195,7 +195,7 @@ class RemoteBackend : public DNSBackend
   void setFresh(uint32_t domain_id) override;
 
   bool getSOA(const DNSName &name, SOAData &soadata) override;
-  bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records) override;
+  bool getAllRRSets(const std::vector<DNSName>& names, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records) override;
 
   static DNSBackend *maker();
 
@@ -209,7 +209,7 @@ class RemoteBackend : public DNSBackend
     int d_index;
     int64_t d_trxid;
     std::string d_connstr;
-    bool d_implementGetBestRRSet{true};
+    bool d_implementGetAllRRSets{true};
     bool d_implementGetBestSOA{true};
 
     bool send(const Json &value);

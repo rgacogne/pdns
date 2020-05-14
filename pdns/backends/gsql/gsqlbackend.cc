@@ -1397,9 +1397,10 @@ void GSQLBackend::getAllDomains(vector<DomainInfo> *domains, bool include_disabl
   }
 }
 
-bool GSQLBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& stopOnTypeFound, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& targetRecords)
+bool GSQLBackend::getAllRRSets(const std::vector<DNSName>& possibleZones, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& targetRecords)
 {
   if ((zoneId == -1 && d_GetAllRecords_stmt == nullptr) || d_GetAllRecordsInZone_stmt == nullptr) {
+    cerr<<"zone is "<<zoneId<<", statement is empty"<<endl;
     return false;
   }
 
@@ -1414,16 +1415,22 @@ bool GSQLBackend::getBestRRSet(const std::vector<DNSName>& possibleZones, const 
         execute();
     }
     else {
+      cerr<<"zones are:"<<endl;
+      for (const auto& zone: possibleZones) {
+        cerr<<zone<<endl;
+      }
       stmt->
         bind("zoneId", zoneId)->
         bind("names", possibleZones)->
         execute();
     }
 
+    cerr<<"executing with zoneId "<<zoneId<<endl;
     while (stmt->hasNextRow()) {
       DNSResourceRecord r;
       SSqlStatement::row_t row;
       try {
+        cerr<<"got a row"<<endl;
         stmt->nextRow(row);
         ASSERT_ROW_COLUMNS((zoneId == -1) ? "get-all-records-query" : "get-all-records-in-zone-query", row, 8);
       }

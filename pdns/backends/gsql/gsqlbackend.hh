@@ -247,7 +247,7 @@ public:
   bool searchComments(const string &pattern, int maxResults, vector<Comment>& result) override;
 
   bool getAllRRSets(const std::vector<DNSName>& possibleZones, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& targetRecords) override;
-  bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records) override;
+  //bool getBestRRSet(const std::vector<DNSName>& possibleZones, const QType& qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records) override;
 
 protected:
   bool createDomain(const DNSName &domain, const string &type, const string &masters, const string &account);

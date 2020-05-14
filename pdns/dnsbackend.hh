@@ -136,6 +136,8 @@ public:
   //! fills the soadata struct with the SOA details. Returns false if there is no SOA.
   virtual bool getSOA(const DNSName &name, SOAData &soadata);
 
+  bool lookupAndGet(const DNSName& name, const QType& qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records);
+
   /* return all types for the specified names */
   virtual bool getAllRRSets(const std::vector<DNSName>& names, int zoneId, const DNSPacket* pkt, std::vector<DNSResourceRecord>& records)
   {

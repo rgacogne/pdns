@@ -435,3 +435,17 @@ bool DNSBackend::getAllRRSets(const std::vector<DNSName>& possibleZones, int zon
 
   return true;
 }
+
+bool DNSBackend::lookupAndGet(const DNSName& name, const QType& qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& records)
+{
+  this->lookup(qtype, name, zoneId, const_cast<DNSPacket*>(pkt));
+
+  bool found = false;
+  DNSResourceRecord rr;
+  while (this->get(rr)) {
+    found = true;
+    records.push_back(this->convert(rr));
+  }
+
+  return found;
+}
