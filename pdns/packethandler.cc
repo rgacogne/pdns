@@ -330,31 +330,37 @@ vector<DNSZoneRecord> PacketHandler::getBestReferralNS(DNSPacket& p, const SOADa
 
 vector<DNSZoneRecord> PacketHandler::getBestDNAMESynth(DNSPacket& p, const SOAData& sd, DNSName &target)
 {
-  vector<DNSZoneRecord> ret;
-  DNSZoneRecord rr;
-  DNSName prefix;
+  std::vector<DNSName> possibleNames;
   DNSName subdomain(target);
   do {
-    DLOG(g_log<<"Attempting DNAME lookup for "<<subdomain<<", sd.qname="<<sd.qname<<endl);
-
-    B.lookup(QType(QType::DNAME), subdomain, sd.domain_id, &p);
-    while(B.get(rr)) {
-      ret.push_back(rr);  // put in the original
-      rr.dr.d_type = QType::CNAME;
-      rr.dr.d_name = prefix + rr.dr.d_name;
-      rr.dr.d_content = std::make_shared<CNAMERecordContent>(CNAMERecordContent(prefix + getRR<DNAMERecordContent>(rr.dr)->getTarget()));
-      rr.auth = 0; // don't sign CNAME
-      target= getRR<CNAMERecordContent>(rr.dr)->getTarget();
-      ret.push_back(rr); 
-    }
-    if(!ret.empty())
-      return ret;
-    if(subdomain.countLabels())
-      prefix.appendRawLabel(subdomain.getRawLabels()[0]); // XXX DNSName pain this feels wrong
-    if(subdomain == sd.qname) // stop at SOA
+    possibleNames.push_back(subdomain);
+    if (subdomain == sd.qname) {
+      // stop at SOA
       break;
+    }
+  }
+  while (subdomain.chopOff());   // 'www.powerdns.org' -> 'powerdns.org' -> 'org' -> ''
 
-  } while( subdomain.chopOff() );   // 'www.powerdns.org' -> 'powerdns.org' -> 'org' -> ''
+  vector<DNSZoneRecord> ret;
+  B.getBestRRSet(possibleNames, QType::DNAME, sd.domain_id, &p, ret);
+
+  for (const auto& rr : ret) {
+    DNSZoneRecord cnameRR;
+    const DNSName prefix = rr.dr.d_name.makeRelative(sd.qname);
+    cnameRR.dr.d_type = QType::CNAME;
+    cnameRR.dr.d_name = prefix + rr.dr.d_name;
+    auto dnameRC = getRR<DNAMERecordContent>(rr.dr);
+    if (!dnameRC) {
+      throw std::runtime_error("Unable to get the DNAME record content");
+    }
+    auto cnameRC = std::make_shared<CNAMERecordContent>(CNAMERecordContent(prefix + dnameRC->getTarget()));
+    cnameRR.dr.d_content = cnameRC;
+    cnameRR.auth = 0; // don't sign CNAME
+    target = cnameRC->getTarget();
+    ret.push_back(std::move(cnameRR));
+    break;
+  }
+
   return ret;
 }
 
