@@ -1407,6 +1407,8 @@ bool GSQLBackend::getAllRRSets(const std::vector<DNSName>& possibleZones, int zo
   try {
     reconnectIfNeeded();
 
+    // this would override the name coming from the database..
+    d_qname.clear();
     auto& stmt = (zoneId == -1) ? d_GetAllRecords_stmt : d_GetAllRecordsInZone_stmt;
 
     if (zoneId == -1) {

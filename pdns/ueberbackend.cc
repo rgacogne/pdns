@@ -367,7 +367,7 @@ static std::vector<DNSZoneRecord> filterRecords(std::vector<DNSZoneRecord>& reco
 
 void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint16_t qtype, int zoneId, const DNSPacket* pkt, std::vector<DNSZoneRecord>& results)
 {
-  cerr<<"in "<<__func__<<endl;
+  cerr<<"in "<<__func__<<" for type "<<QType(qtype).getName()<<endl;
   // A backend can respond to our getBestRRSet request with the 'best' match it
   // has for the submitted names. The names should be ordered from the most
   // specific to the least specific one, but might also contain wildcards.
@@ -421,6 +421,10 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
     }
   }
 
+  if (toCheck.empty()) {
+    return;
+  }
+
   size_t bestFound = toCheck.at(0).wirelength() + 1;
   std::vector<size_t> bestmatch(backends.size(), bestFound, {});
   bool allBackendsSupportGetAllRRSets = true;
@@ -449,11 +453,11 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
     for (const auto& currentName : toCheck) {
       if (recordsByName[currentName].empty()) {
         // Add to cache
-        cerr<<"negatively caching "<<currentName<<endl;
+        cerr<<"negatively caching ANY "<<currentName<<endl;
         addNegCache(currentName, QType::ANY, zoneId);
       }
       else {
-        cerr<<"caching "<<currentName<<endl;
+        cerr<<"caching ANY "<<currentName<<endl;
         addCache(currentName, QType::ANY, zoneId, std::vector<DNSZoneRecord>(recordsByName[currentName]));
       }
     }
