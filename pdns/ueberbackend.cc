@@ -413,37 +413,65 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
     }
     else {
       /* miss, let's continue */
+      cerr<<"MISS for "<<*it<<endl;
       toCheck.push_back(*it);
     }
   }
 
-  std::vector<size_t> bestmatch(backends.size(), toCheck.at(0).wirelength()+1, {});
-
+  size_t bestFound = toCheck.at(0).wirelength() + 1;
+  std::vector<size_t> bestmatch(backends.size(), bestFound, {});
+  bool allBackendsSupportGetAllRRSets = true;
+  DNSName best;
   for (size_t idx = 0; idx < backends.size(); idx++) {
     const auto& backend = backends.at(idx);
-#warning careful, here, true should mean that we really have something FOR THIS TYPE
-    DNSName best;
-    cerr<<"calling tryGetAllRRSets for backend "<<backend->getPrefix()<<endl;
+
+    cerr<<"calling tryGetAllRRSets for backend "<<backend->getPrefix()<<" and type "<<QType(qtype).getName()<<endl;
 
     if (tryGetAllRRSets(backend, toCheck, qtype, zoneId, pkt, recordsByName, best)) {
       auto& bestIt = bestmatch.at(idx);
       bestIt = best.wirelength();
+      bestFound = bestIt;
       cerr<<"tryGetAllRRSets returned true, best is "<<best<<endl;
       // we cannot stop here, we need to get the RRSets from all the backend
-      // we can, however, remove the "higher" names from toCheck
-      // since we already have a better option
-      for (auto it = toCheck.begin(); it != toCheck.end(); ) {
-        if (it->wirelength() < best.wirelength()) {
-          toCheck.erase(it, toCheck.end());
-          break;
-        }
-        else {
-          ++it;
-        }
-      }
     }
     else {
       cerr<<"tryGetAllRRSets returned false"<<endl;
+      allBackendsSupportGetAllRRSets = false;
+    }
+  }
+
+  if (allBackendsSupportGetAllRRSets) {
+    cerr<<"all backends supported"<<endl;
+    /* we are done */
+    for (const auto& currentName : toCheck) {
+      if (recordsByName[currentName].empty()) {
+        // Add to cache
+        cerr<<"negatively caching "<<currentName<<endl;
+        addNegCache(currentName, QType::ANY, zoneId);
+      }
+      else {
+        cerr<<"caching "<<currentName<<endl;
+        addCache(currentName, QType::ANY, zoneId, std::vector<DNSZoneRecord>(recordsByName[currentName]));
+      }
+    }
+
+    if (!best.empty()) {
+      results = filterRecords(recordsByName[best], qtype);
+    }
+
+    return;
+  }
+  else if (bestFound < (toCheck.at(0).wirelength() + 1)) {
+    // now we can remove the "higher" names from toCheck
+    // since we already have a better option
+    for (auto it = toCheck.begin(); it != toCheck.end(); ) {
+      if (it->wirelength() < bestFound) {
+        toCheck.erase(it, toCheck.end());
+        break;
+      }
+      else {
+        ++it;
+      }
     }
   }
 
@@ -484,7 +512,7 @@ void UeberBackend::getBestRRSet(const std::vector<DNSName>& possibleNames, uint1
           addNegCache(currentName, QType(qtype), zoneId);
         }
       } else {
-        addCache(currentName, QType(qtype), zoneId, std::vector<DNSZoneRecord>(recordsByName[currentName]));
+        addCache(currentName, QType(qtype), zoneId, filterRecords(recordsByName[currentName], qtype));
       }
 
       if (!recordsByName[currentName].empty()) {
