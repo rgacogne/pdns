@@ -365,7 +365,7 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
 {
   auto& map = getMap(qname);
   const lock l(map);
-  
+
   map.d_cachecachevalid = false;
   //  cerr<<"Replacing "<<qname<<" for "<< (ednsmask ? ednsmask->toString() : "everyone") << endl;
   if (ednsmask) {
@@ -405,7 +405,7 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
   ce.d_qtype=qt.getCode();
   ce.d_signatures=signatures;
   ce.d_authorityRecs=authorityRecs;
-  
+
   //  cerr<<"asked to store "<< (qname.empty() ? "EMPTY" : qname.toString()) <<"|"+qt.getName()<<" -> '";
   //  cerr<<(content.empty() ? string("EMPTY CONTENT")  : content.begin()->d_content->getZoneRepresentation())<<"', auth="<<auth<<", ce.auth="<<ce.d_auth;
   //  cerr<<", ednsmask: "  <<  (ednsmask ? ednsmask->toString() : "none") <<endl;
@@ -521,6 +521,100 @@ size_t MemRecursorCache::doWipeCache(const DNSName& name, bool sub, uint16_t qty
     }
   }
   return count;
+}
+
+bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& qname, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state)
+{
+  //cerr<<"=> looking for a NSEC covering "<<qname<<endl;
+  for (auto& map : d_maps) {
+    const lock l(map);
+    auto& idx = map.d_map.get<OrderedTag>();
+    if (map.d_map.empty()) {
+      continue;
+    }
+#if 0
+    cerr<<"- the content of this map is "<<endl;
+    for (const auto& i : idx) {
+      cerr<<i.d_qname<<endl;
+    }
+    cerr<<"done"<<endl;
+    cerr<<"looking for an entry not less than "<<qname<<endl;
+#endif
+    auto entry = idx.upper_bound(qname);
+    bool end = false;
+    while (!end && (entry == idx.end() || !entry->d_qname.canonCompare(qname)))
+    {
+      if (entry == idx.begin()) {
+        // can't go further
+        end = true;
+      }
+      else {
+        entry--;
+        // cerr<<"looping with "<<entry->d_qname<<endl;
+      }
+    }
+
+    if (end) {
+      // cerr<<"nothing left"<<endl;
+      continue;
+    }
+    // cerr<<"considering "<<entry->d_qname<<" "<<QType(entry->d_qtype).getName()<<endl;
+
+    if (!found.empty() && entry->d_qname.canonCompare(found)) {
+      // we already have a better match
+      // cerr<<"skipping "<<entry->d_qname<<" because we already have "<<found<<endl;
+      continue;
+    }
+
+    DNSName candidate = entry->d_qname;
+    while (!end && entry->d_qtype != QType::NSEC) {
+      if (entry == idx.begin()) {
+        // can't go further
+        end = true;
+      }
+      else {
+        entry--;
+        // cerr<<"looping with "<<entry->d_qname<<endl;
+        if (entry->d_qname != candidate) {
+          // different name, we are not interested anymore
+          end = true;
+        }
+      }
+    }
+
+    if (end || entry->d_ttd <= now || !entry->d_auth || entry->d_qtype != QType::NSEC) {
+      // cerr<<"not using it"<<endl;
+      continue;
+    }
+
+    found = entry->d_qname;
+    // cerr<<"selecting "<<found<<endl;
+
+    res.clear();
+    res.reserve(entry->d_records.size());
+
+    // cerr<<"copying "<<entry->d_records.size()<<" records"<<endl;
+    for(const auto& k : entry->d_records) {
+      DNSRecord dr;
+      dr.d_name = entry->d_qname;
+      dr.d_type = entry->d_qtype;
+      dr.d_class = QClass::IN;
+      dr.d_content = k;
+      dr.d_ttl = static_cast<uint32_t>(entry->d_ttd);
+      dr.d_place = DNSResourceRecord::ANSWER;
+      res.push_back(std::move(dr));
+    }
+
+    signatures = entry->d_signatures;
+    state = entry->d_state;
+
+    moveCacheItemToBack<SequencedTag>(map.d_map, entry);
+    if (found == qname) {
+      break;
+    }
+  }
+
+  return !found.empty();
 }
 
 // Name should be doLimitTime or so

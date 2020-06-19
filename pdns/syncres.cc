@@ -1871,6 +1871,126 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
       LOG(prefix<<qname<<": cache had only stale entries"<<endl);
   }
 
+  /* let's check if we have a NSEC covering that record */
+  #if 1
+  {
+    DNSName nsecFound;
+    std::vector<DNSRecord> wcSet;
+    std::vector<std::shared_ptr<RRSIGRecordContent>> wcSignatures;
+    cset.clear();
+    signatures.clear();
+    //cerr<<"looking for nsec before "<<qname<<endl;
+    if (!g_recCache->getNSECBefore(d_now.tv_sec, qname, nsecFound, cset, signatures, cachedState)) {
+      //cerr<<"nothing found in aggressive cache either"<<endl;
+      return false;
+    }
+
+    //cerr<<"nsecFound "<<nsecFound<<endl;
+    if (cset.empty() || cachedState != vState::Secure) {
+      return false;
+    }
+
+    bool covered = false;
+    //cerr<<"Got "<<cset.size()<<" records"<<endl;
+    const auto& nsecRecord = cset.at(0);
+    auto content = getRR<NSECRecordContent>(nsecRecord);
+    if (!content) {
+      return false;
+    }
+
+    //cerr<<"next is "<<content->d_next<<endl;
+    auto denial = matchesNSEC(qname, qtype.getCode(), nsecRecord, signatures);
+    if (denial == dState::NXQTYPE) {
+      covered = true;
+      res = RCode::NoError;
+    }
+    else if (denial == dState::NXDOMAIN) {
+      if (qname.countLabels() > 1) {
+        DNSName wc = qname;
+        wc.chopOff();
+        wc = g_wildcarddnsname + wc;
+
+        // cerr<<"looking for nsec before "<<wc<<endl;
+        DNSName wcNSEC;
+        if (!g_recCache->getNSECBefore(d_now.tv_sec, wc, wcNSEC, wcSet, wcSignatures, cachedState)) {
+          // cerr<<"nothing found in aggressive cache for Wildcard"<<endl;
+          return false;
+        }
+        if (wcSet.empty() || cachedState != vState::Secure) {
+          return false;
+        }
+
+        const auto& wcNsecRecord = wcSet.at(0);
+        auto wcContent = getRR<NSECRecordContent>(wcNsecRecord);
+        if (!wcContent) {
+          return false;
+        }
+        if (wcNSEC == wc) {
+          /* too complicated for now */
+          return false;
+        }
+        else if (isCoveredByNSEC(wc, wcNsecRecord.d_name, wcContent->d_next)) {
+          covered = true;
+          res = RCode::NXDomain;
+        }
+      }
+    }
+
+    if (covered) {
+#warning FIXME / XXX: we should get the SOA here
+
+      for (auto& record : cset) {
+        if (record.d_class != QClass::IN) {
+          continue;
+        }
+
+        record.d_ttl -= d_now.tv_sec;
+        record.d_ttl = std::min(record.d_ttl, capTTL);
+        ttl = record.d_ttl;
+        ret.push_back(std::move(record));
+      }
+
+      ret.reserve(ret.size() + signatures.size());
+
+      for (auto& signature : signatures) {
+        DNSRecord dr;
+        dr.d_type = QType::RRSIG;
+        dr.d_name = sqname;
+        dr.d_ttl = ttl;
+        dr.d_content = std::move(signature);
+        dr.d_place = DNSResourceRecord::ANSWER;
+        dr.d_class = QClass::IN;
+        ret.push_back(std::move(dr));
+      }
+
+      for (auto& record : wcSet) {
+        if (record.d_class != QClass::IN) {
+          continue;
+        }
+
+        record.d_ttl -= d_now.tv_sec;
+        record.d_ttl = std::min(record.d_ttl, capTTL);
+        ttl = record.d_ttl;
+        ret.push_back(std::move(record));
+      }
+
+      ret.reserve(ret.size() + wcSignatures.size());
+
+      for (auto& signature : wcSignatures) {
+        DNSRecord dr;
+        dr.d_type = QType::RRSIG;
+        dr.d_name = sqname;
+        dr.d_ttl = ttl;
+        dr.d_content = std::move(signature);
+        dr.d_place = DNSResourceRecord::ANSWER;
+        dr.d_class = QClass::IN;
+        ret.push_back(std::move(dr));
+      }
+
+      return true;
+    }
+  }
+#endif
   return false;
 }
 

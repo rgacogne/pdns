@@ -61,6 +61,8 @@ public:
 
   void replace(time_t, const DNSName &qname, const QType& qt,  const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask=boost::none, const OptTag& routingTag = boost::none, vState state=vState::Indeterminate);
 
+  bool getNSECBefore(time_t now, const DNSName& qname, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state);
+
   void doPrune(size_t keep);
   uint64_t doDump(int fd);
 
