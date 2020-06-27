@@ -1487,8 +1487,8 @@ jobs:
       - run:
           name: configure
           command: |
-            CFLAGS="-O1 -Werror=vla -Werror=shadow -Wformat=2 -Werror=format-security" \
-            CXXFLAGS="-O1 -Werror=vla -Werror=shadow -Wformat=2 -Werror=format-security -Wp,-D_GLIBCXX_ASSERTIONS" \
+            CFLAGS="-O1 -Werror=vla -Werror=shadow -Wformat=2 -Werror=format-security -fstack-clash-protection -fcf-protection" \
+            CXXFLAGS="-O1 -Werror=vla -Werror=shadow -Wformat=2 -Werror=format-security -fstack-clash-protection -fcf-protection -Wp,-D_GLIBCXX_ASSERTIONS" \
             ./configure \
             --enable-unit-tests \
             --enable-dnstap \
