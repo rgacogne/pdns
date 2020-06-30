@@ -62,8 +62,10 @@ typedef std::unordered_map<string, string> QTag;
 
 struct DNSQuestion
 {
-  DNSQuestion(const DNSName* name, uint16_t type, uint16_t class_, unsigned int consumed_, const ComboAddress* lc, const ComboAddress* rem, struct dnsheader* header, size_t bufferSize, uint16_t queryLen, bool isTcp, const struct timespec* queryTime_):
-    qname(name), local(lc), remote(rem), dh(header), queryTime(queryTime_), size(bufferSize), consumed(consumed_), tempFailureTTL(boost::none), qtype(type), qclass(class_), len(queryLen), ecsPrefixLength(rem->sin4.sin_family == AF_INET ? g_ECSSourcePrefixV4 : g_ECSSourcePrefixV6), tcp(isTcp), ecsOverride(g_ECSOverride) {
+  enum class TransportType { Unknown = 0, PlainUDP, PlainTCP, DNSCryptUDP, DNSCryptTCP, DNSOverTLS, DNSOverHTTPS };
+
+  DNSQuestion(const DNSName* name, uint16_t type, uint16_t class_, unsigned int consumed_, const ComboAddress* lc, const ComboAddress* rem, struct dnsheader* header, size_t bufferSize, uint16_t queryLen, TransportType transport_, const struct timespec* queryTime_):
+    qname(name), local(lc), remote(rem), dh(header), queryTime(queryTime_), size(bufferSize), consumed(consumed_), tempFailureTTL(boost::none), qtype(type), qclass(class_), len(queryLen), ecsPrefixLength(rem->sin4.sin_family == AF_INET ? g_ECSSourcePrefixV4 : g_ECSSourcePrefixV6), transport(transport_), ecsOverride(g_ECSOverride) {
     const uint16_t* flags = getFlagsFromDNSHeader(dh);
     origFlags = *flags;
   }
@@ -73,6 +75,30 @@ struct DNSQuestion
 
   std::string getTrailingData() const;
   bool setTrailingData(const std::string&);
+
+  bool isOverTCP() const
+  {
+    return transport == TransportType::PlainTCP || transport == TransportType::DNSCryptTCP || transport == TransportType::DNSOverTLS || transport == TransportType::DNSOverHTTPS;
+  }
+  const std::string& getTransportName() const
+  {
+    static const std::unordered_map<TransportType, std::string> s_transportNames = {
+      { TransportType::Unknown, "Unknown" },
+      { TransportType::PlainUDP, "UDP" },
+      { TransportType::PlainTCP, "TCP" },
+      { TransportType::DNSCryptUDP, "DNSCrypt over UDP" },
+      { TransportType::DNSCryptTCP, "DNSCrypt over TCP" },
+      { TransportType::DNSOverTLS, "DNS over TLS" },
+      { TransportType::DNSOverHTTPS, "DNS over HTTPS" }
+    };
+
+    const auto& it = s_transportNames.find(transport);
+    if (it == s_transportNames.cend()) {
+      throw std::runtime_error("Unknown transport type: " + std::to_string(static_cast<size_t>(transport)));
+    }
+
+    return s_transportNames.at(transport);
+  }
 
 #ifdef HAVE_PROTOBUF
   boost::optional<boost::uuids::uuid> uniqueId;
@@ -104,7 +130,7 @@ struct DNSQuestion
   uint16_t ecsPrefixLength;
   uint16_t origFlags;
   uint8_t ednsRCode{0};
-  const bool tcp;
+  const TransportType transport;
   bool skipCache{false};
   bool ecsOverride;
   bool useECS{true};
@@ -118,8 +144,8 @@ struct DNSQuestion
 
 struct DNSResponse : DNSQuestion
 {
-  DNSResponse(const DNSName* name, uint16_t type, uint16_t class_, unsigned int consumed_, const ComboAddress* lc, const ComboAddress* rem, struct dnsheader* header, size_t bufferSize, uint16_t responseLen, bool isTcp, const struct timespec* queryTime_):
-    DNSQuestion(name, type, class_, consumed_, lc, rem, header, bufferSize, responseLen, isTcp, queryTime_) { }
+  DNSResponse(const DNSName* name, uint16_t type, uint16_t class_, unsigned int consumed_, const ComboAddress* lc, const ComboAddress* rem, struct dnsheader* header, size_t bufferSize, uint16_t responseLen, TransportType transport_, const struct timespec* queryTime_):
+    DNSQuestion(name, type, class_, consumed_, lc, rem, header, bufferSize, responseLen, transport_, queryTime_) { }
   DNSResponse(const DNSResponse&) = delete;
   DNSResponse& operator=(const DNSResponse&) = delete;
   DNSResponse(DNSResponse&&) = default;
@@ -561,7 +587,7 @@ struct IDState
   uint16_t qtype;                                             // 2
   uint16_t qclass;                                            // 2
   uint16_t origID;                                            // 2
-  uint16_t origFlags;                                         // 2
+  uint16_t origFlags;                                       // 2
   int origFD{-1};
   int delayMsec;
   boost::optional<uint32_t> tempFailureTTL;
@@ -666,6 +692,30 @@ struct ClientState
     }
 
     return result;
+  }
+
+  DNSQuestion::TransportType getTransportType() const
+  {
+    if (dohFrontend) {
+      return DNSQuestion::TransportType::DNSOverHTTPS;
+    }
+    else if (tlsFrontend) {
+      return DNSQuestion::TransportType::DNSOverTLS;
+    }
+    else if (dnscryptCtx) {
+      if (udpFD != -1) {
+        return DNSQuestion::TransportType::DNSCryptUDP;
+      }
+      else {
+        return DNSQuestion::TransportType::DNSCryptTCP;
+      }
+    }
+    else if (udpFD != -1) {
+      return DNSQuestion::TransportType::PlainUDP;
+    }
+    else {
+      return DNSQuestion::TransportType::PlainTCP;
+    }
   }
 
 #ifdef HAVE_EBPF
@@ -1136,7 +1186,7 @@ static const size_t s_maxPacketCacheEntrySize{4096}; // don't cache responses la
 enum class ProcessQueryResult { Drop, SendAnswer, PassToBackend };
 ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& holders, std::shared_ptr<DownstreamState>& selectedBackend);
 
-DNSResponse makeDNSResponseFromIDState(IDState& ids, struct dnsheader* dh, size_t bufferSize, uint16_t responseLen, bool isTCP);
+DNSResponse makeDNSResponseFromIDState(IDState& ids, struct dnsheader* dh, size_t bufferSize, uint16_t responseLen);
 void setIDStateFromDNSQuestion(IDState& ids, DNSQuestion& dq, DNSName&& qname);
 
 int pickBackendSocketForSending(std::shared_ptr<DownstreamState>& state);

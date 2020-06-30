@@ -476,12 +476,12 @@ bool processResponse(char** response, uint16_t* responseLen, size_t* responseSiz
       zeroScope = false;
     }
     // if zeroScope, pass the pre-ECS hash-key and do not pass the subnet to the cache
-    dr.packetCache->insert(zeroScope ? dr.cacheKeyNoECS : dr.cacheKey, zeroScope ? boost::none : dr.subnet, dr.origFlags, dr.dnssecOK, *dr.qname, dr.qtype, dr.qclass, *response, *responseLen, dr.tcp, dr.dh->rcode, dr.tempFailureTTL);
+    dr.packetCache->insert(zeroScope ? dr.cacheKeyNoECS : dr.cacheKey, zeroScope ? boost::none : dr.subnet, dr.origFlags, dr.dnssecOK, *dr.qname, dr.qtype, dr.qclass, *response, *responseLen, dr.isOverTCP(), dr.dh->rcode, dr.tempFailureTTL);
   }
 
 #ifdef HAVE_DNSCRYPT
   if (!muted) {
-    if (!encryptResponse(*response, responseLen, *responseSize, dr.tcp, dr.dnsCryptQuery, nullptr, nullptr)) {
+    if (!encryptResponse(*response, responseLen, *responseSize, dr.isOverTCP(), dr.dnsCryptQuery, nullptr, nullptr)) {
       return false;
     }
   }
@@ -623,7 +623,7 @@ try {
         dh->id = ids->origID;
 
         uint16_t addRoom = 0;
-        DNSResponse dr = makeDNSResponseFromIDState(*ids, dh, sizeof(packet), responseLen, false);
+        DNSResponse dr = makeDNSResponseFromIDState(*ids, dh, sizeof(packet), responseLen);
         if (dr.dnsCryptQuery) {
           addRoom = DNSCRYPT_MAX_RESPONSE_PADDING_AND_MAC_SIZE;
         }
@@ -886,7 +886,7 @@ static bool applyRulesToQuery(LocalHolders& holders, DNSQuestion& dq, const stru
         return true;
 
       case DNSAction::Action::Truncate:
-        if(!dq.tcp) {
+        if(!dq.isOverTCP()) {
           updateBlockStats();
           vinfolog("Query from %s truncated because of dynamic block", dq.remote->toStringWithPort());
           dq.dh->tc = true;
@@ -943,7 +943,7 @@ static bool applyRulesToQuery(LocalHolders& holders, DNSQuestion& dq, const stru
         dq.dh->qr=true;
         return true;
       case DNSAction::Action::Truncate:
-        if(!dq.tcp) {
+        if(!dq.isOverTCP()) {
           updateBlockStats();
       
           vinfolog("Query from %s for %s truncated because of dynamic block", dq.remote->toStringWithPort(), dq.qname->toLogString());
@@ -1115,7 +1115,7 @@ static void queueResponse(const ClientState& cs, const char* response, uint16_t 
 /* self-generated responses or cache hits */
 static bool prepareOutgoingResponse(LocalHolders& holders, ClientState& cs, DNSQuestion& dq, bool cacheHit)
 {
-  DNSResponse dr(dq.qname, dq.qtype, dq.qclass, dq.consumed, dq.local, dq.remote, reinterpret_cast<dnsheader*>(dq.dh), dq.size, dq.len, dq.tcp, dq.queryTime);
+  DNSResponse dr(dq.qname, dq.qtype, dq.qclass, dq.consumed, dq.local, dq.remote, reinterpret_cast<dnsheader*>(dq.dh), dq.size, dq.len, dq.transport, dq.queryTime);
 
 #ifdef HAVE_PROTOBUF
   dr.uniqueId = dq.uniqueId;
@@ -1132,7 +1132,7 @@ static bool prepareOutgoingResponse(LocalHolders& holders, ClientState& cs, DNSQ
 
 #ifdef HAVE_DNSCRYPT
   if (!cs.muted) {
-    if (!encryptResponse(reinterpret_cast<char*>(dq.dh), &dq.len, dq.size, dq.tcp, dq.dnsCryptQuery, nullptr, nullptr)) {
+    if (!encryptResponse(reinterpret_cast<char*>(dq.dh), &dq.len, dq.size, dq.isOverTCP(), dq.dnsCryptQuery, nullptr, nullptr)) {
       return false;
     }
   }
@@ -1269,7 +1269,7 @@ ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& 
     return ProcessQueryResult::PassToBackend;
   }
   catch(const std::exception& e){
-    vinfolog("Got an error while parsing a %s query from %s, id %d: %s", (dq.tcp ? "TCP" : "UDP"), dq.remote->toStringWithPort(), queryId, e.what());
+    vinfolog("Got an error while parsing a %s query from %s, id %d: %s", dq.getTransportName(), dq.remote->toStringWithPort(), queryId, e.what());
   }
   return ProcessQueryResult::Drop;
 }
@@ -1307,7 +1307,7 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
     uint16_t qtype, qclass;
     unsigned int consumed = 0;
     DNSName qname(query, len, sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-    DNSQuestion dq(&qname, qtype, qclass, consumed, dest.sin4.sin_family != 0 ? &dest : &cs.local, &remote, dh, queryBufferSize, len, false, &queryRealTime);
+    DNSQuestion dq(&qname, qtype, qclass, consumed, dest.sin4.sin_family != 0 ? &dest : &cs.local, &remote, dh, queryBufferSize, len, DNSQuestion::TransportType::PlainUDP, &queryRealTime);
     dq.dnsCryptQuery = std::move(dnsCryptQuery);
     std::shared_ptr<DownstreamState> ss{nullptr};
     auto result = processQuery(dq, cs, holders, ss);

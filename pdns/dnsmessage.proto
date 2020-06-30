@@ -44,6 +44,14 @@ message PBDNSMessage {
     NSDNAME = 5;                                // Policy matched on the name of one nameserver involved
     NSIP = 6;                                   // Policy matched on the IP of one nameserver involved
   }
+  enum TransportProtocol {
+    PlainUDP = 1;
+    PlainTCP = 2;
+    DNSCryptUDP = 3;
+    DNSCryptTCP = 4;
+    DNSOverTLS = 5;
+    DNSOverHTTPS = 6;
+  }
   required Type type = 1;
   optional bytes messageId = 2;                 // UUID, shared by the query and the response
   optional bytes serverIdentity = 3;            // ID of the server emitting the protobuf message
@@ -90,4 +98,5 @@ message PBDNSMessage {
   optional string deviceName = 19;              // Device name of the requestor
   optional uint32 fromPort = 20;                // Source port of the DNS query (client)
   optional uint32 toPort = 21;                  // Destination port of the DNS query (server)
+  optional TransportProtocol transport = 22;    // Transport protocol used
 }

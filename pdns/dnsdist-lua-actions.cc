@@ -166,7 +166,7 @@ TeeAction::~TeeAction()
 
 DNSAction::Action TeeAction::operator()(DNSQuestion* dq, std::string* ruleresult) const
 {
-  if(dq->tcp) {
+  if (dq->isOverTCP()) {
     d_tcpdrops++;
   }
   else {
@@ -988,7 +988,7 @@ public:
   DNSAction::Action operator()(DNSQuestion* dq, std::string* ruleresult) const override
   {
 #ifdef HAVE_PROTOBUF
-    DnstapMessage message(d_identity, dq->remote, dq->local, dq->tcp, reinterpret_cast<const char*>(dq->dh), dq->len, dq->queryTime, nullptr);
+    DnstapMessage message(d_identity, dq->remote, dq->local, dq->isOverTCP(), reinterpret_cast<const char*>(dq->dh), dq->len, dq->queryTime, nullptr);
     {
       if (d_alterFunc) {
         std::lock_guard<std::mutex> lock(g_luamutex);
@@ -1116,7 +1116,7 @@ public:
 #ifdef HAVE_PROTOBUF
     struct timespec now;
     gettime(&now, true);
-    DnstapMessage message(d_identity, dr->remote, dr->local, dr->tcp, reinterpret_cast<const char*>(dr->dh), dr->len, dr->queryTime, &now);
+    DnstapMessage message(d_identity, dr->remote, dr->local, dr->isOverTCP(), reinterpret_cast<const char*>(dr->dh), dr->len, dr->queryTime, &now);
     {
       if (d_alterFunc) {
         std::lock_guard<std::mutex> lock(g_luamutex);

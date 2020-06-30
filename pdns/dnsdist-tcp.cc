@@ -773,7 +773,7 @@ static void handleResponse(std::shared_ptr<IncomingTCPConnectionState>& state, s
 
   auto dh = reinterpret_cast<struct dnsheader*>(response);
   uint16_t addRoom = 0;
-  DNSResponse dr = makeDNSResponseFromIDState(state->d_ids, dh, state->d_responseBuffer.size(), state->d_responseSize, true);
+  DNSResponse dr = makeDNSResponseFromIDState(state->d_ids, dh, state->d_responseBuffer.size(), state->d_responseSize);
   if (dr.dnsCryptQuery) {
     addRoom = DNSCRYPT_MAX_RESPONSE_PADDING_AND_MAC_SIZE;
   }
@@ -944,6 +944,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, stru
   }
 
   setIDStateFromDNSQuestion(state->d_ids, dq, std::move(qname));
+  state->d_ids.cs = state->d_ci.cs;
 
   const uint8_t sizeBytes[] = { static_cast<uint8_t>(dq.len / 256), static_cast<uint8_t>(dq.len % 256) };
   /* prepend the size. Yes, this is not the most efficient way but it prevents mistakes
