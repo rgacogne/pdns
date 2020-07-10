@@ -139,6 +139,7 @@ EXTRA_PROGRAMS = \
 	stubquery \
 	sdig \
 	speedtest \
+	spoofer \
 	testrunner \
 	toysdig \
 	tsig-tests \
@@ -531,6 +532,31 @@ calidns_SOURCES = \
 calidns_LDADD = $(LIBCRYPTO_LIBS) \
 	$(BOOST_PROGRAM_OPTIONS_LIBS)
 calidns_LDFLAGS = $(AM_LDFLAGS) $(THREADFLAGS) $(LIBCRYPTO_LDFLAGS) \
+	$(BOOST_PROGRAM_OPTIONS_LDFLAGS)
+
+spoofer_SOURCES = \
+	base32.cc \
+	base64.cc base64.hh \
+	dnslabeltext.cc \
+	dnsname.cc dnsname.hh \
+	dnsparser.cc dnsparser.hh \
+	dnsrecords.cc \
+	dnswriter.cc dnswriter.hh \
+	iputils.cc \
+	logger.cc \
+	misc.cc misc.hh \
+	nsecrecords.cc \
+	qtype.cc \
+	rcpgenerator.cc rcpgenerator.hh \
+	sillyrecords.cc \
+	spoofer.cc \
+	sstuff.hh \
+	statbag.cc \
+	unix_utility.cc
+
+spoofer_LDADD = $(LIBCRYPTO_LIBS) \
+	$(BOOST_PROGRAM_OPTIONS_LIBS)
+spoofer_LDFLAGS = $(AM_LDFLAGS) $(THREADFLAGS) $(LIBCRYPTO_LDFLAGS) \
 	$(BOOST_PROGRAM_OPTIONS_LDFLAGS)
 
 dumresp_SOURCES = \
