@@ -106,6 +106,7 @@ static void usage() {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   // Parse possible options
@@ -252,4 +253,5 @@ try
 catch(std::exception& e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
+}
 }

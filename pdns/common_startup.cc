@@ -274,25 +274,27 @@ static uint64_t getTCPConnectionCount(const std::string& str)
 }
 
 static uint64_t getQCount(const std::string& str)
-try
 {
-  int totcount=0;
-  for(const auto& d : g_distributors) {
-    if(!d)
-      continue;
-    totcount += d->getQueueSize();  // this does locking and other things, so don't get smart
+  try
+  {
+    int totcount=0;
+    for(const auto& d : g_distributors) {
+      if(!d)
+        continue;
+      totcount += d->getQueueSize();  // this does locking and other things, so don't get smart
+    }
+    return totcount;
   }
-  return totcount;
-}
-catch(std::exception& e)
-{
-  g_log<<Logger::Error<<"Had error retrieving queue sizes: "<<e.what()<<endl;
-  return 0;
-}
-catch(PDNSException& e)
-{
-  g_log<<Logger::Error<<"Had error retrieving queue sizes: "<<e.reason<<endl;
-  return 0;
+  catch (const std::exception& e)
+  {
+    g_log<<Logger::Error<<"Had error retrieving queue sizes: "<<e.what()<<endl;
+    return 0;
+  }
+  catch (const PDNSException& e)
+  {
+    g_log<<Logger::Error<<"Had error retrieving queue sizes: "<<e.reason<<endl;
+    return 0;
+  }
 }
 
 static uint64_t getLatency(const std::string& str) 
@@ -402,6 +404,7 @@ static void sendout(std::unique_ptr<DNSPacket>& a)
 
 //! The qthread receives questions over the internet via the Nameserver class, and hands them to the Distributor for further processing
 static void qthread(unsigned int num)
+{
 try
 {
   setThreadName("pdns/receiver");
@@ -514,6 +517,7 @@ catch(PDNSException& pe)
 {
   g_log<<Logger::Error<<"Fatal error in question thread: "<<pe.reason<<endl;
   _exit(1);
+}
 }
 
 static void dummyThread()

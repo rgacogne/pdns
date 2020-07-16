@@ -625,6 +625,7 @@ void RecordTextWriter::xfrUnquotedText(const string& val, bool lenField)
 #ifdef TESTING
 
 int main(int argc, char**argv)
+{
 try
 {
   RecordTextReader rtr(argv[1], argv[2]);
@@ -659,6 +660,7 @@ try
 catch(std::exception& e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
+}
 }
 
 #endif

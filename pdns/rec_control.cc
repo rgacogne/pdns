@@ -81,6 +81,7 @@ static void initArguments(int argc, char** argv)
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   initArguments(argc, argv);
@@ -113,8 +114,9 @@ try
   cout<<receive;
   return 0;
 }
-catch(PDNSException& ae)
+catch (const PDNSException& ae)
 {
   cerr<<"Fatal: "<<ae.reason<<"\n";
   return 1;
+}
 }

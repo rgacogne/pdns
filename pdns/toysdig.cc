@@ -108,6 +108,7 @@ LuaConfigItems::LuaConfigItems()
 DNSFilterEngine::DNSFilterEngine() {}
 
 int main(int argc, char** argv)
+{
 try
 {
   reportAllTypes();
@@ -178,4 +179,4 @@ catch(PDNSException &pe)
 {
   cerr<<"Fatal: "<<pe.reason<<endl;
 }
-
+}

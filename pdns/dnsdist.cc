@@ -142,27 +142,29 @@ bool g_preserveTrailingData{false};
 std::set<std::string> g_capabilitiesToRetain;
 
 static void truncateTC(char* packet, uint16_t* len, size_t responseSize, unsigned int consumed)
-try
 {
-  bool hadEDNS = false;
-  uint16_t payloadSize = 0;
-  uint16_t z = 0;
+  try
+  {
+    bool hadEDNS = false;
+    uint16_t payloadSize = 0;
+    uint16_t z = 0;
 
-  if (g_addEDNSToSelfGeneratedResponses) {
-    hadEDNS = getEDNSUDPPayloadSizeAndZ(packet, *len, &payloadSize, &z);
+    if (g_addEDNSToSelfGeneratedResponses) {
+      hadEDNS = getEDNSUDPPayloadSizeAndZ(packet, *len, &payloadSize, &z);
+    }
+
+    *len=static_cast<uint16_t>(sizeof(dnsheader)+consumed+DNS_TYPE_SIZE+DNS_CLASS_SIZE);
+    struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(packet);
+    dh->ancount = dh->arcount = dh->nscount = 0;
+
+    if (hadEDNS) {
+      addEDNS(dh, *len, responseSize, z & EDNS_HEADER_FLAG_DO, payloadSize, 0);
+    }
   }
-
-  *len=static_cast<uint16_t>(sizeof(dnsheader)+consumed+DNS_TYPE_SIZE+DNS_CLASS_SIZE);
-  struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(packet);
-  dh->ancount = dh->arcount = dh->nscount = 0;
-
-  if (hadEDNS) {
-    addEDNS(dh, *len, responseSize, z & EDNS_HEADER_FLAG_DO, payloadSize, 0);
+  catch(...)
+  {
+    g_stats.truncFail++;
   }
-}
-catch(...)
-{
-  g_stats.truncFail++;
 }
 
 struct DelayedPacket
@@ -536,6 +538,7 @@ static void pickBackendSocketsReadyForReceiving(const std::shared_ptr<Downstream
 
 // listens on a dedicated socket, lobs answers from downstream servers to original requestors
 void responderThread(std::shared_ptr<DownstreamState> dss)
+{
 try {
   setThreadName("dnsdist/respond");
   auto localRespRulactions = g_resprulactions.getLocal();
@@ -716,6 +719,7 @@ catch(const PDNSException& e)
 catch(...)
 {
   errlog("UDP responder thread died because of an exception: %s", "unknown");
+}
 }
 
 std::mutex g_luamutex;
@@ -1485,6 +1489,7 @@ static void MultipleMessagesUDPClientThread(ClientState* cs, LocalHolders& holde
 
 // listens to incoming queries, sends out to downstream servers, noting the intended return path
 static void udpClientThread(ClientState* cs)
+{
 try
 {
   setThreadName("dnsdist/udpClie");
@@ -1538,6 +1543,7 @@ catch(const PDNSException &e)
 catch(...)
 {
   errlog("UDP client thread died because of an exception: %s", "unknown");
+}
 }
 
 uint16_t getRandomDNSID()
@@ -1975,6 +1981,7 @@ static void usage()
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   size_t udpBindsCount = 0;
@@ -2290,10 +2297,10 @@ try
   gid_t newuid=geteuid();
 
   if(!g_cmdLine.gid.empty())
-    newgid = strToGID(g_cmdLine.gid.c_str());
+    newgid = strToGID(g_cmdLine.gid);
 
   if(!g_cmdLine.uid.empty())
-    newuid = strToUID(g_cmdLine.uid.c_str());
+    newuid = strToUID(g_cmdLine.uid);
 
   if (getegid() != newgid) {
     if (running_in_service_mgr()) {
@@ -2444,6 +2451,7 @@ catch(PDNSException &ae)
 {
   errlog("Fatal pdns error: %s", ae.reason);
   _exit(EXIT_FAILURE);
+}
 }
 
 uint64_t getLatencyCount(const std::string&)

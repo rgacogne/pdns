@@ -120,7 +120,7 @@ shared_ptr<DNSCryptoKeyEngine> DNSCryptoKeyEngine::makeFromISCString(DNSKEYRecor
     if (stormap.find("slot") == stormap.end())
       throw PDNSException("Cannot load PKCS#11 key, no Slot specified");
     // we need PIN to be at least empty
-    if (stormap.find("pin") == stormap.end()) stormap["pin"] = "";
+    stormap.insert({"pin", ""});
     dpk = PKCS11DNSCryptoKeyEngine::maker(algorithm); 
 #else
     throw PDNSException("Cannot load PKCS#11 key without support for it");

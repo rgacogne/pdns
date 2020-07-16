@@ -85,6 +85,7 @@ static void usage() {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   bool recurse=false;
@@ -287,4 +288,5 @@ catch(std::exception &e)
 catch(PDNSException &e)
 {
   cerr<<"Fatal: "<<e.reason<<endl;
+}
 }

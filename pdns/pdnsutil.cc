@@ -1967,6 +1967,7 @@ static int addOrSetMeta(const DNSName& zone, const string& kind, const vector<st
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   po::options_description desc("Allowed options");
@@ -3418,4 +3419,5 @@ catch(...)
 {
   cerr<<"Caught an unknown exception"<<endl;
   return 1;
+}
 }

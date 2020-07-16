@@ -11,6 +11,7 @@
 
 
 void doCarbonDump(void*)
+{
 try
 {
   string hostname;
@@ -84,4 +85,5 @@ catch(std::exception& e)
 catch(...)
 {
   g_log<<Logger::Error<<"Unknown error in carbon thread"<<endl;
+}
 }

@@ -25,6 +25,7 @@ ArgvMap& arg()
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   pdns::parseQueryLocalAddress(":: 0.0.0.0");
@@ -79,4 +80,5 @@ catch(PDNSException& ae)
 {
   cerr<<"Fatal 2: "<<ae.reason<<endl;
   return 1;
+}
 }

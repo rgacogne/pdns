@@ -1056,7 +1056,7 @@ private:
 class ImmediateServFailException
 {
 public:
-  ImmediateServFailException(string r) : reason(r) {};
+  ImmediateServFailException(const string& r) : reason(r) {};
 
   string reason; //! Print this to tell the user what went wrong
 };

@@ -989,6 +989,7 @@ bool addEDNSToQueryTurnedResponse(DNSQuestion& dq)
 
 // goal in life - if you send us a reasonably normal packet, we'll get Z for you, otherwise 0
 int getEDNSZ(const DNSQuestion& dq)
+{
 try
 {
   if (ntohs(dq.dh->qdcount) != 1 || dq.dh->ancount != 0 || ntohs(dq.dh->arcount) != 1 || dq.dh->nscount != 0) {
@@ -1028,6 +1029,7 @@ try
 catch(...)
 {
   return 0;
+}
 }
 
 bool queryHasEDNS(const DNSQuestion& dq)

@@ -834,6 +834,7 @@ struct NetmaskTreeTest
 };
 
 int main(int argc, char** argv)
+{
 try
 {
   reportAllTypes();
@@ -931,8 +932,8 @@ try
   cerr<<"Total runs: " << g_totalRuns<<endl;
 
 }
-catch(std::exception &e)
+catch (const std::exception &e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
 }
-
+}

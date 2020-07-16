@@ -79,6 +79,7 @@ void PcapPacketReader::checkedFreadSize(void* ptr, size_t size)
 }
 
 bool PcapPacketReader::getUDPPacket()
+{
 try
 {
   for(;;) {
@@ -192,6 +193,7 @@ try
 }
 catch(const EofException&) {
   return false;
+}
 }
 
 ComboAddress PcapPacketReader::getSource() const

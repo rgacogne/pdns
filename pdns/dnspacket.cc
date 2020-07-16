@@ -497,6 +497,7 @@ bool DNSPacket::getTKEYRecord(TKEYRecordContent *tr, DNSName *keyname) const
     unknown. Returns -1 if the packet cannot be parsed.
 */
 int DNSPacket::parse(const char *mesg, size_t length)
+{
 try
 {
   d_rawpacket.assign(mesg,length); 
@@ -572,8 +573,9 @@ try
 
   return 0;
 }
-catch(std::exception& e) {
+catch(const std::exception& e) {
   return -1;
+}
 }
 
 unsigned int DNSPacket::getMaxReplyLen()

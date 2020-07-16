@@ -74,6 +74,7 @@ static void syslogFmt(const boost::format& fmt)
 }
 
 static void handleOutsideUDPPacket(int fd, boost::any&)
+{
 try
 {
   char buffer[1500];
@@ -143,9 +144,10 @@ catch(std::exception &e)
 {
   syslogFmt(boost::format("Error parsing packet from external nameserver: %s") % e.what());
 }
-
+}
 
 static void handleInsideUDPPacket(int fd, boost::any&)
+{
 try
 {
   char buffer[1500];
@@ -186,9 +188,10 @@ try
   g_nifs.erase(mdp.d_header.id);
 
 }
-catch(std::exception &e)
+catch (const std::exception &e)
 {
   syslogFmt(boost::format("Error parsing packet from internal nameserver: %s") % e.what());
+}
 }
 
 static void expireOldNotifications()

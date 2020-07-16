@@ -74,29 +74,33 @@ static AuthQueryCache* g_QC;
 static AtomicCounter g_QCmissing;
 
 static void threadQCMangler(unsigned int offset)
-try
 {
-  vector<DNSZoneRecord> records;
-  for(unsigned int counter=0; counter < 100000; ++counter)
-    g_QC->insert(DNSName("hello ")+DNSName(std::to_string(counter+offset)), QType(QType::A), vector<DNSZoneRecord>(records), 3600, 1);
+  try
+  {
+    vector<DNSZoneRecord> records;
+    for(unsigned int counter=0; counter < 100000; ++counter)
+      g_QC->insert(DNSName("hello ")+DNSName(std::to_string(counter+offset)), QType(QType::A), vector<DNSZoneRecord>(records), 3600, 1);
+  }
+  catch (const PDNSException& e) {
+    cerr<<"Had error: "<<e.reason<<endl;
+    throw;
+  }
 }
- catch(PDNSException& e) {
-   cerr<<"Had error: "<<e.reason<<endl;
-   throw;
- }
 
 static void threadQCReader(unsigned int offset)
-try
 {
-  vector<DNSZoneRecord> entry;
-  for(unsigned int counter=0; counter < 100000; ++counter)
-    if(!g_QC->getEntry(DNSName("hello ")+DNSName(std::to_string(counter+offset)), QType(QType::A), entry, 1)) {
-      g_QCmissing++;
-    }
-}
-catch(PDNSException& e) {
-  cerr<<"Had error in threadQCReader: "<<e.reason<<endl;
-  throw;
+  try
+  {
+    vector<DNSZoneRecord> entry;
+    for(unsigned int counter=0; counter < 100000; ++counter)
+      if(!g_QC->getEntry(DNSName("hello ")+DNSName(std::to_string(counter+offset)), QType(QType::A), entry, 1)) {
+        g_QCmissing++;
+      }
+  }
+  catch (const PDNSException& e) {
+    cerr<<"Had error in threadQCReader: "<<e.reason<<endl;
+    throw;
+  }
 }
 
 BOOST_AUTO_TEST_CASE(test_QueryCacheThreaded) {
@@ -142,6 +146,7 @@ static AuthPacketCache* g_PC;
 static AtomicCounter g_PCmissing;
 
 static void threadPCMangler(unsigned int offset)
+{
 try
 {
   for(unsigned int counter=0; counter < 100000; ++counter) {
@@ -175,8 +180,10 @@ try
    cerr<<"Had error: "<<e.reason<<endl;
    throw;
  }
+}
 
 static void threadPCReader(unsigned int offset)
+{
 try
 {
   vector<DNSZoneRecord> entry;
@@ -197,6 +204,7 @@ try
 catch(PDNSException& e) {
   cerr<<"Had error in threadPCReader: "<<e.reason<<endl;
   throw;
+}
 }
 
 BOOST_AUTO_TEST_CASE(test_PacketCacheThreaded) {
@@ -252,15 +260,17 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheThreaded) {
 
 bool g_stopCleaning;
 static void cacheCleaner()
-try
 {
-  while(!g_stopCleaning) {
-    g_QC->cleanup();
+  try
+  {
+    while(!g_stopCleaning) {
+      g_QC->cleanup();
+    }
   }
-}
-catch(PDNSException& e) {
-  cerr<<"Had error in cacheCleaner: "<<e.reason<<endl;
-  throw;
+  catch(PDNSException& e) {
+    cerr<<"Had error in cacheCleaner: "<<e.reason<<endl;
+    throw;
+  }
 }
 
 BOOST_AUTO_TEST_CASE(test_QueryCacheClean) {

@@ -131,7 +131,7 @@ public:
 
   ~IPCipherObfuscator()
   {}
-  static std::unique_ptr<IPObfuscator> make(std::string key, bool decrypt)
+  static std::unique_ptr<IPObfuscator> make(const std::string& key, bool decrypt)
   {
     return std::unique_ptr<IPObfuscator>(new IPCipherObfuscator(key, decrypt));
   }
@@ -166,6 +166,7 @@ static void usage() {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   po::options_description desc("Allowed options");
@@ -271,4 +272,5 @@ try
 catch(std::exception& e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
+}
 }

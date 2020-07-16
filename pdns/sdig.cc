@@ -185,6 +185,7 @@ static void printReply(const string& reply, bool showflags, bool hidesoadetails)
 }
 
 int main(int argc, char** argv)
+{
 try {
   bool dnssec = false;
   bool recurse = false;
@@ -390,4 +391,5 @@ try {
   cerr << "Fatal: " << e.what() << endl;
 } catch (PDNSException& e) {
   cerr << "Fatal: " << e.reason << endl;
+}
 }

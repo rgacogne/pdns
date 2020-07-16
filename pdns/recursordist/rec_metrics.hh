@@ -39,10 +39,8 @@ enum class PrometheusMetricType : int
 // Keeps additional information about metrics
 struct MetricDefinition
 {
-  MetricDefinition(const PrometheusMetricType& prometheusType_, const std::string& description_)
+  MetricDefinition(const PrometheusMetricType& prometheusType_, const std::string& description_): description(description_), prometheusType(prometheusType_)
   {
-    prometheusType = prometheusType_;
-    description = description_;
   }
 
   MetricDefinition() = default;

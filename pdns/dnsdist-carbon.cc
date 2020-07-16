@@ -38,6 +38,7 @@ uint64_t uptimeOfProcess(const std::string& str)
 }
 
 void carbonDumpThread()
+{
 try
 {
   setThreadName("dnsdist/carbon");
@@ -268,4 +269,5 @@ catch(PDNSException& e)
 catch(...)
 {
   errlog("Carbon thread died");
+}
 }

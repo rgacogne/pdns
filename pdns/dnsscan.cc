@@ -49,6 +49,7 @@ static void usage() {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   Socket sock(AF_INET, SOCK_DGRAM);
@@ -102,8 +103,9 @@ try
   }
 
 }
-catch(std::exception& e)
+catch (const std::exception& e)
 {
   cout<<"Fatal: "<<e.what()<<endl;
+}
 }
 

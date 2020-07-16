@@ -131,6 +131,7 @@ static const struct timeval operator-(const struct pdns_timeval& lhs, const stru
 
 
 int main(int argc, char** argv)
+{
 try
 {
   po::options_description desc("Allowed options"), hidden, alloptions;
@@ -549,4 +550,5 @@ try
 catch(std::exception& e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
+}
 }

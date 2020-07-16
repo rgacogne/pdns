@@ -77,30 +77,36 @@ static string historyFile(const bool &ignoreHOME = false)
 }
 
 static bool getMsgLen32(int fd, uint32_t* len)
-try
 {
-  uint32_t raw;
-  size_t ret = readn2(fd, &raw, sizeof raw);
-  if(ret != sizeof raw)
+  try
+  {
+    uint32_t raw;
+    size_t ret = readn2(fd, &raw, sizeof raw);
+    if (ret != sizeof raw) {
+      return false;
+    }
+    *len = ntohl(raw);
+    if (*len > g_consoleOutputMsgMaxSize) {
+      return false;
+    }
+    return true;
+  }
+  catch (...) {
     return false;
-  *len = ntohl(raw);
-  if(*len > g_consoleOutputMsgMaxSize)
-    return false;
-  return true;
-}
-catch(...) {
-   return false;
+  }
 }
 
 static bool putMsgLen32(int fd, uint32_t len)
-try
 {
-  uint32_t raw = htonl(len);
-  size_t ret = writen2(fd, &raw, sizeof raw);
-  return ret==sizeof raw;
-}
-catch(...) {
-  return false;
+  try
+  {
+    uint32_t raw = htonl(len);
+    size_t ret = writen2(fd, &raw, sizeof raw);
+    return ret == sizeof raw;
+  }
+  catch (...) {
+    return false;
+  }
 }
 
 static bool sendMessageToServer(int fd, const std::string& line, SodiumNonce& readingNonce, SodiumNonce& writingNonce, const bool outputEmptyLine)
@@ -654,6 +660,7 @@ char** my_completion( const char * text , int start,  int end)
 }
 
 static void controlClientThread(int fd, ComboAddress client)
+{
 try
 {
   setThreadName("dnsdist/conscli");
@@ -777,14 +784,16 @@ try
   close(fd);
   fd=-1;
 }
-catch(std::exception& e)
+catch (const std::exception& e)
 {
   errlog("Got an exception in client connection from %s: %s", client.toStringWithPort(), e.what());
   if(fd >= 0)
     close(fd);
 }
+}
 
 void controlThread(int fd, ComboAddress local)
+{
 try
 {
   setThreadName("dnsdist/control");
@@ -819,4 +828,5 @@ catch(const std::exception& e)
 {
   close(fd);
   errlog("Control connection died: %s", e.what());
+}
 }

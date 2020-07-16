@@ -31,7 +31,7 @@ class ZoneParserTNG
 {
 public:
   ZoneParserTNG(const string& fname, const DNSName& zname=g_rootdnsname, const string& reldir="");
-  ZoneParserTNG(const vector<string> zonedata, const DNSName& zname);
+  ZoneParserTNG(const vector<string>& zonedata, const DNSName& zname);
 
   ~ZoneParserTNG();
   bool get(DNSResourceRecord& rr, std::string* comment=0);
@@ -55,7 +55,7 @@ private:
   unsigned makeTTLFromZone(const std::string& str);
 
   struct filestate {
-    filestate(FILE* fp, string filename) : d_fp(fp), d_filename(filename), d_lineno(0){}
+    filestate(FILE* fp, const string& filename) : d_fp(fp), d_filename(filename), d_lineno(0){}
     FILE *d_fp;
     string d_filename;
     int d_lineno;

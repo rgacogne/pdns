@@ -57,6 +57,7 @@ static void usage() {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   set<ComboAddress> addrs;
@@ -168,4 +169,4 @@ catch(std::exception& e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
 }
-
+}

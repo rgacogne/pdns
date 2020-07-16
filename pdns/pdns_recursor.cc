@@ -779,13 +779,15 @@ static void updateResponseStats(int res, const ComboAddress& remote, unsigned in
 }
 
 static string makeLoginfo(const std::unique_ptr<DNSComboWriter>& dc)
-try
 {
-  return "("+dc->d_mdp.d_qname.toLogString()+"/"+DNSRecordContent::NumberToType(dc->d_mdp.d_qtype)+" from "+(dc->getRemote())+")";
-}
-catch(...)
-{
-  return "Exception making error message for exception";
+  try
+  {
+    return "("+dc->d_mdp.d_qname.toLogString()+"/"+DNSRecordContent::NumberToType(dc->d_mdp.d_qtype)+" from "+(dc->getRemote())+")";
+  }
+  catch(...)
+  {
+    return "Exception making error message for exception";
+  }
 }
 
 #ifdef HAVE_PROTOBUF
@@ -3820,20 +3822,22 @@ string doQueueReloadLuaScript(vector<string>::const_iterator begin, vector<strin
 }
 
 static string* pleaseUseNewTraceRegex(const std::string& newRegex)
-try
 {
-  if(newRegex.empty()) {
-    t_traceRegex.reset();
-    return new string("unset\n");
+  try
+  {
+    if(newRegex.empty()) {
+      t_traceRegex.reset();
+      return new string("unset\n");
+    }
+    else {
+      t_traceRegex = std::make_shared<Regex>(newRegex);
+      return new string("ok\n");
+    }
   }
-  else {
-    t_traceRegex = std::make_shared<Regex>(newRegex);
-    return new string("ok\n");
+  catch (const PDNSException& ae)
+  {
+    return new string(ae.reason+"\n");
   }
-}
-catch(PDNSException& ae)
-{
-  return new string(ae.reason+"\n");
 }
 
 string doTraceRegex(vector<string>::const_iterator begin, vector<string>::const_iterator end)
@@ -4688,6 +4692,7 @@ static int serviceMain(int argc, char*argv[])
 }
 
 static void* recursorThread(unsigned int n, const string& threadName)
+{
 try
 {
   t_id=n;
@@ -4908,7 +4913,7 @@ catch(...) {
    g_log<<Logger::Error<<"any other exception in main: "<<endl;
    return 0;
 }
-
+}
 
 int main(int argc, char **argv)
 {

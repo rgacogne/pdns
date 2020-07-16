@@ -404,6 +404,7 @@ void readRESNames(const std::string& fname, map<DNSName, vector<ComboAddress>>& 
 }
 
 int main(int argc, char**argv)
+{
 try
 {
   g_quiet=true;
@@ -544,4 +545,5 @@ try
 }
 catch(PDNSException& pe) {
   cerr<<"Fatal error: "<<pe.reason<<endl;
+}
 }

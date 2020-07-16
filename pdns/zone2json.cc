@@ -91,6 +91,7 @@ ArgvMap &arg()
 
 
 int main(int argc, char **argv)
+{
 try
 {
   vector<string> lines;
@@ -241,4 +242,5 @@ catch(std::exception &e) {
 catch(...) {
   cerr<<"\ndied because of unknown exception"<<endl;
   return 1;
+}
 }

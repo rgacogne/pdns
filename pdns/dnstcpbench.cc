@@ -72,6 +72,7 @@ struct BenchQuery
 };
 
 static void doQuery(BenchQuery* q)
+{
 try
 {
   vector<uint8_t> packet;
@@ -165,6 +166,7 @@ catch(...)
 {
   g_otherErrors++;
 }
+}
 
 /* read queries from stdin, put in vector
    launch n worker threads, each picks a query using AtomicCounter
@@ -193,6 +195,7 @@ static void usage(po::options_description &desc) {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   po::options_description desc("Allowed options"), hidden, alloptions;
@@ -313,4 +316,5 @@ try
 catch(std::exception &e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
+}
 }

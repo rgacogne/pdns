@@ -221,6 +221,7 @@ static void usage(po::options_description &desc) {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   po::options_description desc("Allowed options");
@@ -375,4 +376,5 @@ catch(PDNSException& pe)
 {
   cerr<<"Fatal error: "<<pe.reason<<endl;
   exit(EXIT_FAILURE);
+}
 }

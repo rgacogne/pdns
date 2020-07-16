@@ -341,7 +341,7 @@ union ComboAddress {
 
       uint32_t s_addr = ntohl(sin4.sin_addr.s_addr);
 
-      return ((s_addr & (1<<index)) != 0x00000000);
+      return ((s_addr & (1<<static_cast<unsigned int>(index))) != 0x00000000);
     }
     if(isIPv6()) {
       if (index >= 128)

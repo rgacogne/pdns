@@ -861,8 +861,9 @@ static bool isValidMetadataKind(const string& kind, bool readonly) {
     "TSIG-ALLOW-AXFR"
   };
 
-  if (kind.find("X-") == 0)
+  if (kind.find("X-") == 0) {
     return true;
+  }
 
   bool found = false;
 

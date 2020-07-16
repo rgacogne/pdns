@@ -55,6 +55,7 @@ typedef map<Entry, uint32_t> emap_t;
 emap_t ecount;
 
 int main(int argc, char** argv)
+{
 try
 {
   cout << "begin;";
@@ -104,4 +105,5 @@ try
 catch(std::exception& e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
+}
 }

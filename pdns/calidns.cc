@@ -250,6 +250,7 @@ static void usage(po::options_description &desc) {
 */
 
 int main(int argc, char** argv)
+{
 try
 {
   po::options_description desc("Options");
@@ -537,4 +538,5 @@ try
 {
   cerr<<"Fatal error: "<<e.what()<<endl;
   return EXIT_FAILURE;
+}
 }

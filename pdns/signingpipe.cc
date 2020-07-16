@@ -47,13 +47,15 @@ int readn(int fd, void* buffer, unsigned int len)
 }
 
 void* ChunkedSigningPipe::helperWorker(ChunkedSigningPipe* csp, int fd)
-try {
-  csp->worker(fd);
-  return nullptr;
-}
-catch(...) {
-  g_log<<Logger::Error<<"Unknown exception in signing thread occurred"<<endl;
-  return nullptr;
+{
+  try {
+    csp->worker(fd);
+    return nullptr;
+  }
+  catch(...) {
+    g_log<<Logger::Error<<"Unknown exception in signing thread occurred"<<endl;
+    return nullptr;
+  }
 }
 
 ChunkedSigningPipe::ChunkedSigningPipe(const DNSName& signerName, bool mustSign, unsigned int workers)
@@ -267,6 +269,7 @@ unsigned int ChunkedSigningPipe::getReady() const
 }
 
 void ChunkedSigningPipe::worker(int fd)
+{
 try
 {
   UeberBackend db("key-only");
@@ -309,6 +312,7 @@ catch(const std::exception& e)
 {
   g_log<<Logger::Error<<"Signing thread died because of std::exception: "<<e.what()<<endl;
   close(fd);
+}
 }
 
 void ChunkedSigningPipe::flushToSign()

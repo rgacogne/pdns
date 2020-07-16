@@ -180,12 +180,14 @@ void TCPNameserver::sendPacket(std::unique_ptr<DNSPacket>& p, int outsock)
 
 
 void TCPNameserver::getQuestion(int fd, char *mesg, int pktlen, const ComboAddress &remote, unsigned int totalTime)
-try
 {
-  readnWithTimeout(fd, mesg, pktlen, d_idleTimeout, true, totalTime);
-}
-catch(NetworkError& ae) {
-  throw NetworkError("Error reading DNS data from TCP client "+remote.toString()+": "+ae.what());
+  try
+  {
+    readnWithTimeout(fd, mesg, pktlen, d_idleTimeout, true, totalTime);
+  }
+  catch (const NetworkError& ae) {
+    throw NetworkError("Error reading DNS data from TCP client "+remote.toString()+": "+ae.what());
+  }
 }
 
 static void incTCPAnswerCount(const ComboAddress& remote)

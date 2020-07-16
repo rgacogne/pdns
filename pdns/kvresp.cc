@@ -33,6 +33,7 @@
 StatBag S;
 
 int main(int argc, char** argv)
+{
 try
 {
   if(argc != 3) {
@@ -78,4 +79,5 @@ catch(std::exception& e)
 {
   cerr<<"Fatal error: "<<e.what()<<endl;
   exit(EXIT_FAILURE);
+}
 }

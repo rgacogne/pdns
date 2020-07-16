@@ -17,6 +17,7 @@
 StatBag S;
 
 int main(int argc, char** argv)
+{
 try
 {
   if(argc < 4) {
@@ -303,4 +304,5 @@ catch(PDNSException &e2) {
 catch(std::exception &e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
+}
 }

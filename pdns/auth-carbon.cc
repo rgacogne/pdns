@@ -33,6 +33,7 @@
 #include "namespaces.hh"
 
 void carbonDumpThread()
+{
 try
 {
   setThreadName("pdns/carbonDump");
@@ -96,4 +97,5 @@ catch(PDNSException& e)
 catch(...)
 {
   g_log<<Logger::Error<<"Carbon thread died"<<endl;
+}
 }

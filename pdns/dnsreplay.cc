@@ -407,6 +407,7 @@ static void measureResultAndClean(qids_t::const_iterator iter)
 std::unique_ptr<Socket> s_socket = nullptr;
 
 static void receiveFromReference()
+{
 try
 {
   string packet;
@@ -467,6 +468,7 @@ catch(...)
 {
   cerr<<"Receiver function died with unknown exception"<<endl;
   exit(1);
+}
 }
 
 static void pruneQids()
@@ -709,6 +711,7 @@ static void usage(po::options_description &desc) {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   po::options_description desc("Allowed options");
@@ -845,4 +848,4 @@ catch(std::exception& e)
 {
   cerr<<"Fatal: "<<e.what()<<endl;
 }
-
+}

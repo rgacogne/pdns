@@ -764,6 +764,7 @@ static void processForwardedForHeader(const h2o_req_t* req, ComboAddress& remote
   For POST, the payload is the payload.
  */
 static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
+{
 try
 {
   // g_logstream<<(void*)req<<" doh_handler"<<endl;
@@ -904,6 +905,7 @@ try
 {
   errlog("DOH Handler function failed with error %s", e.what());
   return 0;
+}
 }
 
 HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& regex)
@@ -1355,6 +1357,7 @@ static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *pa
 
 // this is the entrypoint from dnsdist.cc
 void dohThread(ClientState* cs)
+{
 try
 {
   std::shared_ptr<DOHFrontend>& df = cs->dohFrontend;
@@ -1414,6 +1417,7 @@ catch(const std::exception& e) {
 }
 catch(...) {
   throw runtime_error("DOH thread failed to launch");
+}
 }
 
 #else /* HAVE_DNS_OVER_HTTPS */

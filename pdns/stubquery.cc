@@ -21,6 +21,7 @@ static void usage() {
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   DNSName qname;
@@ -66,4 +67,5 @@ catch(std::exception &e)
 catch(PDNSException &e)
 {
   cerr<<"Fatal: "<<e.reason<<endl;
+}
 }

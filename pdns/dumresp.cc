@@ -55,6 +55,7 @@ static void turnQueryIntoResponse(dnsheader* dh)
 }
 
 static void tcpConnectionHandler(int sock)
+{
 try
 {
   char buffer[1500];
@@ -101,6 +102,7 @@ try
 catch(const std::exception& e) {
   cerr<<"TCP connection handler got an exception: "<<e.what()<<endl;
 }
+}
 
 static void tcpAcceptor(const ComboAddress local)
 {
@@ -129,6 +131,7 @@ static void tcpAcceptor(const ComboAddress local)
 }
 
 int main(int argc, char** argv)
+{
 try
 {
   bool tcp = false;
@@ -223,4 +226,5 @@ catch(const std::exception& e)
 {
   cerr<<"Fatal error: "<<e.what()<<endl;
   exit(EXIT_FAILURE);
+}
 }

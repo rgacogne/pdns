@@ -170,6 +170,7 @@ void RemoteLogger::queueData(const std::string& data)
 }
 
 void RemoteLogger::maintenanceThread()
+{
 try
 {
 #ifdef WE_ARE_RECURSOR
@@ -225,6 +226,7 @@ catch(const std::exception& e)
 }
 catch(...) {
   cerr << "Remote Logger's maintenance thead died on unknown exception" << endl;
+}
 }
 
 RemoteLogger::~RemoteLogger()

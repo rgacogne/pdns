@@ -43,6 +43,7 @@ static void usage()
 }
 
 int main(int argc, char **argv)
+{
 try {
   for(int n=1 ; n < argc; ++n) {
     if ((string) argv[n] == "--help") {
@@ -164,4 +165,5 @@ try {
 catch(const std::exception& e) {
   cerr<<"Error opening PCAP file: "<<e.what()<<endl;
   exit(EXIT_FAILURE);
+}
 }
