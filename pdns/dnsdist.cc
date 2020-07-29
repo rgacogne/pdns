@@ -905,7 +905,7 @@ std::shared_ptr<ServerPool> getPool(const pools_t& pools, const std::string& poo
   return it->second;
 }
 
-NumberedServerVector getDownstreamCandidates(const pools_t& pools, const std::string& poolName)
+const std::shared_ptr<NumberedServerVector> getDownstreamCandidates(const pools_t& pools, const std::string& poolName)
 {
   std::shared_ptr<ServerPool> pool = getPool(pools, poolName);
   return pool->getServers();
@@ -1380,13 +1380,13 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
     if (serverPool->policy != nullptr) {
       policy = *(serverPool->policy);
     }
-    auto servers = serverPool->getServers();
+    const auto servers = serverPool->getServers();
     if (policy.isLua) {
       std::lock_guard<std::mutex> lock(g_luamutex);
-      ss = policy.policy(servers, &dq).get();
+      ss = policy.policy(*servers, &dq).get();
     }
     else {
-      ss = policy.policy(servers, &dq).get();
+      ss = policy.policy(*servers, &dq).get();
     }
 
     bool ednsAdded = false;

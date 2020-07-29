@@ -603,7 +603,8 @@ void setupLuaConfig(bool client)
     });
 
   g_lua.writeFunction("getPoolServers", [](string pool) {
-      return getDownstreamCandidates(g_pools.getCopy(), pool);
+      const auto poolServers = getDownstreamCandidates(g_pools.getCopy(), pool);
+      return *poolServers;
     });
 
   g_lua.writeFunction("getServer", [client](int i) {
@@ -1184,7 +1185,8 @@ void setupLuaConfig(bool client)
           }
           string servers;
 
-          for (const auto& server: pool->getServers()) {
+          const auto poolServers = pool->getServers();
+          for (const auto& server: *poolServers) {
             if (!servers.empty()) {
               servers += ", ";
             }

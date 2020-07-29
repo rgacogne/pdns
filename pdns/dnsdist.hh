@@ -790,7 +790,7 @@ struct ServerPolicy
 
 struct ServerPool
 {
-  ServerPool()
+  ServerPool(): d_servers(std::make_shared<NumberedVector<shared_ptr<DownstreamState>>>())
   {
     pthread_rwlock_init(&d_lock, nullptr);
   }
@@ -814,7 +814,7 @@ struct ServerPool
   {
     size_t count = 0;
     ReadLock rl(&d_lock);
-    for (const auto& server : d_servers) {
+    for (const auto& server : *d_servers) {
       if (!upOnly || std::get<1>(server)->isUp() ) {
         count++;
       };
@@ -822,9 +822,9 @@ struct ServerPool
     return count;
   }
 
-  NumberedVector<shared_ptr<DownstreamState>> getServers()
+  const std::shared_ptr<NumberedVector<shared_ptr<DownstreamState>>> getServers()
   {
-    NumberedVector<shared_ptr<DownstreamState>> result;
+    std::shared_ptr<NumberedVector<shared_ptr<DownstreamState>>> result;
     {
       ReadLock rl(&d_lock);
       result = d_servers;
@@ -835,25 +835,32 @@ struct ServerPool
   void addServer(shared_ptr<DownstreamState>& server)
   {
     WriteLock wl(&d_lock);
-    unsigned int count = (unsigned int) d_servers.size();
-    d_servers.push_back(make_pair(++count, server));
+    /* we can't update the content of the shared pointer directly even when holding the lock,
+       as other threads might hold a copy. We can however update the pointer as long as we hold the lock. */
+    unsigned int count = static_cast<unsigned int>(d_servers->size());
+    auto newServers = std::make_shared<NumberedVector<shared_ptr<DownstreamState>>>(*d_servers);
+    newServers->push_back(make_pair(++count, server));
     /* we need to reorder based on the server 'order' */
-    std::stable_sort(d_servers.begin(), d_servers.end(), [](const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& a, const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& b) {
+    std::stable_sort(newServers->begin(), newServers->end(), [](const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& a, const std::pair<unsigned int,std::shared_ptr<DownstreamState> >& b) {
       return a.second->order < b.second->order;
     });
     /* and now we need to renumber for Lua (custom policies) */
     size_t idx = 1;
-    for (auto& serv : d_servers) {
+    for (auto& serv : *newServers) {
       serv.first = idx++;
     }
+    d_servers = newServers;
   }
 
   void removeServer(shared_ptr<DownstreamState>& server)
   {
     WriteLock wl(&d_lock);
+    /* we can't update the content of the shared pointer directly even when holding the lock,
+       as other threads might hold a copy. We can however update the pointer as long as we hold the lock. */
+    auto newServers = std::make_shared<NumberedVector<shared_ptr<DownstreamState>>>(*d_servers);
     size_t idx = 1;
     bool found = false;
-    for (auto it = d_servers.begin(); it != d_servers.end();) {
+    for (auto it = newServers->begin(); it != newServers->end();) {
       if (found) {
         /* we need to renumber the servers placed
            after the removed one, for Lua (custom policies) */
@@ -861,17 +868,18 @@ struct ServerPool
         it++;
       }
       else if (it->second == server) {
-        it = d_servers.erase(it);
+        it = newServers->erase(it);
         found = true;
       } else {
         idx++;
         it++;
       }
     }
+    d_servers = newServers;
   }
 
 private:
-  NumberedVector<shared_ptr<DownstreamState>> d_servers;
+  std::shared_ptr<NumberedVector<shared_ptr<DownstreamState>>> d_servers;
   pthread_rwlock_t d_lock;
   bool d_useECS{false};
 };
@@ -979,7 +987,7 @@ void controlThread(int fd, ComboAddress local);
 vector<std::function<void(void)>> setupLua(bool client, const std::string& config);
 std::shared_ptr<ServerPool> getPool(const pools_t& pools, const std::string& poolName);
 std::shared_ptr<ServerPool> createPoolIfNotExists(pools_t& pools, const string& poolName);
-NumberedServerVector getDownstreamCandidates(const pools_t& pools, const std::string& poolName);
+const std::shared_ptr<NumberedServerVector> getDownstreamCandidates(const pools_t& pools, const std::string& poolName);
 
 std::shared_ptr<DownstreamState> firstAvailable(const NumberedServerVector& servers, const DNSQuestion* dq);
 

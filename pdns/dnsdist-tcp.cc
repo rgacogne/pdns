@@ -424,13 +424,13 @@ void* tcpClientThread(int pipefd)
         if (serverPool->policy != nullptr) {
           policy = *(serverPool->policy);
         }
-        auto servers = serverPool->getServers();
+        const auto servers = serverPool->getServers();
         if (policy.isLua) {
           std::lock_guard<std::mutex> lock(g_luamutex);
-          ds = policy.policy(servers, &dq);
+          ds = policy.policy(*servers, &dq);
         }
         else {
-          ds = policy.policy(servers, &dq);
+          ds = policy.policy(*servers, &dq);
         }
 
         if (dq.useECS && ((ds && ds->useECS) || (!ds && serverPool->getECS()))) {
