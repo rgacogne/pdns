@@ -200,18 +200,24 @@ std::string DNSQuestion::getTrailingData() const
 
 bool DNSQuestion::setTrailingData(const std::string& tail)
 {
+  vinfolog("In DNSQuestion::setTrailingData, new trailing data size is %d, current length is %d, total size %d", tail.size(), this->len, this->size);
   char* message = reinterpret_cast<char*>(this->dh);
   const uint16_t messageLen = getDNSPacketLength(message, this->len);
+  vinfolog("Got message length of %d", messageLen);
   const uint16_t tailLen = tail.size();
   if (tailLen > (this->size - messageLen)) {
+    vinfolog("Failed to set trailing data of size %d, current message length is %d, total size is %d", tail.size(), messageLen, this->size);
     return false;
   }
+  vinfolog("Updating");
 
   /* Update length and copy data from the Lua string. */
   this->len = messageLen + tailLen;
-  if(tailLen > 0) {
+  if (tailLen > 0) {
+    vinfolog("Adding new tail of size %d after existing data of size %d", tailLen, messageLen);
     tail.copy(message + messageLen, tailLen);
   }
+  vinfolog("done");
   return true;
 }
 

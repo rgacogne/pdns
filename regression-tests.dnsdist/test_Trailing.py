@@ -163,6 +163,7 @@ class TestTrailingDataToBackend(DNSDistTest):
             self.assertEquals(receivedResponse, expectedResponse)
 
 class TestTrailingDataToDnsdist(DNSDistTest):
+    _verboseMode = True
     _config_template = """
     newServer{address="127.0.0.1:%s"}
 
@@ -171,8 +172,10 @@ class TestTrailingDataToDnsdist(DNSDistTest):
     function removeTrailingData(dq)
         local success = dq:setTrailingData("")
         if not success then
+            print('failed to clear trailing data')
             return DNSAction.ServFail, ""
         end
+        print('cleared trailing data')
         return DNSAction.None, ""
     end
     addAction("removed.trailing.tests.powerdns.com.", LuaAction(removeTrailingData))
