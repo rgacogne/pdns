@@ -730,6 +730,11 @@ public:
     return d_queryValidationState;
   }
 
+  void setQueryReceivedOverTCP(bool tcp)
+  {
+    d_queryReceivedOverTCP = tcp;
+  }
+
   static thread_local ThreadLocalStorage t_sstorage;
 
   static std::atomic<uint64_t> s_queries;
@@ -848,7 +853,7 @@ private:
 
   void sanitizeRecords(const std::string& prefix, LWResult& lwr, const DNSName& qname, const QType& qtype, const DNSName& auth, bool wasForwarded, bool rdQuery);
   RCode::rcodes_ updateCacheFromRecords(unsigned int depth, LWResult& lwr, const DNSName& qname, const QType& qtype, const DNSName& auth, bool wasForwarded, const boost::optional<Netmask>, vState& state, bool& needWildcardProof, bool& gatherWildcardProof, unsigned int& wildcardLabelsCount, bool sendRDQuery);
-  bool processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic, vState& state, const bool needWildcardProof, const bool gatherwildcardProof, const unsigned int wildcardLabelsCount);
+  bool processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic, vState& state, const bool needWildcardProof, const bool gatherwildcardProof, const unsigned int wildcardLabelsCount, int& rcode);
 
   bool doSpecialNamesResolve(const DNSName &qname, const QType &qtype, const uint16_t qclass, vector<DNSRecord> &ret);
 
@@ -872,6 +877,8 @@ private:
 
   bool lookForCut(const DNSName& qname, unsigned int depth, const vState existingState, vState& newState);
   void computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned int depth);
+
+  void handlePolicyHit(DNSName& qname, QType& qtype, int& res, vector<DNSRecord>& ret, bool& done, int& rcode, DNSName& newtarget);
 
   void setUpdatingRootNS()
   {
@@ -905,6 +912,7 @@ private:
   bool d_wasOutOfBand{false};
   bool d_wasVariable{false};
   bool d_qNameMinimization{false};
+  bool d_queryReceivedOverTCP{false};
 
   LogMode d_lm;
 };
@@ -1063,7 +1071,11 @@ public:
   string reason; //! Print this to tell the user what went wrong
 };
 
-class PolicyHitException
+class ImmediateQueryDropException
+{
+};
+
+class SendTruncatedAnswerException
 {
 };
 
