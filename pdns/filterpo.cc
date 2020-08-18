@@ -292,23 +292,23 @@ bool DNSFilterEngine::getPostPolicy(const vector<DNSRecord>& records, const std:
     }
   }
 
-  return false;  
+  return false;
 }
 
-bool DNSFilterEngine::getPostPolicy(const DNSRecord& records, const std::unordered_map<std::string,bool>& discardedPolicies, Policy& pol) const
+bool DNSFilterEngine::getPostPolicy(const DNSRecord& record, const std::unordered_map<std::string,bool>& discardedPolicies, Policy& pol) const
 {
   ComboAddress ca;
-  if (r.d_place != DNSResourceRecord::ANSWER) {
+  if (record.d_place != DNSResourceRecord::ANSWER) {
     return false;
   }
 
-  if (r.d_type == QType::A) {
-    if (auto rec = getRR<ARecordContent>(r)) {
+  if (record.d_type == QType::A) {
+    if (auto rec = getRR<ARecordContent>(record)) {
       ca = rec->getCA();
     }
   }
-  else if(r.d_type == QType::AAAA) {
-    if (auto rec = getRR<AAAARecordContent>(r)) {
+  else if(record.d_type == QType::AAAA) {
+    if (auto rec = getRR<AAAARecordContent>(record)) {
       ca = rec->getCA();
     }
   }

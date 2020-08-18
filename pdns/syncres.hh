@@ -878,7 +878,9 @@ private:
   bool lookForCut(const DNSName& qname, unsigned int depth, const vState existingState, vState& newState);
   void computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned int depth);
 
-  void handlePolicyHit(DNSName& qname, QType& qtype, int& res, vector<DNSRecord>& ret, bool& done, int& rcode, DNSName& newtarget);
+  void handleNewTarget(const std::string& prefix, const DNSName& qname, const DNSName& newtarget, uint16_t qtype, std::vector<DNSRecord>& ret, int& rcode, int depth, const std::vector<DNSRecord>& recordsFromAnswer, const vState state);
+
+  void handlePolicyHit(const std::string& prefix, const DNSName& qname, const QType& qtype, vector<DNSRecord>& ret, bool& done, int& rcode, unsigned int depth);
 
   void setUpdatingRootNS()
   {
@@ -1069,6 +1071,10 @@ public:
   ImmediateServFailException(string r) : reason(r) {};
 
   string reason; //! Print this to tell the user what went wrong
+};
+
+class PolicyHitException
+{
 };
 
 class ImmediateQueryDropException
