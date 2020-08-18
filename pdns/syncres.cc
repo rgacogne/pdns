@@ -1951,6 +1951,67 @@ static void addNXNSECS(vector<DNSRecord>&ret, const vector<DNSRecord>& records)
   ret.insert(ret.end(), ne.DNSSECRecords.signatures.begin(), ne.DNSSECRecords.signatures.end());
 }
 
+void SyncRes::handlePolicyHit(DNSName& qname, QType& qtype, vector<DNSRecord>& ret, bool& done, int& rcode, DNSName& newtarget)
+{
+  /* don't account truncate actions for TCP queries, since they are not applied */
+  if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::Truncate || !d_queryReceivedOverTCP) {
+    ++g_stats.policyResults[d_appliedPolicy.d_kind];
+  }
+
+  switch (d_appliedPolicy.d_kind) {
+
+  case DNSFilterEngine::PolicyKind::NoAction:
+      return;
+
+  case DNSFilterEngine::PolicyKind::Drop:
+    ++g_stats.policyDrops;
+    throw ImmediateQueryDropException;
+
+  case DNSFilterEngine::PolicyKind::NXDOMAIN:
+    ret.clear();
+    res = RCode::NXDomain;
+    done = true;
+    return;
+
+  case DNSFilterEngine::PolicyKind::NODATA:
+    ret.clear();
+    res = RCode::NoError;
+    done = true;
+    return;
+
+  case DNSFilterEngine::PolicyKind::Truncate:
+    if (!d_queryReceivedOverTCP) {
+      ret.clear();
+      res = RCode::NoError;
+      throw SendTruncatedAnswerException;
+    }
+    return;
+
+  case DNSFilterEngine::PolicyKind::Custom:
+    ret.clear();
+    res = RCode::NoError;
+    {
+      done = true;
+      auto spoofed = appliedPolicy.getCustomRecords(qname, qtype);
+      for (auto& dr : spoofed) {
+        ret.push_back(dr);
+
+        if (dr.d_name == qname && dr.d_type == QType::CNAME) {
+          if (auto content = getRR<CNAMERecordContent>(dr)) {
+            done = false;
+
+            if (qtype != QType::CNAME) {
+              #warning FIXME shall we stop RPZ processing from here?
+              // https://tools.ietf.org/html/draft-vixie-dnsop-dns-rpz-00#section-6
+              newtarget = content->getTarget();
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 bool SyncRes::nameserversBlockedByRPZ(const DNSFilterEngine& dfe, const NsSet& nameservers)
 {
   /* we skip RPZ processing if:
@@ -3050,7 +3111,7 @@ dState SyncRes::getDenialValidationState(const NegCache::NegCacheEntry& ne, cons
   return getDenial(csp, ne.d_name, ne.d_qtype.getCode(), referralToUnsigned, expectedState == dState::NXQTYPE);
 }
 
-bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic, vState& state, const bool needWildcardProof, const bool gatherWildcardProof, const unsigned int wildcardLabelsCount)
+bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic, vState& state, const bool needWildcardProof, const bool gatherWildcardProof, const unsigned int wildcardLabelsCount, int& rcode)
 {
   bool done = false;
   DNSName dnameTarget, dnameOwner;
@@ -3073,8 +3134,10 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
       LOG(prefix<<qname<<": got negative caching indication for name '"<<qname<<"' (accept="<<rec.d_name.isPartOf(auth)<<"), newtarget='"<<newtarget<<"'"<<endl);
 
       rec.d_ttl = min(rec.d_ttl, s_maxnegttl);
-      if(newtarget.empty()) // only add a SOA if we're not going anywhere after this
+      // only add a SOA if we're not going anywhere after this
+      if (newtarget.empty()) {
         ret.push_back(rec);
+      }
 
       NegCache::NegCacheEntry ne;
 
@@ -3167,7 +3230,8 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
     {
       LOG(prefix<<qname<<": answer is in: resolved to '"<< rec.d_content->getZoneRepresentation()<<"|"<<DNSRecordContent::NumberToType(rec.d_type)<<"'"<<endl);
 
-      done=true;
+      done = true;
+      *rcode = RCode::NoError;      
 
       if (state == vState::Secure && needWildcardProof) {
         /* We have a positive answer synthesized from a wildcard, we need to check that we have
@@ -3202,6 +3266,14 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
         }
       }
       ret.push_back(rec);
+
+      /* Apply Post filtering policies */
+      if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
+        if (luaconfsLocal->dfe.getPostPolicy(rec, d_discardedPolicies, d_appliedPolicy)) {
+          mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
+          handlePolicyHit(qname, qtype, ret, done, *rcode, newtarget);
+        }
+      }
     }
     else if((rec.d_type==QType::RRSIG || rec.d_type==QType::NSEC || rec.d_type==QType::NSEC3) && rec.d_place==DNSResourceRecord::ANSWER) {
       if(rec.d_type != QType::RRSIG || rec.d_name == qname) {
@@ -3262,8 +3334,8 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
         }
       }
     }
-    else if(!done && rec.d_place==DNSResourceRecord::AUTHORITY && rec.d_type==QType::SOA &&
-            lwr.d_rcode==RCode::NoError && qname.isPartOf(rec.d_name)) {
+    else if (!done && rec.d_place == DNSResourceRecord::AUTHORITY && rec.d_type == QType::SOA &&
+            lwr.d_rcode == RCode::NoError && qname.isPartOf(rec.d_name)) {
       LOG(prefix<<qname<<": got negative caching indication for '"<< qname<<"|"<<qtype.getName()<<"'"<<endl);
 
       if(!newtarget.empty()) {
@@ -3503,12 +3575,11 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
   DNSName newauth;
   DNSName newtarget;
 
-  bool done = processRecords(prefix, qname, qtype, auth, lwr, sendRDQuery, ret, nsset, newtarget, newauth, realreferral, negindic, state, needWildcardProof, gatherWildcardProof, wildcardLabelsCount);
+  bool done = processRecords(prefix, qname, qtype, auth, lwr, sendRDQuery, ret, nsset, newtarget, newauth, realreferral, negindic, state, needWildcardProof, gatherWildcardProof, wildcardLabelsCount, *rcode);
 
-  if(done){
+  if (done){
     LOG(prefix<<qname<<": status=got results, this level of recursion done"<<endl);
     LOG(prefix<<qname<<": validation status is "<<state<<endl);
-    *rcode = RCode::NoError;
     return true;
   }
 

@@ -835,6 +835,7 @@ static void protobufLogResponse(const RecProtoBufMessage& message)
 }
 #endif
 
+#if 0
 /**
  * Chases the CNAME provided by the PolicyCustom RPZ policy.
  *
@@ -860,6 +861,7 @@ static void handleRPZCustom(const DNSRecord& spoofed, const QType& qtype, SyncRe
     sr.setWantsRPZ(oldWantsRPZ);
   }
 }
+#endif
 
 static bool addRecordToPacket(DNSPacketWriter& pw, const DNSRecord& rec, uint32_t& minTTL, uint32_t ttlCap, const uint16_t maxAnswerSize)
 {
@@ -1194,6 +1196,7 @@ int getFakePTRRecords(const DNSName& qname, vector<DNSRecord>& ret)
   return rcode;
 }
 
+#if 0
 enum class PolicyResult : uint8_t { NoAction, HaveAnswer, Drop };
 
 static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy, const std::unique_ptr<DNSComboWriter>& dc, SyncRes& sr, int& res, vector<DNSRecord>& ret, DNSPacketWriter& pw, bool post)
@@ -1291,6 +1294,7 @@ static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy
 
   return PolicyResult::NoAction;
 }
+#endif
 
 static void startDoResolve(void *p)
 {
@@ -1423,6 +1427,7 @@ static void startDoResolve(void *p)
     sr.setFrameStreamServers(t_frameStreamServers);
 #endif
     sr.setQuerySource(dc->d_remote, g_useIncomingECS && !dc->d_ednssubnet.source.empty() ? boost::optional<const EDNSSubnetOpts&>(dc->d_ednssubnet) : boost::none);
+    sr.setQueryReceivedOverTCP(dc->d_tcp);
 
     bool tracedQuery=false; // we could consider letting Lua know about this too
     bool shouldNotValidate = false;
@@ -1544,19 +1549,32 @@ static void startDoResolve(void *p)
         res = sr.beginResolve(dc->d_mdp.d_qname, QType(dc->d_mdp.d_qtype), dc->d_mdp.d_qclass, ret);
         shouldNotValidate = sr.wasOutOfBand();
       }
-      catch(const ImmediateServFailException &e) {
+      catch (const ImmediateQueryDropException& e) {
+#warning We need to export a protobuf (and NOD lookup?) message if requested!
+        g_stats.policyDrops++;
+ 
+        g_log<<Logger::Debug<<"Dropping query because of a filtering policy "<<makeLogInfo(dc)<<endl;
+        return;
+      }
+      catch (const ImmediateServFailException &e) {
         if(g_logCommonErrors) {
           g_log<<Logger::Notice<<"Sending SERVFAIL to "<<dc->getRemote()<<" during resolve of '"<<dc->d_mdp.d_qname<<"' because: "<<e.reason<<endl;
         }
         res = RCode::ServFail;
       }
-      catch(const PolicyHitException& e) {
+      catch (const SendTruncatedAnswerException& e) {
+        ret.clear();
+        res = RCode::NoError;
+        pw.getHeader()->tc = 1;
+      }
+      catch (const PolicyHitException& e) {
+        #warning remove me ?
         res = -2;
       }
       dq.validationState = sr.getValidationState();
       appliedPolicy = sr.d_appliedPolicy;
       dc->d_policyTags = std::move(sr.d_policyTags);
-
+#if 0
       // During lookup, an NSDNAME or NSIP trigger was hit in RPZ
       if (res == -2) { // XXX This block should be macro'd, it is repeated post-resolve.
         if (appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction) {
@@ -1576,7 +1594,7 @@ static void startDoResolve(void *p)
           mergePolicyTags(dc->d_policyTags, appliedPolicy.getTags());
         }
       }
-
+#endif
       if (t_pdl || (g_dns64Prefix && dq.qtype == QType::AAAA && dq.validationState != vState::Bogus)) {
         if (res == RCode::NoError) {
           auto i = ret.cbegin();
@@ -1607,6 +1625,7 @@ static void startDoResolve(void *p)
         }
       }
 
+#if 0
       if (wantsRPZ) { //XXX This block is repeated, see above
 
         auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, true);
@@ -1618,11 +1637,9 @@ static void startDoResolve(void *p)
         }
       }
     }
+#endif
+
   haveAnswer:;
-    if(res == PolicyDecision::DROP) {
-      g_stats.policyDrops++;
-      return;
-    }
     if(tracedQuery || res == -1 || res == RCode::ServFail || pw.getHeader()->rcode == RCode::ServFail)
     { 
       string trace(sr.getTrace());
@@ -2002,13 +2019,13 @@ static void startDoResolve(void *p)
 
     //    cout<<dc->d_mdp.d_qname<<"\t"<<MT->getUsec()<<"\t"<<sr.d_outqueries<<endl;
   }
-  catch(PDNSException &ae) {
+  catch (const PDNSException &ae) {
     g_log<<Logger::Error<<"startDoResolve problem "<<makeLoginfo(dc)<<": "<<ae.reason<<endl;
   }
-  catch(const MOADNSException &mde) {
+  catch (const MOADNSException &mde) {
     g_log<<Logger::Error<<"DNS parser error "<<makeLoginfo(dc) <<": "<<dc->d_mdp.d_qname<<", "<<mde.what()<<endl;
   }
-  catch(std::exception& e) {
+  catch (const std::exception& e) {
     g_log<<Logger::Error<<"STL error "<< makeLoginfo(dc)<<": "<<e.what();
 
     // Luawrapper nests the exception from Lua, so we unnest it here
