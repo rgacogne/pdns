@@ -1196,7 +1196,7 @@ int getFakePTRRecords(const DNSName& qname, vector<DNSRecord>& ret)
 
 enum class PolicyResult : uint8_t { NoAction, HaveAnswer, Drop };
 
-static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy, const std::unique_ptr<DNSComboWriter>& dc, SyncRes& sr, int& res, vector<DNSRecord>& ret, DNSPacketWriter& pw, bool post)
+static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy, const std::unique_ptr<DNSComboWriter>& dc, SyncRes& sr, int& res, vector<DNSRecord>& ret, DNSPacketWriter& pw)
 {
   /* don't account truncate actions for TCP queries, since they are not applied */
   if (appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::Truncate || !dc->d_tcp) {
@@ -1233,27 +1233,7 @@ static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy
 
   case DNSFilterEngine::PolicyKind::Custom:
     res = RCode::NoError;
-    //cerr << "current answer(" << post << ") Q: " << dc->d_mdp.d_qname << '/' << QType(dc->d_mdp.d_qtype).getName() << endl;
-    //for (auto r : ret) {
-    //  cerr << r.d_place << ' ' << r.d_name << ' ' << QType(r.d_type).getName() << ' ' << r.d_content->getZoneRepresentation() << endl;
-    //}
-    //cerr << "------------" << endl;
-    // In some cases, the policy should extend the result vector and in some cases replace
-    // We extend if the current vector contains a CNAME we found while resolving a non-CNAME
-    // This is all very ugly, but ATM I don't know a better approach...
-    if (dc->d_mdp.d_qtype != QType::CNAME) {
-      bool cname = false;
-      for (const auto& r : ret) {
-        if (r.d_place == DNSResourceRecord::ANSWER && r.d_type == QType::CNAME) {
-          cname = true;
-          break;
-        }
-      }
-      if (!cname) {
-        ret.clear();
-      }
-    }
-    if (post && ret.size() == 0) { // can happen with NS matches, those do not fill the result, fallback to original behaviour
+    {
       auto spoofed = appliedPolicy.getCustomRecords(dc->d_mdp.d_qname, dc->d_mdp.d_qtype);
       for (auto& dr : spoofed) {
         ret.push_back(dr);
@@ -1276,17 +1256,7 @@ static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy
         }
       }
     }
-    // Do we have an answer, or only a CNAME match while not looking for CNAME?
-    // In the latter case we should call SyncRes.beginResolve() to chase the CNAME.
-    bool haveanswer = false;
-    for (const auto& r : ret) {
-      if (r.d_place == DNSResourceRecord::ANSWER && r.d_type == dc->d_mdp.d_qtype) {
-        haveanswer = true;
-        break;
-      }
-    }
-
-    return haveanswer ? PolicyResult::HaveAnswer : PolicyResult::NoAction;
+    return PolicyResult::HaveAnswer;
   }
 
   return PolicyResult::NoAction;
@@ -1511,7 +1481,7 @@ static void startDoResolve(void *p)
         goto haveAnswer;
       }
     }
-    
+
     // if there is a RecursorLua active, and it 'took' the query in preResolve, we don't launch beginResolve
     if (!t_pdl || !t_pdl->preresolve(dq, res)) {
 
@@ -1522,7 +1492,7 @@ static void startDoResolve(void *p)
 
       sr.setWantsRPZ(wantsRPZ);
       if (wantsRPZ && appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) {
-        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, false);
+        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw);
         if (policyResult == PolicyResult::HaveAnswer) {
           goto haveAnswer;
         }
@@ -1540,7 +1510,6 @@ static void startDoResolve(void *p)
           sr.d_routingTag = dc->d_routingTag;
         }
 
-        ret.clear(); // policy might have filled it with custom records but we decided not to use them
         res = sr.beginResolve(dc->d_mdp.d_qname, QType(dc->d_mdp.d_qtype), dc->d_mdp.d_qclass, ret);
         shouldNotValidate = sr.wasOutOfBand();
       }
@@ -1562,7 +1531,7 @@ static void startDoResolve(void *p)
         if (appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction) {
           throw PDNSException("NoAction policy returned while a NSDNAME or NSIP trigger was hit");
         }
-        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, true);
+        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw);
         if (policyResult == PolicyResult::HaveAnswer) {
           goto haveAnswer;
         }
@@ -1572,8 +1541,37 @@ static void startDoResolve(void *p)
       }
 
       if (wantsRPZ && (appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
-        if (luaconfsLocal->dfe.getPostPolicy(ret, sr.d_discardedPolicies, appliedPolicy)) {
-          mergePolicyTags(dc->d_policyTags, appliedPolicy.getTags());
+
+        /* we need to apply filtering policies to any CNAME in the chain encountered during the resolution process. */
+        DNSName currentTarget = dc->d_mdp.d_qname;
+        std::unordered_map<DNSName, DNSName> cnames;
+        for (const auto& record : ret) {
+          if (record.d_place != DNSResourceRecord::ANSWER || record.d_type != QType::CNAME) {
+            continue;
+          }
+          const auto cnameContent = getRR<CNAMERecordContent>(record);
+          if (cnameContent == nullptr) {
+            continue;
+          }
+          cnames.insert({record.d_name, cnameContent->getTarget()});
+        }
+
+        while (appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction) {
+          const auto& cname = cnames.find(currentTarget);
+          if (cname == cnames.end()) {
+            /* the CNAME chain stops there */
+            break;
+          }
+
+          if (luaconfsLocal->dfe.getQueryPolicy(cname->second, sr.d_discardedPolicies, appliedPolicy)) {
+            mergePolicyTags(dc->d_policyTags, appliedPolicy.getTags());
+          }
+        }
+
+        if (appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction) {
+          if (luaconfsLocal->dfe.getPostPolicy(ret, sr.d_discardedPolicies, appliedPolicy)) {
+            mergePolicyTags(dc->d_policyTags, appliedPolicy.getTags());
+          }
         }
       }
 
@@ -1609,7 +1607,7 @@ static void startDoResolve(void *p)
 
       if (wantsRPZ) { //XXX This block is repeated, see above
 
-        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, true);
+        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw);
         if (policyResult == PolicyResult::HaveAnswer) {
           goto haveAnswer;
         }

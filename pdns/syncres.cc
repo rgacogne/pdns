@@ -638,72 +638,9 @@ int SyncRes::asyncresolveWrapper(const ComboAddress& ip, bool ednsMANDATORY, con
   return ret;
 }
 
-bool SyncRes::qnameRPZHit(const DNSFilterEngine& dfe, DNSName& target, const QType& qtype, vector<DNSRecord> &ret, unsigned int depth)
-{
-  if (!d_wantsRPZ) {
-    return false;
-  }
-  if (s_maxdepth && depth > s_maxdepth) {
-    string prefix = d_prefix;
-    prefix.append(depth, ' ');
-    string msg = "More than " + std::to_string(s_maxdepth) + " (max-recursion-depth) levels of recursion needed while resolving " + target.toLogString();
-    LOG(prefix << target << ": " << msg << endl);
-    throw ImmediateServFailException(msg);
-  }
-
-  bool match = dfe.getQueryPolicy(target, d_discardedPolicies, d_appliedPolicy, true);
-  if (!match) {
-    return false;
-  }
-
-  mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
-  if (d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction) {
-    return false;
-  }
-  LOG(": (hit by RPZ policy '" + d_appliedPolicy.getName() + "')" << endl);
-  if (d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::Truncate) {
-    // XXX We don't know if we're doing TCP here....
-    return false;
-  }
-  if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::Custom) {
-    return true;
-  }
-  auto spoofed = d_appliedPolicy.getCustomRecords(target, qtype.getCode());
-
-  // Add the record to the result vector being built, chase if we hit a CNAME
-  for (const auto& dr : spoofed) {
-    if (dr.d_place != DNSResourceRecord::ANSWER) {
-      continue;
-    }
-    ret.push_back(dr);
-    switch (dr.d_type) {
-    case QType::CNAME:
-      auto cnamecontent = getRR<CNAMERecordContent>(dr);
-      if (cnamecontent) {
-        target = cnamecontent->getTarget();
-        // This call wil return true if we hit a policy that needs an throw PolicyHitException
-        // For CNAME chasing, we don't want that since resolving should continue with the new target
-        return qnameRPZHit(dfe, target, qtype, ret, depth + 1);
-      }
-      break;
-    }
-  }
-
-  return true;
-}
-
 #define QLOG(x) LOG(prefix << " child=" <<  child << ": " << x << endl)
 
-int SyncRes::doResolve(const DNSName &qnameArg, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, set<GetBestNSAnswer>& beenthere, vState& state) {
-
-  DNSName qname(qnameArg);
-  auto luaconfsLocal = g_luaconfs.getLocal();
-
-  // Can change qname
-  bool hit = qnameRPZHit(luaconfsLocal->dfe, qname, qtype, ret, depth + 1);
-  if (hit) {
-    throw PolicyHitException();
-  }
+int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, set<GetBestNSAnswer>& beenthere, vState& state) {
   // In the auth or recursive forward case, it does not make sense to do qname-minimization
   if (!getQNameMinimization() || isRecursiveForwardOrAuth(qname)) {
     return doResolveNoQNameMinimization(qname, qtype, ret, depth, beenthere, state);
