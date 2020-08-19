@@ -675,6 +675,7 @@ bool SyncRes::qnameRPZHit(const DNSFilterEngine& dfe, DNSName& target, const QTy
     if (dr.d_place != DNSResourceRecord::ANSWER) {
       continue;
     }
+    cerr<<"puhsing spoofed from "<<__LINE__<<endl;
     ret.push_back(dr);
     switch (dr.d_type) {
     case QType::CNAME:
@@ -700,12 +701,13 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
   prefix.append(depth, ' ');
   auto luaconfsLocal = g_luaconfs.getLocal();
 
-  /* Apply Post filtering policies */
+  /* Apply qname (including CNAME chain) filtering policies */
   if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
     if (luaconfsLocal->dfe.getQueryPolicy(qname, d_discardedPolicies, d_appliedPolicy)) {
       mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
       bool done = false;
       int rcode = RCode::NoError;
+      cerr<<"Policy hit for "<<qname<<endl;
       handlePolicyHit(prefix, qname, qtype, ret, done, rcode, depth);
       if (done) {
         return rcode;
@@ -749,6 +751,14 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
   setCacheOnly(old);
   if (fromCache) {
     QLOG("Step0 Found in cache");
+    cerr<<"ret size was "<<ret.size()<<" to which we add retq "<<retq.size()<<endl;
+    for (const auto& r : retq) {
+      cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
+      if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
+        cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
+      }
+    }
+
     ret.insert(ret.end(), retq.begin(), retq.end());
     return res;
   }
@@ -1396,6 +1406,7 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
       const uint32_t ttl = dr.d_ttl;
       ret.reserve(ret.size() + 2 + signatures.size() + authorityRecs.size());
       ret.push_back(dr);
+      cerr<<"puhsing from cache"<<endl;
 
       for(const auto& signature : signatures) {
         DNSRecord sigdr;
@@ -1995,26 +2006,47 @@ void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, c
     return;
 
   case DNSFilterEngine::PolicyKind::Custom:
-    ret.clear();
-    rcode = RCode::NoError;
     {
+      cerr<<"in "<<__func__<<" line "<<__LINE__<<endl;
+      //ret.clear();
+      rcode = RCode::NoError;
       done = true;
       auto spoofed = d_appliedPolicy.getCustomRecords(qname, qtype.getCode());
       for (auto& dr : spoofed) {
+        cerr<<"puhsing spoofed CNAME for "<<qname<<" from "<<__LINE__<<endl;
         ret.push_back(dr);
+        for (const auto& r : ret) {
+          cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
+          if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
+            cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
+          }
+        }
+        cerr<<"list done"<<endl;
 
         if (dr.d_name == qname && dr.d_type == QType::CNAME) {
           if (auto content = getRR<CNAMERecordContent>(dr)) {
             if (qtype != QType::CNAME) {
               #warning FIXME shall we stop RPZ processing from here?
               // https://tools.ietf.org/html/draft-vixie-dnsop-dns-rpz-00#section-6
-              handleNewTarget(prefix, qname, content->getTarget(), qtype.getCode(), ret, rcode, depth, {}, vState::Indeterminate);
+              vState newTargetState = vState::Indeterminate;
+              cerr<<"new target from RPZ is "<<content->getTarget()<<endl;
+              handleNewTarget(prefix, qname, content->getTarget(), qtype.getCode(), ret, rcode, depth, {}, newTargetState);
             }
           }
         }
       }
     }
   }
+
+  cerr<<"going out of "<<__func__<<endl;
+  for (const auto& r : ret) {
+    cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
+    if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
+      cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
+    }
+  }
+  cerr<<"list done"<<endl;
+
 }
 
 bool SyncRes::nameserversBlockedByRPZ(const DNSFilterEngine& dfe, const NsSet& nameservers)
@@ -2387,6 +2419,8 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
   }
 
   const bool oldCacheOnly = setCacheOnly(false);
+  const bool oldWantsRPZ = d_wantsRPZ;
+  d_wantsRPZ = false;
 
   dsmap_t ds;
   vState cutState = getDSRecords(end, ds, false, depth);
@@ -2395,6 +2429,7 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
 
   if (!shouldValidate()) {
     setCacheOnly(oldCacheOnly);
+    d_wantsRPZ = oldWantsRPZ;
     return;
   }
 
@@ -2463,6 +2498,7 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
     }
   }
   setCacheOnly(oldCacheOnly);
+  d_wantsRPZ = oldWantsRPZ;
 }
 
 vState SyncRes::validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, unsigned int depth)
@@ -3116,7 +3152,7 @@ dState SyncRes::getDenialValidationState(const NegCache::NegCacheEntry& ne, cons
   return getDenial(csp, ne.d_name, ne.d_qtype.getCode(), referralToUnsigned, expectedState == dState::NXQTYPE);
 }
 
-bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic, vState& state, const bool needWildcardProof, const bool gatherWildcardProof, const unsigned int wildcardLabelsCount, int& rcode)
+bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& auth, LWResult& lwr, const bool sendRDQuery, vector<DNSRecord>& ret, set<DNSName>& nsset, DNSName& newtarget, DNSName& newauth, bool& realreferral, bool& negindic, vState& state, const bool needWildcardProof, const bool gatherWildcardProof, const unsigned int wildcardLabelsCount, int& rcode, unsigned int depth)
 {
   bool done = false;
   DNSName dnameTarget, dnameOwner;
@@ -3142,6 +3178,7 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
       // only add a SOA if we're not going anywhere after this
       if (newtarget.empty()) {
         ret.push_back(rec);
+        cerr<<"puhsing SOA from "<<__LINE__<<endl;
       }
 
       NegCache::NegCacheEntry ne;
@@ -3189,10 +3226,19 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
           continue;
         }
         ret.push_back(rec);
+        cerr<<"puhsing CNAME for "<<qname<<" from "<<__LINE__<<endl;
         if (auto content = getRR<CNAMERecordContent>(rec)) {
-          newtarget=content->getTarget();
+          newtarget=DNSName(content->getTarget());
+          cerr<<"new target is "<<newtarget<<endl;
+        }
+        for (const auto& r : ret) {
+          cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
+          if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
+            cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
+          }
         }
       } else if (rec.d_type == QType::DNAME && qname.isPartOf(rec.d_name)) { // DNAME
+        cerr<<"puhsing DNAME from "<<__LINE__<<endl;
         ret.push_back(rec);
         if (auto content = getRR<DNAMERecordContent>(rec)) {
           dnameOwner = rec.d_name;
@@ -3224,6 +3270,7 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
        return the corresponding NSEC/NSEC3 records from the AUTHORITY section
        proving that the exact name did not exist */
     else if(gatherWildcardProof && (rec.d_type==QType::RRSIG || rec.d_type==QType::NSEC || rec.d_type==QType::NSEC3) && rec.d_place==DNSResourceRecord::AUTHORITY) {
+      cerr<<"puhsing DNSSEC from "<<__LINE__<<endl;
       ret.push_back(rec); // enjoy your DNSSEC
     }
     // for ANY answers we *must* have an authoritative answer, unless we are forwarding recursively
@@ -3270,16 +3317,18 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
           updateValidationStatusInCache(qname, qtype, lwr.d_aabit, st);
         }
       }
+      cerr<<"puhsing answer from "<<__LINE__<<endl;
       ret.push_back(rec);
-#if 0
+      #warning handle post policy
+
       /* Apply Post filtering policies */
       if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
-        if (luaconfsLocal->dfe.getPostPolicy(rec, d_discardedPolicies, d_appliedPolicy)) {
+        auto luaLocal = g_luaconfs.getLocal();
+        if (luaLocal->dfe.getPostPolicy(rec, d_discardedPolicies, d_appliedPolicy)) {
           mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
-          handlePolicyHit(prefix, qname, qtype, ret, done, *rcode, depth);
+          handlePolicyHit(prefix, qname, qtype, ret, done, rcode, depth);
         }
       }
-#endif
     }
     else if((rec.d_type==QType::RRSIG || rec.d_type==QType::NSEC || rec.d_type==QType::NSEC3) && rec.d_place==DNSResourceRecord::ANSWER) {
       if(rec.d_type != QType::RRSIG || rec.d_name == qname) {
@@ -3376,6 +3425,7 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
           }
         }
 
+        cerr<<"puhsing whatever from "<<__LINE__<<endl;
         ret.push_back(rec);
         negindic=true;
       }
@@ -3389,6 +3439,7 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
     cnamerec.d_type = QType::CNAME;
     cnamerec.d_ttl = dnameTTL;
     cnamerec.d_content = std::make_shared<CNAMERecordContent>(CNAMERecordContent(newtarget));
+    cerr<<"puhsing synthetized CNAME from "<<__LINE__<<endl;
     ret.push_back(cnamerec);
   }
   return done;
@@ -3624,7 +3675,7 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
   DNSName newauth;
   DNSName newtarget;
 
-  bool done = processRecords(prefix, qname, qtype, auth, lwr, sendRDQuery, ret, nsset, newtarget, newauth, realreferral, negindic, state, needWildcardProof, gatherWildcardProof, wildcardLabelsCount, *rcode);
+  bool done = processRecords(prefix, qname, qtype, auth, lwr, sendRDQuery, ret, nsset, newtarget, newauth, realreferral, negindic, state, needWildcardProof, gatherWildcardProof, wildcardLabelsCount, *rcode, depth);
 
   if (done){
     LOG(prefix<<qname<<": status=got results, this level of recursion done"<<endl);
@@ -3633,7 +3684,7 @@ bool SyncRes::processAnswer(unsigned int depth, LWResult& lwr, const DNSName& qn
   }
 
   if (!newtarget.empty()) {
-    handleNewTarget(prefix, qname, newtarget, qtype.getCode(), ret, *rcode, depth + 1, lwr.d_records, state);
+    handleNewTarget(prefix, qname, newtarget, qtype.getCode(), ret, *rcode, depth, lwr.d_records, state);
     return true;
   }
 

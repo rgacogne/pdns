@@ -835,6 +835,33 @@ static void protobufLogResponse(const RecProtoBufMessage& message)
 }
 #endif
 
+/**
+ * Chases the CNAME provided by the PolicyCustom RPZ policy.
+ *
+ * @param spoofed: The DNSRecord that was created by the policy, should already be added to ret
+ * @param qtype: The QType of the original query
+ * @param sr: A SyncRes
+ * @param res: An integer that will contain the RCODE of the lookup we do
+ * @param ret: A vector of DNSRecords where the result of the CNAME chase should be appended to
+ */
+static void handleRPZCustom(const DNSRecord& spoofed, const QType& qtype, SyncRes& sr, int& res, vector<DNSRecord>& ret)
+{
+  cerr<<"in "<<__func__<<" "<<__LINE__<<endl;
+  if (spoofed.d_type == QType::CNAME) {
+    bool oldWantsRPZ = sr.getWantsRPZ();
+    sr.setWantsRPZ(false);
+    vector<DNSRecord> ans;
+    res = sr.beginResolve(DNSName(spoofed.d_content->getZoneRepresentation()), qtype, QClass::IN, ans);
+    for (const auto& rec : ans) {
+      if(rec.d_place == DNSResourceRecord::ANSWER) {
+        ret.push_back(rec);
+      }
+    }
+    // Reset the RPZ state of the SyncRes
+    sr.setWantsRPZ(oldWantsRPZ);
+  }
+}
+
 static bool addRecordToPacket(DNSPacketWriter& pw, const DNSRecord& rec, uint32_t& minTTL, uint32_t ttlCap, const uint16_t maxAnswerSize)
 {
   pw.startRecord(rec.d_name, rec.d_type, (rec.d_ttl > ttlCap ? ttlCap : rec.d_ttl), rec.d_class, rec.d_place);
@@ -859,6 +886,7 @@ enum class PolicyResult : uint8_t { NoAction, HaveAnswer, Drop };
 
 static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy, const std::unique_ptr<DNSComboWriter>& dc, SyncRes& sr, int& res, vector<DNSRecord>& ret, DNSPacketWriter& pw, bool post)
 {
+  cerr<<"in "<<__func__<<" "<<__LINE__<<endl;
   /* don't account truncate actions for TCP queries, since they are not applied */
   if (appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::Truncate || !dc->d_tcp) {
     ++g_stats.policyResults[appliedPolicy.d_kind];
@@ -895,10 +923,10 @@ static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy
   case DNSFilterEngine::PolicyKind::Custom:
     res = RCode::NoError;
     {
-      if (post && ret.size() == 0) { // can happen with NS matches, those do not fill the result, fallback to original behaviour
-        auto spoofed = appliedPolicy.getCustomRecords(dc->d_mdp.d_qname, dc->d_mdp.d_qtype);
-        for (auto& dr : spoofed) {
+      auto spoofed = appliedPolicy.getCustomRecords(dc->d_mdp.d_qname, dc->d_mdp.d_qtype);
+      for (auto& dr : spoofed) {
         ret.push_back(dr);
+        cerr<<"Added "<<dr.d_name<<" | "<<QType(dr.d_type).getName()<<endl;
         try {
           handleRPZCustom(dr, QType(dc->d_mdp.d_qtype), sr, res, ret);
         }
@@ -911,24 +939,15 @@ static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy
         }
         catch (const PolicyHitException& e) {
           if (g_logCommonErrors) {
-            g_log << Logger::Notice << "Sending SERVFAIL to " << dc->getRemote() << " during resolve of the custom filter policy '" << appliedPolicy.getName() << "' while resolving '"<<dc->d_mdp.d_qname<"' because another RPZ policy was hit"<<endl;
+            g_log << Logger::Notice << "Sending SERVFAIL to " << dc->getRemote() << " during resolve of the custom filter policy '" << appliedPolicy.getName() << "' while resolving '" << dc->d_mdp.d_qname << "' because another RPZ policy was hit" << endl;
           }
           res = RCode::ServFail;
           break;
         }
       }
-    }
-    // Do we have an answer, or only a CNAME match while not looking for CNAME?
-    // In the latter case we should call SyncRes.beginResolve() to chase the CNAME.
-    bool haveanswer = false;
-    for (const auto& r : ret) {
-      if (r.d_place == DNSResourceRecord::ANSWER && r.d_type == dc->d_mdp.d_qtype) {
-        haveanswer = true;
-        break;
-      }
-    }
 
-    return PolicyResult::HaveAnswer;
+      return PolicyResult::HaveAnswer;
+    }
   }
 
   return PolicyResult::NoAction;
@@ -1515,8 +1534,7 @@ static void startDoResolve(void *p)
       catch (const ImmediateQueryDropException& e) {
 #warning We need to export a protobuf (and NOD lookup?) message if requested!
         g_stats.policyDrops++;
- 
-        g_log<<Logger::Debug<<"Dropping query because of a filtering policy "<<makeLogInfo(dc)<<endl;
+        g_log<<Logger::Debug<<"Dropping query because of a filtering policy "<<makeLoginfo(dc)<<endl;
         return;
       }
       catch (const ImmediateServFailException &e) {
@@ -1552,11 +1570,14 @@ static void startDoResolve(void *p)
         }
       }
 
+#warning we should remove this and handle these in syncres
+#if 0
       if (wantsRPZ && (appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
         if (luaconfsLocal->dfe.getPostPolicy(ret, sr.d_discardedPolicies, appliedPolicy)) {
           mergePolicyTags(dc->d_policyTags, appliedPolicy.getTags());
         }
       }
+#endif
 
       if (t_pdl || (g_dns64Prefix && dq.qtype == QType::AAAA && dq.validationState != vState::Bogus)) {
         if (res == RCode::NoError) {
@@ -1587,7 +1608,7 @@ static void startDoResolve(void *p)
           shouldNotValidate = true;
         }
       }
-
+#if 0
       if (wantsRPZ) { //XXX This block is repeated, see above
 
         auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, true);
@@ -1598,6 +1619,7 @@ static void startDoResolve(void *p)
           return;
         }
       }
+#endif
     }
 
   haveAnswer:;
