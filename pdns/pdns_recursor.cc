@@ -846,7 +846,6 @@ static void protobufLogResponse(const RecProtoBufMessage& message)
  */
 static void handleRPZCustom(const DNSRecord& spoofed, const QType& qtype, SyncRes& sr, int& res, vector<DNSRecord>& ret)
 {
-  cerr<<"in "<<__func__<<" "<<__LINE__<<endl;
   if (spoofed.d_type == QType::CNAME) {
     bool oldWantsRPZ = sr.getWantsRPZ();
     sr.setWantsRPZ(false);
@@ -886,7 +885,6 @@ enum class PolicyResult : uint8_t { NoAction, HaveAnswer, Drop };
 
 static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy, const std::unique_ptr<DNSComboWriter>& dc, SyncRes& sr, int& res, vector<DNSRecord>& ret, DNSPacketWriter& pw, bool post)
 {
-  cerr<<"in "<<__func__<<" "<<__LINE__<<endl;
   /* don't account truncate actions for TCP queries, since they are not applied */
   if (appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::Truncate || !dc->d_tcp) {
     ++g_stats.policyResults[appliedPolicy.d_kind];
@@ -926,7 +924,6 @@ static PolicyResult handlePolicyHit(const DNSFilterEngine::Policy& appliedPolicy
       auto spoofed = appliedPolicy.getCustomRecords(dc->d_mdp.d_qname, dc->d_mdp.d_qtype);
       for (auto& dr : spoofed) {
         ret.push_back(dr);
-        cerr<<"Added "<<dr.d_name<<" | "<<QType(dr.d_type).getName()<<endl;
         try {
           handleRPZCustom(dr, QType(dc->d_mdp.d_qtype), sr, res, ret);
         }
@@ -1549,7 +1546,6 @@ static void startDoResolve(void *p)
         pw.getHeader()->tc = 1;
       }
       catch (const PolicyHitException& e) {
-        #warning remove me ?
         res = -2;
       }
       dq.validationState = sr.getValidationState();
@@ -1569,15 +1565,6 @@ static void startDoResolve(void *p)
           return;
         }
       }
-
-#warning we should remove this and handle these in syncres
-#if 0
-      if (wantsRPZ && (appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
-        if (luaconfsLocal->dfe.getPostPolicy(ret, sr.d_discardedPolicies, appliedPolicy)) {
-          mergePolicyTags(dc->d_policyTags, appliedPolicy.getTags());
-        }
-      }
-#endif
 
       if (t_pdl || (g_dns64Prefix && dq.qtype == QType::AAAA && dq.validationState != vState::Bogus)) {
         if (res == RCode::NoError) {
@@ -1608,18 +1595,6 @@ static void startDoResolve(void *p)
           shouldNotValidate = true;
         }
       }
-#if 0
-      if (wantsRPZ) { //XXX This block is repeated, see above
-
-        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, true);
-        if (policyResult == PolicyResult::HaveAnswer) {
-          goto haveAnswer;
-        }
-        else if (policyResult == PolicyResult::Drop) {
-          return;
-        }
-      }
-#endif
     }
 
   haveAnswer:;

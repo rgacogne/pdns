@@ -638,61 +638,6 @@ int SyncRes::asyncresolveWrapper(const ComboAddress& ip, bool ednsMANDATORY, con
   return ret;
 }
 
-bool SyncRes::qnameRPZHit(const DNSFilterEngine& dfe, DNSName& target, const QType& qtype, vector<DNSRecord> &ret, unsigned int depth)
-{
-  if (!d_wantsRPZ) {
-    return false;
-  }
-  if (s_maxdepth && depth > s_maxdepth) {
-    string prefix = d_prefix;
-    prefix.append(depth, ' ');
-    string msg = "More than " + std::to_string(s_maxdepth) + " (max-recursion-depth) levels of recursion needed while resolving " + target.toLogString();
-    LOG(prefix << target << ": " << msg << endl);
-    throw ImmediateServFailException(msg);
-  }
-
-  bool match = dfe.getQueryPolicy(target, d_discardedPolicies, d_appliedPolicy, true);
-  if (!match) {
-    return false;
-  }
-
-  mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
-  if (d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction) {
-    return false;
-  }
-  LOG(": (hit by RPZ policy '" + d_appliedPolicy.getName() + "')" << endl);
-  if (d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::Truncate) {
-    // XXX We don't know if we're doing TCP here....
-    return false;
-  }
-  if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::Custom) {
-    return true;
-  }
-  auto spoofed = d_appliedPolicy.getCustomRecords(target, qtype.getCode());
-
-  // Add the record to the result vector being built, chase if we hit a CNAME
-  for (const auto& dr : spoofed) {
-    if (dr.d_place != DNSResourceRecord::ANSWER) {
-      continue;
-    }
-    cerr<<"puhsing spoofed from "<<__LINE__<<endl;
-    ret.push_back(dr);
-    switch (dr.d_type) {
-    case QType::CNAME:
-      auto cnamecontent = getRR<CNAMERecordContent>(dr);
-      if (cnamecontent) {
-        target = cnamecontent->getTarget();
-        // This call wil return true if we hit a policy that needs an throw PolicyHitException
-        // For CNAME chasing, we don't want that since resolving should continue with the new target
-        return qnameRPZHit(dfe, target, qtype, ret, depth + 1);
-      }
-      break;
-    }
-  }
-
-  return true;
-}
-
 #define QLOG(x) LOG(prefix << " child=" <<  child << ": " << x << endl)
 
 int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, set<GetBestNSAnswer>& beenthere, vState& state) {
@@ -707,7 +652,6 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
       mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
       bool done = false;
       int rcode = RCode::NoError;
-      cerr<<"Policy hit for "<<qname<<endl;
       handlePolicyHit(prefix, qname, qtype, ret, done, rcode, depth);
       if (done) {
         return rcode;
@@ -751,14 +695,6 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
   setCacheOnly(old);
   if (fromCache) {
     QLOG("Step0 Found in cache");
-    cerr<<"ret size was "<<ret.size()<<" to which we add retq "<<retq.size()<<endl;
-    for (const auto& r : retq) {
-      cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
-      if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
-        cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
-      }
-    }
-
     ret.insert(ret.end(), retq.begin(), retq.end());
     return res;
   }
@@ -1406,7 +1342,6 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
       const uint32_t ttl = dr.d_ttl;
       ret.reserve(ret.size() + 2 + signatures.size() + authorityRecs.size());
       ret.push_back(dr);
-      cerr<<"puhsing from cache"<<endl;
 
       for(const auto& signature : signatures) {
         DNSRecord sigdr;
@@ -2007,21 +1942,12 @@ void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, c
 
   case DNSFilterEngine::PolicyKind::Custom:
     {
-      cerr<<"in "<<__func__<<" line "<<__LINE__<<endl;
       //ret.clear();
       rcode = RCode::NoError;
       done = true;
       auto spoofed = d_appliedPolicy.getCustomRecords(qname, qtype.getCode());
       for (auto& dr : spoofed) {
-        cerr<<"puhsing spoofed CNAME for "<<qname<<" from "<<__LINE__<<endl;
         ret.push_back(dr);
-        for (const auto& r : ret) {
-          cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
-          if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
-            cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
-          }
-        }
-        cerr<<"list done"<<endl;
 
         if (dr.d_name == qname && dr.d_type == QType::CNAME) {
           if (auto content = getRR<CNAMERecordContent>(dr)) {
@@ -2029,7 +1955,6 @@ void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, c
               #warning FIXME shall we stop RPZ processing from here?
               // https://tools.ietf.org/html/draft-vixie-dnsop-dns-rpz-00#section-6
               vState newTargetState = vState::Indeterminate;
-              cerr<<"new target from RPZ is "<<content->getTarget()<<endl;
               handleNewTarget(prefix, qname, content->getTarget(), qtype.getCode(), ret, rcode, depth, {}, newTargetState);
             }
           }
@@ -2037,16 +1962,6 @@ void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, c
       }
     }
   }
-
-  cerr<<"going out of "<<__func__<<endl;
-  for (const auto& r : ret) {
-    cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
-    if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
-      cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
-    }
-  }
-  cerr<<"list done"<<endl;
-
 }
 
 bool SyncRes::nameserversBlockedByRPZ(const DNSFilterEngine& dfe, const NsSet& nameservers)
@@ -3178,7 +3093,6 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
       // only add a SOA if we're not going anywhere after this
       if (newtarget.empty()) {
         ret.push_back(rec);
-        cerr<<"puhsing SOA from "<<__LINE__<<endl;
       }
 
       NegCache::NegCacheEntry ne;
@@ -3226,19 +3140,10 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
           continue;
         }
         ret.push_back(rec);
-        cerr<<"puhsing CNAME for "<<qname<<" from "<<__LINE__<<endl;
         if (auto content = getRR<CNAMERecordContent>(rec)) {
           newtarget=DNSName(content->getTarget());
-          cerr<<"new target is "<<newtarget<<endl;
-        }
-        for (const auto& r : ret) {
-          cerr<<"- "<<r.d_name<<" | "<<QType(r.d_type).getName()<<endl;
-          if (r.d_type == QType::CNAME && getRR<CNAMERecordContent>(r)) {
-            cerr<<"-> "<<getRR<CNAMERecordContent>(r)->getTarget()<<endl;
-          }
         }
       } else if (rec.d_type == QType::DNAME && qname.isPartOf(rec.d_name)) { // DNAME
-        cerr<<"puhsing DNAME from "<<__LINE__<<endl;
         ret.push_back(rec);
         if (auto content = getRR<DNAMERecordContent>(rec)) {
           dnameOwner = rec.d_name;
@@ -3270,7 +3175,6 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
        return the corresponding NSEC/NSEC3 records from the AUTHORITY section
        proving that the exact name did not exist */
     else if(gatherWildcardProof && (rec.d_type==QType::RRSIG || rec.d_type==QType::NSEC || rec.d_type==QType::NSEC3) && rec.d_place==DNSResourceRecord::AUTHORITY) {
-      cerr<<"puhsing DNSSEC from "<<__LINE__<<endl;
       ret.push_back(rec); // enjoy your DNSSEC
     }
     // for ANY answers we *must* have an authoritative answer, unless we are forwarding recursively
@@ -3317,9 +3221,8 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
           updateValidationStatusInCache(qname, qtype, lwr.d_aabit, st);
         }
       }
-      cerr<<"puhsing answer from "<<__LINE__<<endl;
+
       ret.push_back(rec);
-      #warning handle post policy
 
       /* Apply Post filtering policies */
       if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
@@ -3425,7 +3328,6 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
           }
         }
 
-        cerr<<"puhsing whatever from "<<__LINE__<<endl;
         ret.push_back(rec);
         negindic=true;
       }
@@ -3439,8 +3341,7 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
     cnamerec.d_type = QType::CNAME;
     cnamerec.d_ttl = dnameTTL;
     cnamerec.d_content = std::make_shared<CNAMERecordContent>(CNAMERecordContent(newtarget));
-    cerr<<"puhsing synthetized CNAME from "<<__LINE__<<endl;
-    ret.push_back(cnamerec);
+    ret.push_back(std::move(cnamerec));
   }
   return done;
 }
