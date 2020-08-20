@@ -870,23 +870,46 @@ int SyncRes::doResolveNoQNameMinimization(const DNSName &qname, const QType &qty
       }
     }
 
-    if(doCNAMECacheCheck(qname, qtype, ret, depth, res, state, wasAuthZone, wasForwardRecurse)) { // will reroute us if needed
+    if (doCNAMECacheCheck(qname, qtype, ret, depth, res, state, wasAuthZone, wasForwardRecurse)) { // will reroute us if needed
       d_wasOutOfBand = wasAuthZone;
       // Do not set *fromCache; res does not reflect the final result in all cases
+        /* Apply Post filtering policies */
+
+      if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
+        auto luaLocal = g_luaconfs.getLocal();
+        if (luaLocal->dfe.getPostPolicy(ret, d_discardedPolicies, d_appliedPolicy)) {
+          mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
+          bool done = false;
+          handlePolicyHit(prefix, qname, qtype, ret, done, res, depth);
+        }
+      }
+
       return res;
     }
 
-    if(doCacheCheck(qname, authname, wasForwardedOrAuthZone, wasAuthZone, wasForwardRecurse, qtype, ret, depth, res, state)) {
+    if (doCacheCheck(qname, authname, wasForwardedOrAuthZone, wasAuthZone, wasForwardRecurse, qtype, ret, depth, res, state)) {
       // we done
       d_wasOutOfBand = wasAuthZone;
-      if (fromCache)
+      if (fromCache) {
         *fromCache = true;
+      }
+
+      if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
+        auto luaLocal = g_luaconfs.getLocal();
+        if (luaLocal->dfe.getPostPolicy(ret, d_discardedPolicies, d_appliedPolicy)) {
+          mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
+          bool done = false;
+          handlePolicyHit(prefix, qname, qtype, ret, done, res, depth);
+        }
+      }
+
       return res;
     }
   }
 
-  if(d_cacheonly)
+  if (d_cacheonly) {
     return 0;
+  }
 
   LOG(prefix<<qname<<": No cache hit for '"<<qname<<"|"<<qtype.getName()<<"', trying to find an appropriate NS record"<<endl);
 
@@ -909,8 +932,21 @@ int SyncRes::doResolveNoQNameMinimization(const DNSName &qname, const QType &qty
 
   LOG(prefix<<qname<<": initial validation status for "<<qname<<" is "<<state<<endl);
 
-  if(!(res=doResolveAt(nsset, subdomain, flawedNSSet, qname, qtype, ret, depth, beenthere, state, stopAtDelegation)))
+  res = doResolveAt(nsset, subdomain, flawedNSSet, qname, qtype, ret, depth, beenthere, state, stopAtDelegation);
+
+  /* Apply Post filtering policies */
+  if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
+    auto luaLocal = g_luaconfs.getLocal();
+    if (luaLocal->dfe.getPostPolicy(ret, d_discardedPolicies, d_appliedPolicy)) {
+      mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
+      bool done = false;
+      handlePolicyHit(prefix, qname, qtype, ret, done, res, depth);
+    }
+  }
+
+  if (!res) {
     return 0;
+  }
 
   LOG(prefix<<qname<<": failed (res="<<res<<")"<<endl);
 
@@ -1904,13 +1940,37 @@ static void addNXNSECS(vector<DNSRecord>&ret, const vector<DNSRecord>& records)
   ret.insert(ret.end(), ne.DNSSECRecords.signatures.begin(), ne.DNSSECRecords.signatures.end());
 }
 
-void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, const QType& qtype, vector<DNSRecord>& ret, bool& done, int& rcode, unsigned int depth)
+static bool rpzHitShouldReplaceContent(const DNSName& qname, const QType& qtype, const std::vector<DNSRecord>& records)
+{
+  if (qtype == QType::CNAME) {
+    return true;
+  }
+
+  for (const auto& record : records) {
+    if (record.d_type == QType::CNAME) {
+      if (auto content = getRR<CNAMERecordContent>(record)) {
+        if (qname == content->getTarget()) {
+          /* we have a CNAME whose target matches the entry we are about to
+             generate, so it will complete the current records, not replace
+             them
+          */
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, const QType& qtype, std::vector<DNSRecord>& ret, bool& done, int& rcode, unsigned int depth)
 {
   /* don't account truncate actions for TCP queries, since they are not applied */
   if (d_appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::Truncate || !d_queryReceivedOverTCP) {
     ++g_stats.policyResults[d_appliedPolicy.d_kind];
   }
 
+  cerr<<"Handling policy hit for "<<qname<<" of type "<<(int)d_appliedPolicy.d_kind<<endl;
   switch (d_appliedPolicy.d_kind) {
 
   case DNSFilterEngine::PolicyKind::NoAction:
@@ -1942,21 +2002,24 @@ void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, c
 
   case DNSFilterEngine::PolicyKind::Custom:
     {
-      //ret.clear();
+      cerr<<"custom"<<endl;
+      if (rpzHitShouldReplaceContent(qname, qtype, ret)) {
+        cerr<<"clearing"<<endl;
+        ret.clear();
+      }
+
       rcode = RCode::NoError;
       done = true;
       auto spoofed = d_appliedPolicy.getCustomRecords(qname, qtype.getCode());
       for (auto& dr : spoofed) {
         ret.push_back(dr);
 
-        if (dr.d_name == qname && dr.d_type == QType::CNAME) {
+        if (dr.d_name == qname && dr.d_type == QType::CNAME && qtype != QType::CNAME) {
           if (auto content = getRR<CNAMERecordContent>(dr)) {
-            if (qtype != QType::CNAME) {
-              #warning FIXME shall we stop RPZ processing from here?
-              // https://tools.ietf.org/html/draft-vixie-dnsop-dns-rpz-00#section-6
-              vState newTargetState = vState::Indeterminate;
-              handleNewTarget(prefix, qname, content->getTarget(), qtype.getCode(), ret, rcode, depth, {}, newTargetState);
-            }
+#warning FIXME shall we stop RPZ processing from here?
+            // https://tools.ietf.org/html/draft-vixie-dnsop-dns-rpz-00#section-6
+            vState newTargetState = vState::Indeterminate;
+            handleNewTarget(prefix, qname, content->getTarget(), qtype.getCode(), ret, rcode, depth, {}, newTargetState);
           }
         }
       }
@@ -3223,15 +3286,6 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
       }
 
       ret.push_back(rec);
-
-      /* Apply Post filtering policies */
-      if (d_wantsRPZ && (d_appliedPolicy.d_type == DNSFilterEngine::PolicyType::None || d_appliedPolicy.d_kind == DNSFilterEngine::PolicyKind::NoAction)) {
-        auto luaLocal = g_luaconfs.getLocal();
-        if (luaLocal->dfe.getPostPolicy(rec, d_discardedPolicies, d_appliedPolicy)) {
-          mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
-          handlePolicyHit(prefix, qname, qtype, ret, done, rcode, depth);
-        }
-      }
     }
     else if((rec.d_type==QType::RRSIG || rec.d_type==QType::NSEC || rec.d_type==QType::NSEC3) && rec.d_place==DNSResourceRecord::ANSWER) {
       if(rec.d_type != QType::RRSIG || rec.d_name == qname) {
