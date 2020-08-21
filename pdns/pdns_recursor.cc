@@ -1495,7 +1495,7 @@ static void startDoResolve(void *p)
         goto haveAnswer;
       }
     }
-    
+
     // if there is a RecursorLua active, and it 'took' the query in preResolve, we don't launch beginResolve
     if (!t_pdl || !t_pdl->preresolve(dq, res)) {
 
@@ -1505,17 +1505,25 @@ static void startDoResolve(void *p)
       }
 
       sr.setWantsRPZ(wantsRPZ);
+
       if (wantsRPZ && appliedPolicy.d_kind != DNSFilterEngine::PolicyKind::NoAction) {
-        auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, false);
-        if (policyResult == PolicyResult::HaveAnswer) {
-          goto haveAnswer;
+
+        if (t_pdl && t_pdl->policyHitFilter(dc->d_remote, dc->d_mdp.d_qname, QType(dc->d_mdp.d_qtype), dc->d_tcp, appliedPolicy, dc->d_policyTags, sr.d_discardedPolicies)) {
+          /* reset to no match */
+          appliedPolicy = DNSFilterEngine::Policy();
         }
-        else if (policyResult == PolicyResult::Drop) {
-          return;
+        else {
+          auto policyResult = handlePolicyHit(appliedPolicy, dc, sr, res, ret, pw, false);
+          if (policyResult == PolicyResult::HaveAnswer) {
+            goto haveAnswer;
+          }
+          else if (policyResult == PolicyResult::Drop) {
+            return;
+          }
         }
       }
 
-      // Query got not handled for QNAME Policy reasons, now actually go out to find an answer
+      // Query did not get handled for Client IP or QNAME Policy reasons, now actually go out to find an answer
       try {
         sr.d_appliedPolicy = appliedPolicy;
         sr.d_policyTags = std::move(dc->d_policyTags);

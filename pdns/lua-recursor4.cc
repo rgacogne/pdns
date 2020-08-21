@@ -388,6 +388,8 @@ void RecursorLua4::postLoad() {
   d_ipfilter = d_lw->readVariable<boost::optional<ipfilter_t>>("ipfilter").get_value_or(0);
   d_gettag = d_lw->readVariable<boost::optional<gettag_t>>("gettag").get_value_or(0);
   d_gettag_ffi = d_lw->readVariable<boost::optional<gettag_ffi_t>>("gettag_ffi").get_value_or(0);
+
+  d_policyEventFilter = d_lw->readVariable<boost::optional<policyEventFilter_t>>("policyEventFilter").get_value_or(0);
 }
 
 void RecursorLua4::getFeatures(Features & features) {
@@ -446,6 +448,20 @@ bool RecursorLua4::ipfilter(const ComboAddress& remote, const ComboAddress& loca
   if(d_ipfilter)
     return d_ipfilter(remote, local, dh);
   return false; // don't block
+}
+
+bool RecursorLua4::policyHitFilter(const ComboAddress& remote, const DNSName& qname, const QType& qtype, bool tcp, DNSFilterEngine::Policy& policy, std::unordered_set<std::string>& tags, std::unordered_map<std::string,bool>& dicardedPolicies) const
+{
+  if (!d_policyEventFilter) {
+    return false;
+  }
+
+  PolicyHitEvent event(remote, qname, qtype, tcp);
+  event.appliedPolicy = &policy;
+  event.policyTags = &tags;
+  event.discardedPolicies = &dicardedPolicies;
+
+  return d_policyEventFilter(event);
 }
 
 unsigned int RecursorLua4::gettag(const ComboAddress& remote, const Netmask& ednssubnet, const ComboAddress& local, const DNSName& qname, uint16_t qtype, std::unordered_set<std::string>* policyTags, LuaContext::LuaObject& data, const EDNSOptionViewMap& ednsOptions, bool tcp, std::string& requestorId, std::string& deviceId, std::string& deviceName, std::string& routingTag, const std::vector<ProxyProtocolValue>& proxyProtocolValues) const

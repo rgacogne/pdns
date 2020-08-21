@@ -652,6 +652,7 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
       mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
       bool done = false;
       int rcode = RCode::NoError;
+      cerr<<"qname filtering hit on "<<qname<<endl;
       handlePolicyHit(prefix, qname, qtype, ret, done, rcode, depth);
       if (done) {
         return rcode;
@@ -880,6 +881,7 @@ int SyncRes::doResolveNoQNameMinimization(const DNSName &qname, const QType &qty
         if (luaLocal->dfe.getPostPolicy(ret, d_discardedPolicies, d_appliedPolicy)) {
           mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
           bool done = false;
+          cerr<<"post filtering hit"<<endl;
           handlePolicyHit(prefix, qname, qtype, ret, done, res, depth);
         }
       }
@@ -899,6 +901,7 @@ int SyncRes::doResolveNoQNameMinimization(const DNSName &qname, const QType &qty
         if (luaLocal->dfe.getPostPolicy(ret, d_discardedPolicies, d_appliedPolicy)) {
           mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
           bool done = false;
+          cerr<<"post filtering hit 2"<<endl;
           handlePolicyHit(prefix, qname, qtype, ret, done, res, depth);
         }
       }
@@ -940,6 +943,7 @@ int SyncRes::doResolveNoQNameMinimization(const DNSName &qname, const QType &qty
     if (luaLocal->dfe.getPostPolicy(ret, d_discardedPolicies, d_appliedPolicy)) {
       mergePolicyTags(d_policyTags, d_appliedPolicy.getTags());
       bool done = false;
+      cerr<<"post filtering hit 3"<<endl;
       handlePolicyHit(prefix, qname, qtype, ret, done, res, depth);
     }
   }
@@ -1970,7 +1974,7 @@ void SyncRes::handlePolicyHit(const std::string& prefix, const DNSName& qname, c
     ++g_stats.policyResults[d_appliedPolicy.d_kind];
   }
 
-  cerr<<"Handling policy hit for "<<qname<<" of type "<<(int)d_appliedPolicy.d_kind<<endl;
+  cerr<<"Handling policy hit for "<<qname<<" of kind "<<(int)d_appliedPolicy.d_kind<<" and type "<<(int)d_appliedPolicy.d_type<<endl;
   switch (d_appliedPolicy.d_kind) {
 
   case DNSFilterEngine::PolicyKind::NoAction:
