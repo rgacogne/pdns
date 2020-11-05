@@ -772,8 +772,10 @@ int SyncRes::doResolve(const DNSName &qname, const QType &qtype, vector<DNSRecor
       // Step 4
       QLOG("Step4 Resolve A for child");
       retq.resize(0);
+      d_inQM = true;
       StopAtDelegation stopAtDelegation = Stop;
       res = doResolveNoQNameMinimization(child, QType::A, retq, depth, beenthere, state, NULL, &stopAtDelegation);
+      d_inQM = false;
       QLOG("Step4 Resolve A result is " << RCode::to_s(res) << "/" << retq.size() << "/" << stopAtDelegation);
       if (stopAtDelegation == Stopped) {
         QLOG("Delegation seen, continue at step 1");
@@ -2501,7 +2503,9 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
 
   const bool oldCacheOnly = setCacheOnly(false);
   const bool oldWantsRPZ = d_wantsRPZ;
+  const bool oldQM = d_qNameMinimization;
   d_wantsRPZ = false;
+  d_qNameMinimization = false;
 
   dsmap_t ds;
   vState cutState = getDSRecords(end, ds, false, depth);
@@ -2511,6 +2515,7 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
   if (!shouldValidate()) {
     setCacheOnly(oldCacheOnly);
     d_wantsRPZ = oldWantsRPZ;
+    d_qNameMinimization = oldQM;
     return;
   }
 
@@ -2580,6 +2585,7 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
   }
   setCacheOnly(oldCacheOnly);
   d_wantsRPZ = oldWantsRPZ;
+  d_qNameMinimization = oldQM;
 }
 
 vState SyncRes::validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, unsigned int depth)
@@ -3712,6 +3718,11 @@ void SyncRes::handleNewTarget(const std::string& prefix, const DNSName& qname, c
     LOG(prefix<<qname<<": status=got a CNAME referral that causes a loop, returning SERVFAIL"<<endl);
     ret.clear();
     rcode = RCode::ServFail;
+    return;
+  }
+
+  if (d_inQM) {
+    rcode = RCode::NoError;
     return;
   }
 
