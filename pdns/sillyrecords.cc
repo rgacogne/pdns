@@ -159,9 +159,9 @@ void LOCRecordContent::report(void)
   regist(254, QType::LOC, &make, &make, "LOC");
 }
 
-std::shared_ptr<DNSRecordContent> LOCRecordContent::make(const string& content)
+std::unique_ptr<DNSRecordContent> LOCRecordContent::make(const string& content)
 {
-  return std::make_shared<LOCRecordContent>(content);
+  return make_unique<LOCRecordContent>(content);
 }
 
 
@@ -177,9 +177,9 @@ void LOCRecordContent::toPacket(DNSPacketWriter& pw)
   pw.xfr32BitInt(d_altitude);
 }
 
-std::shared_ptr<LOCRecordContent::DNSRecordContent> LOCRecordContent::make(const DNSRecord &dr, PacketReader& pr) 
+std::unique_ptr<LOCRecordContent::DNSRecordContent> LOCRecordContent::make(const DNSRecord &dr, PacketReader& pr) 
 {
-  auto ret=std::make_shared<LOCRecordContent>();
+  auto ret = make_unique<LOCRecordContent>();
   pr.xfr8BitInt(ret->d_version);
   pr.xfr8BitInt(ret->d_size);
   pr.xfr8BitInt(ret->d_horizpre);

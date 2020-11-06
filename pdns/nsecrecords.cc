@@ -169,9 +169,9 @@ void NSECRecordContent::report(void)
   regist(1, 47, &make, &make, "NSEC");
 }
 
-std::shared_ptr<DNSRecordContent> NSECRecordContent::make(const string& content)
+std::unique_ptr<DNSRecordContent> NSECRecordContent::make(const string& content)
 {
-  return std::make_shared<NSECRecordContent>(content);
+  return make_unique<NSECRecordContent>(content);
 }
 
 NSECRecordContent::NSECRecordContent(const string& content, const DNSName& zone)
@@ -192,9 +192,9 @@ void NSECRecordContent::toPacket(DNSPacketWriter& pw)
   d_bitmap.toPacket(pw);
 }
 
-std::shared_ptr<NSECRecordContent::DNSRecordContent> NSECRecordContent::make(const DNSRecord &dr, PacketReader& pr)
+std::unique_ptr<NSECRecordContent::DNSRecordContent> NSECRecordContent::make(const DNSRecord &dr, PacketReader& pr)
 {
-  auto ret=std::make_shared<NSECRecordContent>();
+  auto ret = make_unique<NSECRecordContent>();
   pr.xfrName(ret->d_next);
 
   ret->d_bitmap.fromPacket(pr);
@@ -218,9 +218,9 @@ void NSEC3RecordContent::report(void)
   regist(1, 50, &make, &make, "NSEC3");
 }
 
-std::shared_ptr<DNSRecordContent> NSEC3RecordContent::make(const string& content)
+std::unique_ptr<DNSRecordContent> NSEC3RecordContent::make(const string& content)
 {
-  return std::make_shared<NSEC3RecordContent>(content);
+  return make_unique<NSEC3RecordContent>(content);
 }
 
 NSEC3RecordContent::NSEC3RecordContent(const string& content, const DNSName& zone)
@@ -254,9 +254,9 @@ void NSEC3RecordContent::toPacket(DNSPacketWriter& pw)
   d_bitmap.toPacket(pw);
 }
 
-std::shared_ptr<NSEC3RecordContent::DNSRecordContent> NSEC3RecordContent::make(const DNSRecord &dr, PacketReader& pr)
+std::unique_ptr<NSEC3RecordContent::DNSRecordContent> NSEC3RecordContent::make(const DNSRecord &dr, PacketReader& pr)
 {
-  auto ret=std::make_shared<NSEC3RecordContent>();
+  auto ret = make_unique<NSEC3RecordContent>();
   pr.xfr8BitInt(ret->d_algorithm);
   pr.xfr8BitInt(ret->d_flags);
   pr.xfr16BitInt(ret->d_iterations);
@@ -292,9 +292,9 @@ void NSEC3PARAMRecordContent::report(void)
   regist(254, 51, &make, &make, "NSEC3PARAM");
 }
 
-std::shared_ptr<DNSRecordContent> NSEC3PARAMRecordContent::make(const string& content)
+std::unique_ptr<DNSRecordContent> NSEC3PARAMRecordContent::make(const string& content)
 {
-  return std::make_shared<NSEC3PARAMRecordContent>(content);
+  return make_unique<NSEC3PARAMRecordContent>(content);
 }
 
 NSEC3PARAMRecordContent::NSEC3PARAMRecordContent(const string& content, const DNSName& zone)
@@ -316,9 +316,9 @@ void NSEC3PARAMRecordContent::toPacket(DNSPacketWriter& pw)
   pw.xfrBlob(d_salt);
 }
 
-std::shared_ptr<NSEC3PARAMRecordContent::DNSRecordContent> NSEC3PARAMRecordContent::make(const DNSRecord &dr, PacketReader& pr)
+std::unique_ptr<NSEC3PARAMRecordContent::DNSRecordContent> NSEC3PARAMRecordContent::make(const DNSRecord &dr, PacketReader& pr)
 {
-  auto ret=std::make_shared<NSEC3PARAMRecordContent>();
+  auto ret = make_unique<NSEC3PARAMRecordContent>();
   pr.xfr8BitInt(ret->d_algorithm); 
         pr.xfr8BitInt(ret->d_flags); 
         pr.xfr16BitInt(ret->d_iterations); 

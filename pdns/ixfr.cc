@@ -27,7 +27,7 @@
 #include "tsigverifier.hh"
 
 vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const ComboAddress& master, const DNSName& zone,
-                                                                        const vector<DNSRecord>& records, const std::shared_ptr<SOARecordContent>& masterSOA)
+                                                                        const vector<DNSRecord>& records, const std::unique_ptr<SOARecordContent>& masterSOA)
 {
   vector<pair<vector<DNSRecord>, vector<DNSRecord> > >  ret;
 
@@ -171,7 +171,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
   //   SOA WHERE THIS DELTA GOES
   //   RECORDS TO ADD
   // CURRENT MASTER SOA 
-  std::shared_ptr<SOARecordContent> masterSOA = nullptr;
+  std::unique_ptr<SOARecordContent> masterSOA = nullptr;
   vector<DNSRecord> records;
   size_t receivedBytes = 0;
   int8_t ixfrInProgress = -2;
@@ -220,11 +220,12 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
           throw std::runtime_error("Error getting the content of the first SOA record of the IXFR answer for zone '"+zone.toLogString()+"' from master '"+master.toStringWithPort()+"'");
         }
 
-        if(sr->d_st.serial == std::dynamic_pointer_cast<SOARecordContent>(oursr.d_content)->d_st.serial) {
+        auto oursrc = getRR<SOARecordContent>(oursr);
+        if (oursrc && sr->d_st.serial == oursrc->d_st.serial) {
           // we are up to date
           return ret;
         }
-        masterSOA = sr;
+        masterSOA = make_unique<SOARecordContent>(*sr);
       } else if (r.first.d_type == QType::SOA) {
         auto sr = getRR<SOARecordContent>(r.first);
         if (!sr) {

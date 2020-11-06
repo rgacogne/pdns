@@ -273,7 +273,7 @@ BOOST_AUTO_TEST_CASE(test_record_types) {
       }
       recData = rec->serialize(DNSName("rec.test"));
 
-      std::shared_ptr<DNSRecordContent> rec2 = DNSRecordContent::deserialize(DNSName("rec.test"),q.getCode(),recData);
+      auto rec2 = DNSRecordContent::deserialize(DNSName("rec.test"),q.getCode(),recData);
       BOOST_CHECK_MESSAGE(rec2 != NULL, "deserialize(rec.test, " << q.getCode() << ", recData) should not return NULL");
       if (rec2 == NULL) continue;
       // now verify the zone representation (here it can be different!)
@@ -537,7 +537,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_records_types) {
 
   {
     auto validNSEC = DNSRecordContent::mastermake(QType::NSEC, QClass::IN, "host.example.com. A MX RRSIG NSEC TYPE1234");
-    auto nsecContent = std::dynamic_pointer_cast<NSECRecordContent>(validNSEC);
+    auto nsecContent = dynamic_cast<NSECRecordContent*>(validNSEC);
     BOOST_REQUIRE(nsecContent);
 
     for (const auto type : { QType::A, QType::MX, QType::RRSIG, QType::NSEC, static_cast<QType::typeenum>(1234) }) {
@@ -548,7 +548,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_records_types) {
   }
 
   {
-    auto nsecContent = std::make_shared<NSECRecordContent>();
+    auto nsecContent = make_unique<NSECRecordContent>();
     BOOST_CHECK_EQUAL(nsecContent->numberOfTypesSet(), 0U);
     BOOST_CHECK_EQUAL(nsecContent->isSet(QType::NSEC3), false);
 
@@ -589,7 +589,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_records_types) {
   {
     const std::string str = "1 1 12 aabbccdd 2vptu5timamqttgl4luu9kg21e0aor3s a mx rrsig nsec3 type1234 type65535";
     auto validNSEC3 = DNSRecordContent::mastermake(QType::NSEC3, QClass::IN, str);
-    auto nsec3Content = std::dynamic_pointer_cast<NSEC3RecordContent>(validNSEC3);
+    auto nsec3Content = dynamic_cast<NSEC3RecordContent*>(validNSEC3);
     BOOST_REQUIRE(nsec3Content);
 
     for (const auto type : { QType::A, QType::MX, QType::RRSIG, QType::NSEC3, static_cast<QType::typeenum>(1234), static_cast<QType::typeenum>(65535) }) {
@@ -604,7 +604,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_records_types) {
 
   {
     std::string str = "1 1 12 aabbccdd 2vptu5timamqttgl4luu9kg21e0aor3s";
-    auto nsec3Content = std::make_shared<NSEC3RecordContent>(str);
+    auto nsec3Content = make_unique<NSEC3RecordContent>(str);
     BOOST_CHECK_EQUAL(nsec3Content->numberOfTypesSet(), 0U);
     BOOST_CHECK_EQUAL(nsec3Content->isSet(QType::NSEC), false);
 
@@ -648,7 +648,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_records_types) {
     const auto& record = parser.d_answers.at(0).first;
     BOOST_REQUIRE(record.d_type == QType::NSEC3);
     BOOST_REQUIRE(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<NSEC3RecordContent>(record.d_content);
+    auto content = getRR<NSEC3RecordContent>(record);
     BOOST_REQUIRE(content);
     BOOST_CHECK_EQUAL(content->numberOfTypesSet(), 0U);
     for (size_t idx = 0; idx < 65536; idx++) {

@@ -325,7 +325,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden.example.net.");
   }
@@ -343,7 +343,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data)
         const auto& record = records.at(0);
         BOOST_CHECK(record.d_type == QType::A);
         BOOST_CHECK(record.d_class == QClass::IN);
-        auto content = std::dynamic_pointer_cast<ARecordContent>(record.d_content);
+        auto content = getRR<ARecordContent>(record);
         BOOST_CHECK(content != nullptr);
         BOOST_CHECK_EQUAL(content->getCA().toString(), "192.0.2.1");
       }
@@ -351,7 +351,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data)
         const auto& record = records.at(1);
         BOOST_CHECK(record.d_type == QType::A);
         BOOST_CHECK(record.d_class == QClass::IN);
-        auto content = std::dynamic_pointer_cast<ARecordContent>(record.d_content);
+        auto content = getRR<ARecordContent>(record);
         BOOST_CHECK(content != nullptr);
         BOOST_CHECK_EQUAL(content->getCA().toString(), "192.0.2.2");
       }
@@ -363,7 +363,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data)
       const auto& record = records.at(0);
       BOOST_CHECK(record.d_type == QType::MX);
       BOOST_CHECK(record.d_class == QClass::IN);
-      auto content = std::dynamic_pointer_cast<MXRecordContent>(record.d_content);
+      auto content = getRR<MXRecordContent>(record);
       BOOST_CHECK(content != nullptr);
       BOOST_CHECK_EQUAL(content->d_mxname.toString(), "garden-mail.example.net.");
     }
@@ -392,7 +392,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data)
         const auto& record = records.at(0);
         BOOST_CHECK(record.d_type == QType::A);
         BOOST_CHECK(record.d_class == QClass::IN);
-        auto content = std::dynamic_pointer_cast<ARecordContent>(record.d_content);
+        auto content = getRR<ARecordContent>(record);
         BOOST_CHECK(content != nullptr);
         BOOST_CHECK_EQUAL(content->getCA().toString(), "192.0.2.2");
       }
@@ -404,7 +404,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data)
       const auto& record = records.at(0);
       BOOST_CHECK(record.d_type == QType::MX);
       BOOST_CHECK(record.d_class == QClass::IN);
-      auto content = std::dynamic_pointer_cast<MXRecordContent>(record.d_content);
+      auto content = getRR<MXRecordContent>(record);
       BOOST_CHECK(content != nullptr);
       BOOST_CHECK_EQUAL(content->d_mxname.toString(), "garden-mail.example.net.");
     }
@@ -444,14 +444,14 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data_netmask)
     const auto& record1 = records.at(0);
     BOOST_CHECK(record1.d_type == QType::A);
     BOOST_CHECK(record1.d_class == QClass::IN);
-    auto content1 = std::dynamic_pointer_cast<ARecordContent>(record1.d_content);
+    auto content1 = getRR<ARecordContent>(record1);
     BOOST_CHECK(content1 != nullptr);
     BOOST_CHECK_EQUAL(content1->getCA().toString(), "1.2.3.4");
 
     const auto& record2 = records.at(1);
     BOOST_CHECK(record2.d_type == QType::A);
     BOOST_CHECK(record2.d_class == QClass::IN);
-    auto content2 = std::dynamic_pointer_cast<ARecordContent>(record2.d_content);
+    auto content2 = getRR<ARecordContent>(record2);
     BOOST_CHECK(content2 != nullptr);
     BOOST_CHECK_EQUAL(content2->getCA().toString(), "1.2.3.5");
   }
@@ -465,7 +465,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data_netmask)
     const auto& record1 = records.at(0);
     BOOST_CHECK(record1.d_type == QType::AAAA);
     BOOST_CHECK(record1.d_class == QClass::IN);
-    auto content1 = std::dynamic_pointer_cast<AAAARecordContent>(record1.d_content);
+    auto content1 = getRR<AAAARecordContent>(record1);
     BOOST_CHECK(content1 != nullptr);
     BOOST_CHECK_EQUAL(content1->getCA().toString(), "::1234");
   }
@@ -491,7 +491,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data_netmask)
     const auto& record1 = records.at(0);
     BOOST_CHECK(record1.d_type == QType::A);
     BOOST_CHECK(record1.d_class == QClass::IN);
-    auto content1 = std::dynamic_pointer_cast<ARecordContent>(record1.d_content);
+    auto content1 = getRR<ARecordContent>(record1);
     BOOST_CHECK(content1 != nullptr);
     BOOST_CHECK_EQUAL(content1->getCA().toString(), "1.2.3.4");
   }
@@ -504,7 +504,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data_netmask)
     const auto& record1 = records.at(0);
     BOOST_CHECK(record1.d_type == QType::AAAA);
     BOOST_CHECK(record1.d_class == QClass::IN);
-    auto content1 = std::dynamic_pointer_cast<AAAARecordContent>(record1.d_content);
+    auto content1 = getRR<AAAARecordContent>(record1);
     BOOST_CHECK(content1 != nullptr);
     BOOST_CHECK_EQUAL(content1->getCA().toString(), "::1234");
   }
@@ -524,7 +524,7 @@ BOOST_AUTO_TEST_CASE(test_filter_policies_local_data_netmask)
     const auto& record1 = records.at(0);
     BOOST_CHECK(record1.d_type == QType::AAAA);
     BOOST_CHECK(record1.d_class == QClass::IN);
-    auto content1 = std::dynamic_pointer_cast<AAAARecordContent>(record1.d_content);
+    auto content1 = getRR<AAAARecordContent>(record1);
     BOOST_CHECK(content1 != nullptr);
     BOOST_CHECK_EQUAL(content1->getCA().toString(), "::1234");
   }
@@ -571,7 +571,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden1a.example.net.");
   }
@@ -586,7 +586,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden1b.example.net.");
   }
@@ -601,7 +601,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden1a.example.net.");
   }
@@ -616,7 +616,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden2a.example.net.");
   }
@@ -671,7 +671,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies_order)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "client1a.example.net.");
   }
@@ -693,7 +693,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies_order)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden1a.example.net.");
   }
@@ -708,7 +708,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies_order)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden1a.example.net.");
   }
@@ -730,7 +730,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies_order)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "garden2a.example.net.");
   }
@@ -752,7 +752,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies_order)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "nsname1a.example.net.");
   }
@@ -774,7 +774,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies_order)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "nsip1a.example.net.");
   }
@@ -799,7 +799,7 @@ BOOST_AUTO_TEST_CASE(test_multiple_filter_policies_order)
     const auto& record = records.at(0);
     BOOST_CHECK(record.d_type == QType::CNAME);
     BOOST_CHECK(record.d_class == QClass::IN);
-    auto content = std::dynamic_pointer_cast<CNAMERecordContent>(record.d_content);
+    auto content = getRR<CNAMERecordContent>(record);
     BOOST_CHECK(content != nullptr);
     BOOST_CHECK_EQUAL(content->getTarget().toString(), "response1a.example.net.");
   }

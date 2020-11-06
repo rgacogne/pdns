@@ -77,7 +77,7 @@ void UnknownRecordContent::toPacket(DNSPacketWriter& pw)
   pw.xfrBlob(string(d_record.begin(),d_record.end()));
 }
 
-shared_ptr<DNSRecordContent> DNSRecordContent::deserialize(const DNSName& qname, uint16_t qtype, const string& serialized)
+unique_ptr<DNSRecordContent> DNSRecordContent::deserialize(const DNSName& qname, uint16_t qtype, const string& serialized)
 {
   dnsheader dnsheader;
   memset(&dnsheader, 0, sizeof(dnsheader));
@@ -114,46 +114,46 @@ shared_ptr<DNSRecordContent> DNSRecordContent::deserialize(const DNSName& qname,
   }
 
   MOADNSParser mdp(false, (char*)&*packet.begin(), (unsigned int)packet.size());
-  shared_ptr<DNSRecordContent> ret= mdp.d_answers.begin()->first.d_content;
+  unique_ptr<DNSRecordContent> ret = std::move(mdp.d_answers.begin()->first.d_content);
   return ret;
 }
 
-std::shared_ptr<DNSRecordContent> DNSRecordContent::mastermake(const DNSRecord &dr,
+std::unique_ptr<DNSRecordContent> DNSRecordContent::mastermake(const DNSRecord &dr,
                                                PacketReader& pr)
 {
   uint16_t searchclass = (dr.d_type == QType::OPT) ? 1 : dr.d_class; // class is invalid for OPT
 
   typemap_t::const_iterator i=getTypemap().find(make_pair(searchclass, dr.d_type));
   if(i==getTypemap().end() || !i->second) {
-    return std::make_shared<UnknownRecordContent>(dr, pr);
+    return make_unique<UnknownRecordContent>(dr, pr);
   }
 
   return i->second(dr, pr);
 }
 
-std::shared_ptr<DNSRecordContent> DNSRecordContent::mastermake(uint16_t qtype, uint16_t qclass,
+std::unique_ptr<DNSRecordContent> DNSRecordContent::mastermake(uint16_t qtype, uint16_t qclass,
                                                const string& content)
 {
   zmakermap_t::const_iterator i=getZmakermap().find(make_pair(qclass, qtype));
   if(i==getZmakermap().end()) {
-    return std::make_shared<UnknownRecordContent>(content);
+    return make_unique<UnknownRecordContent>(content);
   }
 
   return i->second(content);
 }
 
-std::shared_ptr<DNSRecordContent> DNSRecordContent::mastermake(const DNSRecord &dr, PacketReader& pr, uint16_t oc) {
+std::unique_ptr<DNSRecordContent> DNSRecordContent::mastermake(const DNSRecord &dr, PacketReader& pr, uint16_t oc) {
   // For opcode UPDATE and where the DNSRecord is an answer record, we don't care about content, because this is
   // not used within the prerequisite section of RFC2136, so - we can simply use unknownrecordcontent.
   // For section 3.2.3, we do need content so we need to get it properly. But only for the correct QClasses.
   if (oc == Opcode::Update && dr.d_place == DNSResourceRecord::ANSWER && dr.d_class != 1)
-    return std::make_shared<UnknownRecordContent>(dr, pr);
+    return make_unique<UnknownRecordContent>(dr, pr);
 
   uint16_t searchclass = (dr.d_type == QType::OPT) ? 1 : dr.d_class; // class is invalid for OPT
 
   typemap_t::const_iterator i=getTypemap().find(make_pair(searchclass, dr.d_type));
   if(i==getTypemap().end() || !i->second) {
-    return std::make_shared<UnknownRecordContent>(dr, pr);
+    return make_unique<UnknownRecordContent>(dr, pr);
   }
 
   return i->second(dr, pr);
@@ -162,7 +162,7 @@ std::shared_ptr<DNSRecordContent> DNSRecordContent::mastermake(const DNSRecord &
 string DNSRecordContent::upgradeContent(const DNSName& qname, const QType qtype, const string& content) {
   // seamless upgrade for previously unsupported but now implemented types.
   UnknownRecordContent unknown_content(content);
-  shared_ptr<DNSRecordContent> rc = DNSRecordContent::deserialize(qname, qtype.getCode(), unknown_content.serialize(qname));
+  auto rc = DNSRecordContent::deserialize(qname, qtype.getCode(), unknown_content.serialize(qname));
   return rc->getZoneRepresentation();
 }
 
@@ -274,11 +274,11 @@ void MOADNSParser::init(bool query, const std::string& packet)
           !(d_qtype == QType::IXFR && dr.d_place == DNSResourceRecord::AUTHORITY && dr.d_type == QType::SOA) && // IXFR queries have a SOA in their AUTHORITY section
           (dr.d_place == DNSResourceRecord::ANSWER || dr.d_place == DNSResourceRecord::AUTHORITY || (dr.d_type != QType::OPT && dr.d_type != QType::TSIG && dr.d_type != QType::SIG && dr.d_type != QType::TKEY) || ((dr.d_type == QType::TSIG || dr.d_type == QType::SIG || dr.d_type == QType::TKEY) && dr.d_class != QClass::ANY))) {
 //        cerr<<"discarding RR, query is "<<query<<", place is "<<dr.d_place<<", type is "<<dr.d_type<<", class is "<<dr.d_class<<endl;
-        dr.d_content=std::make_shared<UnknownRecordContent>(dr, pr);
+        dr.d_content = make_unique<UnknownRecordContent>(dr, pr);
       }
       else {
 //        cerr<<"parsing RR, query is "<<query<<", place is "<<dr.d_place<<", type is "<<dr.d_type<<", class is "<<dr.d_class<<endl;
-        dr.d_content=DNSRecordContent::mastermake(dr, pr, d_header.opcode);
+        dr.d_content = DNSRecordContent::mastermake(dr, pr, d_header.opcode);
       }
 
       /* XXX: XPF records should be allowed after TSIG as soon as the actual XPF option code has been assigned:

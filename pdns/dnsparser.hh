@@ -191,9 +191,9 @@ struct DNSRecord;
 class DNSRecordContent
 {
 public:
-  static std::shared_ptr<DNSRecordContent> mastermake(const DNSRecord &dr, PacketReader& pr);
-  static std::shared_ptr<DNSRecordContent> mastermake(const DNSRecord &dr, PacketReader& pr, uint16_t opcode);
-  static std::shared_ptr<DNSRecordContent> mastermake(uint16_t qtype, uint16_t qclass, const string& zone);
+  static std::unique_ptr<DNSRecordContent> mastermake(const DNSRecord &dr, PacketReader& pr);
+  static std::unique_ptr<DNSRecordContent> mastermake(const DNSRecord &dr, PacketReader& pr, uint16_t opcode);
+  static std::unique_ptr<DNSRecordContent> mastermake(uint16_t qtype, uint16_t qclass, const string& zone);
   static string upgradeContent(const DNSName& qname, const QType qtype, const string& content);
 
   virtual std::string getZoneRepresentation(bool noDot=false) const = 0;
@@ -221,13 +221,18 @@ public:
   {
     return typeid(*this)==typeid(rhs) && this->getZoneRepresentation() == rhs.getZoneRepresentation();
   }
-  
-  static shared_ptr<DNSRecordContent> deserialize(const DNSName& qname, uint16_t qtype, const string& serialized);
+
+  virtual std::unique_ptr<DNSRecordContent> clone() const
+  {
+    throw std::runtime_error("Trying to clone the base class!");
+  }
+
+  static unique_ptr<DNSRecordContent> deserialize(const DNSName& qname, uint16_t qtype, const string& serialized);
 
   void doRecordCheck(const struct DNSRecord&){}
 
-  typedef std::shared_ptr<DNSRecordContent> makerfunc_t(const struct DNSRecord& dr, PacketReader& pr);
-  typedef std::shared_ptr<DNSRecordContent> zmakerfunc_t(const string& str);
+  typedef std::unique_ptr<DNSRecordContent> makerfunc_t(const struct DNSRecord& dr, PacketReader& pr);
+  typedef std::unique_ptr<DNSRecordContent> zmakerfunc_t(const string& str);
 
   static void regist(uint16_t cl, uint16_t ty, makerfunc_t* f, zmakerfunc_t* z, const char* name)
   {
@@ -290,9 +295,33 @@ struct DNSRecord
 {
   DNSRecord() : d_type(0), d_class(QClass::IN), d_ttl(0), d_clen(0), d_place(DNSResourceRecord::ANSWER)
   {}
+
+  DNSRecord(const DNSRecord& rhs): d_name(rhs.d_name), d_type(rhs.d_type), d_class(rhs.d_class), d_ttl(rhs.d_ttl), d_clen(rhs.d_clen), d_place(rhs.d_place)
+  {
+    if (rhs.d_content) {
+      d_content = rhs.d_content->clone();
+    }
+  }
+
+  DNSRecord& operator=(const DNSRecord& rhs)
+  {
+    d_name = rhs.d_name;
+    d_type = rhs.d_type;
+    d_class = rhs.d_class;
+    d_ttl = rhs.d_ttl;
+    d_clen = rhs.d_clen;
+    d_place = rhs.d_place;
+
+    if (rhs.d_content) {
+      d_content = rhs.d_content->clone();
+    }
+
+    return *this;
+  }
+
   explicit DNSRecord(const DNSResourceRecord& rr);
   DNSName d_name;
-  std::shared_ptr<DNSRecordContent> d_content;
+  std::unique_ptr<DNSRecordContent> d_content{nullptr};
   uint16_t d_type;
   uint16_t d_class;
   uint32_t d_ttl;
@@ -433,9 +462,9 @@ uint16_t getRecordsOfTypeCount(const char* packet, size_t length, uint8_t sectio
 bool getEDNSUDPPayloadSizeAndZ(const char* packet, size_t length, uint16_t* payloadSize, uint16_t* z);
 
 template<typename T>
-std::shared_ptr<T> getRR(const DNSRecord& dr)
+T* getRR(const DNSRecord& dr)
 {
-  return std::dynamic_pointer_cast<T>(dr.d_content);
+  return dynamic_cast<T*>(dr.d_content.get());
 }
 
 /** Simple DNSPacketMangler. Ritual is: get a pointer into the packet and moveOffset() to beyond your needs

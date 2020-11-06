@@ -553,7 +553,7 @@ std::string DNSFilterEngine::Policy::getLogString() const {
   return ": RPZ Hit; PolicyName=" + getName() + "; Trigger=" + d_trigger.toLogString() + "; Hit=" + d_hit + "; Type=" + getTypeToString(d_type) + "; Kind=" + getKindToString(d_kind);
 }
 
-DNSRecord DNSFilterEngine::Policy::getRecordFromCustom(const DNSName& qname, const std::shared_ptr<DNSRecordContent>& custom) const
+DNSRecord DNSFilterEngine::Policy::getRecordFromCustom(const DNSName& qname, const std::unique_ptr<DNSRecordContent>& custom) const
 {
   DNSRecord dr;
   dr.d_name = qname;
@@ -561,15 +561,15 @@ DNSRecord DNSFilterEngine::Policy::getRecordFromCustom(const DNSName& qname, con
   dr.d_ttl = d_ttl;
   dr.d_class = QClass::IN;
   dr.d_place = DNSResourceRecord::ANSWER;
-  dr.d_content = custom;
+  dr.d_content = custom->clone();
 
   if (dr.d_type == QType::CNAME) {
-    const auto content = std::dynamic_pointer_cast<CNAMERecordContent>(custom);
+    const auto content = dynamic_cast<CNAMERecordContent*>(custom.get());
     if (content) {
       DNSName target = content->getTarget();
       if (target.isWildcard()) {
         target.chopOff();
-        dr.d_content = std::make_shared<CNAMERecordContent>(qname + target);
+        dr.d_content = make_unique<CNAMERecordContent>(qname + target);
       }
     }
   }
@@ -596,7 +596,7 @@ std::vector<DNSRecord> DNSFilterEngine::Policy::getCustomRecords(const DNSName& 
     dr.d_ttl = d_ttl;
     dr.d_class = QClass::IN;
     dr.d_place = DNSResourceRecord::ANSWER;
-    dr.d_content = custom;
+    dr.d_content = custom->clone();
 
     if (dr.d_type == QType::CNAME) {
       const auto content = std::dynamic_pointer_cast<CNAMERecordContent>(custom);
@@ -604,7 +604,7 @@ std::vector<DNSRecord> DNSFilterEngine::Policy::getCustomRecords(const DNSName& 
         DNSName target = content->getTarget();
         if (target.isWildcard()) {
           target.chopOff();
-          dr.d_content = std::make_shared<CNAMERecordContent>(qname + target);
+          dr.d_content = make_unique<CNAMERecordContent>(qname + target);
         }
       }
     }

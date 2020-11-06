@@ -203,8 +203,8 @@ static shared_ptr<SOARecordContent> loadRPZFromServer(const ComboAddress& master
   time_t last=0;
   time_t axfrStart = time(nullptr);
   time_t axfrNow = time(nullptr);
-  shared_ptr<SOARecordContent> sr;
-  while(axfr.getChunk(nop, &chunk, (axfrStart + axfrTimeout - axfrNow))) {
+  unique_ptr<SOARecordContent> sr;
+  while (axfr.getChunk(nop, &chunk, (axfrStart + axfrTimeout - axfrNow))) {
     for(auto& dr : chunk) {
       if(dr.d_type==QType::NS || dr.d_type==QType::TSIG) {
 	continue;
@@ -212,7 +212,7 @@ static shared_ptr<SOARecordContent> loadRPZFromServer(const ComboAddress& master
 
       dr.d_name.makeUsRelative(zoneName);
       if(dr.d_type==QType::SOA) {
-	sr = getRR<SOARecordContent>(dr);
+	sr = dr.d_content->clone();
 	continue;
       }
 
@@ -233,9 +233,9 @@ static shared_ptr<SOARecordContent> loadRPZFromServer(const ComboAddress& master
 }
 
 // this function is silent - you do the logging
-std::shared_ptr<SOARecordContent> loadRPZFromFile(const std::string& fname, std::shared_ptr<DNSFilterEngine::Zone> zone, boost::optional<DNSFilterEngine::Policy> defpol, bool defpolOverrideLocal, uint32_t maxTTL)
+std::unique_ptr<SOARecordContent> loadRPZFromFile(const std::string& fname, std::shared_ptr<DNSFilterEngine::Zone> zone, boost::optional<DNSFilterEngine::Policy> defpol, bool defpolOverrideLocal, uint32_t maxTTL)
 {
-  shared_ptr<SOARecordContent> sr = nullptr;
+  unique_ptr<SOARecordContent> sr = nullptr;
   ZoneParserTNG zpt(fname);
   zpt.setMaxGenerateSteps(::arg().asNum("max-generate-steps"));
   DNSResourceRecord drr;
@@ -350,7 +350,7 @@ static bool dumpZoneToDisk(const DNSName& zoneName, const std::shared_ptr<DNSFil
   return true;
 }
 
-void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DNSFilterEngine::Policy> defpol, bool defpolOverrideLocal, uint32_t maxTTL, size_t zoneIdx, const TSIGTriplet& tt, size_t maxReceivedBytes, const ComboAddress& localAddress, const uint16_t axfrTimeout, const uint32_t refreshFromConf, std::shared_ptr<SOARecordContent> sr, std::string dumpZoneFileName, uint64_t configGeneration)
+void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DNSFilterEngine::Policy> defpol, bool defpolOverrideLocal, uint32_t maxTTL, size_t zoneIdx, const TSIGTriplet& tt, size_t maxReceivedBytes, const ComboAddress& localAddress, const uint16_t axfrTimeout, const uint32_t refreshFromConf, std::unique_ptr<SOARecordContent> sr, std::string dumpZoneFileName, uint64_t configGeneration)
 {
   setThreadName("pdns-r/RPZIXFR");
   bool isPreloaded = sr != nullptr;
@@ -460,7 +460,7 @@ void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DN
       /* we need to make a _full copy_ of the zone we are going to work on */
       std::shared_ptr<DNSFilterEngine::Zone> newZone = std::make_shared<DNSFilterEngine::Zone>(*oldZone);
       /* initialize the current serial to the last one */
-      std::shared_ptr<SOARecordContent> currentSR = sr;
+      auto currentSR = sr->clone();
 
       int totremove=0, totadd=0;
       bool fullUpdate = false;
@@ -503,7 +503,7 @@ void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DN
             auto tempSR = getRR<SOARecordContent>(rr);
             //	  g_log<<Logger::Info<<"New SOA serial for "<<zoneName<<": "<<currentSR->d_st.serial<<endl;
             if (tempSR) {
-              currentSR = tempSR;
+              currentSR = tempSR->clone();
             }
           }
           else {
@@ -516,7 +516,7 @@ void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DN
 
       /* only update sr now that all changes have been converted */
       if (currentSR) {
-        sr = currentSR;
+        sr = currentSR->clone();
       }
       g_log<<Logger::Info<<"Had "<<totremove<<" RPZ removal"<<addS(totremove)<<", "<<totadd<<" addition"<<addS(totadd)<<" for "<<zoneName<<" New serial: "<<sr->d_st.serial<<endl;
       newZone->setSerial(sr->d_st.serial);

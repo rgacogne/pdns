@@ -89,7 +89,7 @@ public:
     {
     }
 
-    Policy(PolicyKind kind, PolicyType type, int32_t ttl=0, std::shared_ptr<PolicyZoneData> data=nullptr, const std::vector<std::shared_ptr<DNSRecordContent>>& custom={}): d_custom(custom), d_zoneData(data), d_ttl(ttl), d_kind(kind), d_type(type)
+    Policy(PolicyKind kind, PolicyType type, int32_t ttl=0, std::shared_ptr<PolicyZoneData> data=nullptr, const std::vector<unique_ptr<DNSRecordContent>>& custom={}): d_custom(custom), d_zoneData(data), d_ttl(ttl), d_kind(kind), d_type(type)
     {
     }
 
@@ -156,7 +156,7 @@ public:
     std::vector<DNSRecord> getCustomRecords(const DNSName& qname, uint16_t qtype) const;
     std::vector<DNSRecord> getRecords(const DNSName& qname) const;
 
-    std::vector<std::shared_ptr<DNSRecordContent>> d_custom;
+    std::vector<std::unique_ptr<DNSRecordContent>> d_custom;
     std::shared_ptr<PolicyZoneData> d_zoneData{nullptr};
     DNSName d_trigger;
     string d_hit;
@@ -166,7 +166,7 @@ public:
     PolicyType d_type;
 
   private:
-    DNSRecord getRecordFromCustom(const DNSName& qname, const std::shared_ptr<DNSRecordContent>& custom) const;
+    DNSRecord getRecordFromCustom(const DNSName& qname, const std::unique_ptr<DNSRecordContent>& custom) const;
   };
 
   class Zone {
