@@ -27,7 +27,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheSimple)
   dr0.d_name = power;
   dr0.d_type = QType::AAAA;
   dr0.d_class = QClass::IN;
-  dr0.d_content = std::make_shared<AAAARecordContent>(dr0Content);
+  dr0.d_content = make_unique<AAAARecordContent>(dr0Content);
   dr0.d_ttl = static_cast<uint32_t>(ttd);
   dr0.d_place = DNSResourceRecord::ANSWER;
 
@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheSimple)
     dr1.d_name = power;
     dr1.d_type = QType::AAAA;
     dr1.d_class = QClass::IN;
-    dr1.d_content = std::make_shared<AAAARecordContent>(dr1Content);
+    dr1.d_content = make_unique<AAAARecordContent>(dr1Content);
     dr1.d_ttl = static_cast<uint32_t>(ttd);
     dr1.d_place = DNSResourceRecord::ANSWER;
 
@@ -94,7 +94,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheSimple)
     dr2.d_name = power;
     dr2.d_type = QType::A;
     dr2.d_class = QClass::IN;
-    dr2.d_content = std::make_shared<ARecordContent>(dr2Content);
+    dr2.d_content = make_unique<ARecordContent>(dr2Content);
     dr2.d_ttl = static_cast<uint32_t>(ttd);
     // the place should not matter to the cache
     dr2.d_place = DNSResourceRecord::AUTHORITY;
@@ -233,7 +233,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheSimple)
     dr3.d_name = power;
     dr3.d_type = QType::A;
     dr3.d_class = QClass::IN;
-    dr3.d_content = std::make_shared<ARecordContent>(dr3Content);
+    dr3.d_content = make_unique<ARecordContent>(dr3Content);
     dr3.d_ttl = static_cast<uint32_t>(ttd + 100);
     // the place should not matter to the cache
     dr3.d_place = DNSResourceRecord::AUTHORITY;
@@ -288,7 +288,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheSimple)
     dr4.d_name = power;
     dr4.d_type = QType::A;
     dr4.d_class = QClass::IN;
-    dr4.d_content = std::make_shared<ARecordContent>(dr4Content);
+    dr4.d_content = make_unique<ARecordContent>(dr4Content);
     dr4.d_ttl = static_cast<uint32_t>(ttd);
     dr4.d_place = DNSResourceRecord::AUTHORITY;
 
@@ -356,7 +356,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheGhost)
   ns1.d_name = ghost;
   ns1.d_type = QType::NS;
   ns1.d_class = QClass::IN;
-  ns1.d_content = std::make_shared<NSRecordContent>(ns1Content);
+  ns1.d_content = make_unique<NSRecordContent>(ns1Content);
   ns1.d_ttl = static_cast<uint32_t>(ttd);
   ns1.d_place = DNSResourceRecord::ANSWER;
   records.push_back(ns1);
@@ -399,7 +399,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_ExpungingExpiredEntries)
   dr1.d_name = power1;
   dr1.d_type = QType::AAAA;
   dr1.d_class = QClass::IN;
-  dr1.d_content = std::make_shared<AAAARecordContent>(dr1Content);
+  dr1.d_content = make_unique<AAAARecordContent>(dr1Content);
   dr1.d_ttl = static_cast<uint32_t>(ttd);
   dr1.d_place = DNSResourceRecord::ANSWER;
 
@@ -409,7 +409,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_ExpungingExpiredEntries)
   dr2.d_name = power2;
   dr2.d_type = QType::AAAA;
   dr2.d_class = QClass::IN;
-  dr2.d_content = std::make_shared<AAAARecordContent>(dr2Content);
+  dr2.d_content = make_unique<AAAARecordContent>(dr2Content);
   dr2.d_ttl = static_cast<uint32_t>(ttd);
   dr2.d_place = DNSResourceRecord::ANSWER;
 
@@ -489,7 +489,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_ExpungingValidEntries)
   dr1.d_name = power1;
   dr1.d_type = QType::AAAA;
   dr1.d_class = QClass::IN;
-  dr1.d_content = std::make_shared<AAAARecordContent>(dr1Content);
+  dr1.d_content = make_unique<AAAARecordContent>(dr1Content);
   dr1.d_ttl = static_cast<uint32_t>(ttd);
   dr1.d_place = DNSResourceRecord::ANSWER;
 
@@ -499,7 +499,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_ExpungingValidEntries)
   dr2.d_name = power2;
   dr2.d_type = QType::AAAA;
   dr2.d_class = QClass::IN;
-  dr2.d_content = std::make_shared<AAAARecordContent>(dr2Content);
+  dr2.d_content = make_unique<AAAARecordContent>(dr2Content);
   dr2.d_ttl = static_cast<uint32_t>(ttd);
   dr2.d_place = DNSResourceRecord::ANSWER;
 
@@ -603,7 +603,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_ExpungingValidEntries)
     r1.d_name = power1;
     r1.d_type = QType::A;
     r1.d_class = QClass::IN;
-    r1.d_content = std::make_shared<ARecordContent>(r1Content);
+    r1.d_content = make_unique<ARecordContent>(r1Content);
     r1.d_ttl = static_cast<uint32_t>(ttd);
     r1.d_place = DNSResourceRecord::ANSWER;
     records.push_back(r1);
@@ -664,7 +664,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheECSIndex)
   dr1.d_name = power;
   dr1.d_type = QType::A;
   dr1.d_class = QClass::IN;
-  dr1.d_content = std::make_shared<ARecordContent>(dr1Content);
+  dr1.d_content = make_unique<ARecordContent>(dr1Content);
   dr1.d_ttl = static_cast<uint32_t>(ttd);
   dr1.d_place = DNSResourceRecord::ANSWER;
 
@@ -673,7 +673,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheECSIndex)
   dr2.d_name = power;
   dr2.d_type = QType::A;
   dr2.d_class = QClass::IN;
-  dr2.d_content = std::make_shared<ARecordContent>(dr2Content);
+  dr2.d_content = make_unique<ARecordContent>(dr2Content);
   dr2.d_ttl = static_cast<uint32_t>(now + 5);
   dr2.d_place = DNSResourceRecord::ANSWER;
 
@@ -822,7 +822,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_Wipe)
   dr1.d_name = power;
   dr1.d_type = QType::A;
   dr1.d_class = QClass::IN;
-  dr1.d_content = std::make_shared<ARecordContent>(dr1Content);
+  dr1.d_content = make_unique<ARecordContent>(dr1Content);
   dr1.d_ttl = static_cast<uint32_t>(ttd);
   dr1.d_place = DNSResourceRecord::ANSWER;
 
@@ -907,7 +907,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheTagged)
   dr0.d_name = power;
   dr0.d_type = QType::A;
   dr0.d_class = QClass::IN;
-  dr0.d_content = std::make_shared<ARecordContent>(dr0Content);
+  dr0.d_content = make_unique<ARecordContent>(dr0Content);
   dr0.d_ttl = static_cast<uint32_t>(ttd);
   dr0.d_place = DNSResourceRecord::ANSWER;
   std::vector<DNSRecord> rset0;
@@ -918,7 +918,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheTagged)
   dr0tagged.d_name = power;
   dr0tagged.d_type = QType::A;
   dr0tagged.d_class = QClass::IN;
-  dr0tagged.d_content = std::make_shared<ARecordContent>(dr0taggedContent);
+  dr0tagged.d_content = make_unique<ARecordContent>(dr0taggedContent);
   dr0tagged.d_ttl = static_cast<uint32_t>(ttd);
   dr0tagged.d_place = DNSResourceRecord::ANSWER;
   std::vector<DNSRecord> rset0tagged;
@@ -1033,7 +1033,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheTagged)
     dr1.d_name = power;
     dr1.d_type = QType::A;
     dr1.d_class = QClass::IN;
-    dr1.d_content = std::make_shared<ARecordContent>(dr1Content);
+    dr1.d_content = make_unique<ARecordContent>(dr1Content);
     dr1.d_ttl = static_cast<uint32_t>(ttd);
     dr1.d_place = DNSResourceRecord::ANSWER;
     std::vector<DNSRecord> rset1;
@@ -1044,7 +1044,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheTagged)
     dr2.d_name = power;
     dr2.d_type = QType::A;
     dr2.d_class = QClass::IN;
-    dr2.d_content = std::make_shared<ARecordContent>(dr2Content);
+    dr2.d_content = make_unique<ARecordContent>(dr2Content);
     dr2.d_ttl = static_cast<uint32_t>(ttd);
     dr2.d_place = DNSResourceRecord::ANSWER;
     std::vector<DNSRecord> rset2;
@@ -1055,7 +1055,7 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheTagged)
     dr3.d_name = power;
     dr3.d_type = QType::A;
     dr3.d_class = QClass::IN;
-    dr3.d_content = std::make_shared<ARecordContent>(dr3Content);
+    dr3.d_content = make_unique<ARecordContent>(dr3Content);
     dr3.d_ttl = static_cast<uint32_t>(ttd);
     dr3.d_place = DNSResourceRecord::ANSWER;
     std::vector<DNSRecord> rset3;

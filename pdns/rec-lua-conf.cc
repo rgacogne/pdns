@@ -290,7 +290,7 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
 
       size_t zoneIdx;
       std::string dumpFile;
-      std::shared_ptr<SOARecordContent> sr = nullptr;
+      std::unique_ptr<SOARecordContent> sr = nullptr;
 
       try {
         std::string seedFile;

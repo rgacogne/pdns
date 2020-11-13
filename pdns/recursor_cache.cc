@@ -111,7 +111,7 @@ static void updateDNSSECValidationStateFromCache(boost::optional<vState>& state,
   }
 }
 
-int32_t MemRecursorCache::handleHit(MapCombo& map, MemRecursorCache::OrderedTagIterator_t& entry, const DNSName& qname, vector<DNSRecord>* res, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, boost::optional<vState>& state, bool* wasAuth)
+int32_t MemRecursorCache::handleHit(MapCombo& map, MemRecursorCache::OrderedTagIterator_t& entry, const DNSName& qname, vector<DNSRecord>* res, vector<std::unique_ptr<RRSIGRecordContent>>* signatures, std::vector<std::unique_ptr<DNSRecord>>* authorityRecs, bool* variable, boost::optional<vState>& state, bool* wasAuth)
 {
   // MUTEX SHOULD BE ACQUIRED
   int32_t ttd = entry->d_ttd;
@@ -129,7 +129,7 @@ int32_t MemRecursorCache::handleHit(MapCombo& map, MemRecursorCache::OrderedTagI
       dr.d_name = qname;
       dr.d_type = entry->d_qtype;
       dr.d_class = QClass::IN;
-      dr.d_content = k;
+      dr.d_content = k->clone();
       dr.d_ttl = static_cast<uint32_t>(entry->d_ttd);
       dr.d_place = DNSResourceRecord::ANSWER;
       res->push_back(std::move(dr));
@@ -246,7 +246,7 @@ bool MemRecursorCache::entryMatches(MemRecursorCache::OrderedTagIterator_t& entr
 }
 
 // returns -1 for no hits
-int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth)
+int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag, vector<std::unique_ptr<RRSIGRecordContent>>* signatures, std::vector<std::unique_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth)
 {
   boost::optional<vState> cachedState{boost::none};
   time_t ttd=0;
@@ -361,7 +361,7 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
   return -1;
 }
 
-void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt, const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask, const OptTag& routingTag, vState state)
+void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt, const vector<DNSRecord>& content, const vector<unique_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::unique_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask, const OptTag& routingTag, vState state)
 {
   auto& map = getMap(qname);
   const lock l(map);
@@ -442,7 +442,7 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
        prior to calling this function, so the TTL actually holds a TTD. */
     ce.d_ttd=min(maxTTD, static_cast<time_t>(i.d_ttl));   // XXX this does weird things if TTLs differ in the set
     //cerr<<"To store: "<<i.d_content->getZoneRepresentation()<<" with ttl/ttd "<<i.d_ttl<<", capped at: "<<maxTTD<<endl;
-    ce.d_records.push_back(i.d_content);
+    ce.d_records.push_back(i.d_content->clone());
   }
 
   if (!isNew) {

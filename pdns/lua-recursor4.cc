@@ -197,19 +197,21 @@ void RecursorLua4::postPrepareContext()
         return result;
       }
 
-      for (const auto& dr : pol.d_custom) {
-        if (!result.empty()) {
-          result += "\n";
-        }
-        result += dr->getZoneRepresentation();
-      }
+      #warnig FIXME
+//      for (const auto& dr : pol.d_custom) {
+//        if (!result.empty()) {
+//          result += "\n";
+//        }
+//        result += dr->getZoneRepresentation();
+//      }
 
       return result;
     },
     [](DNSFilterEngine::Policy& pol, const std::string& content) {
       // Only CNAMES for now, when we ever add a d_custom_type, there will be pain
-      pol.d_custom.clear();
-      pol.d_custom.push_back(DNSRecordContent::mastermake(QType::CNAME, QClass::IN, content));
+#warning FIXME
+//      pol.d_custom.clear();
+//      pol.d_custom.push_back(DNSRecordContent::mastermake(QType::CNAME, QClass::IN, content));
     }
   );
   d_lw->registerFunction("getDH", &DNSQuestion::getDH);
@@ -255,10 +257,13 @@ void RecursorLua4::postPrepareContext()
   d_lw->registerFunction<boost::optional<ComboAddress>(DNSRecord::*)()>("getCA", [](const DNSRecord& dr) { 
       boost::optional<ComboAddress> ret;
 
-      if(auto rec = std::dynamic_pointer_cast<ARecordContent>(dr.d_content))
-        ret=rec->getCA(53);
-      else if(auto aaaarec = std::dynamic_pointer_cast<AAAARecordContent>(dr.d_content))
-        ret=aaaarec->getCA(53);
+      if (auto rec = getRR<ARecordContent>(dr)) {
+        ret = rec->getCA(53);
+      }
+      else if (auto aaaarec = getRR<AAAARecordContent>(dr)) {
+        ret = aaaarec->getCA(53);
+      }
+
       return ret;
     });
 

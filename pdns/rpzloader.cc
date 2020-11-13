@@ -120,7 +120,7 @@ static void RPZRecordToPolicy(const DNSRecord& dr, std::shared_ptr<DNSFilterEngi
     }
     else {
       pol.d_kind = DNSFilterEngine::PolicyKind::Custom;
-      pol.d_custom.emplace_back(dr.d_content);
+      pol.d_custom.emplace_back(dr.d_content->clone());
       // cerr<<"Wants custom "<<crcTarget<<" for "<<dr.d_name<<": ";
     }
   }
@@ -186,7 +186,7 @@ static void RPZRecordToPolicy(const DNSRecord& dr, std::shared_ptr<DNSFilterEngi
   }
 }
 
-static shared_ptr<SOARecordContent> loadRPZFromServer(const ComboAddress& master, const DNSName& zoneName, std::shared_ptr<DNSFilterEngine::Zone> zone, boost::optional<DNSFilterEngine::Policy> defpol, bool defpolOverrideLocal, uint32_t maxTTL, const TSIGTriplet& tt, size_t maxReceivedBytes, const ComboAddress& localAddress, uint16_t axfrTimeout)
+static std::unique_ptr<SOARecordContent> loadRPZFromServer(const ComboAddress& master, const DNSName& zoneName, std::shared_ptr<DNSFilterEngine::Zone> zone, boost::optional<DNSFilterEngine::Policy> defpol, bool defpolOverrideLocal, uint32_t maxTTL, const TSIGTriplet& tt, size_t maxReceivedBytes, const ComboAddress& localAddress, uint16_t axfrTimeout)
 {
   g_log<<Logger::Warning<<"Loading RPZ zone '"<<zoneName<<"' from "<<master.toStringWithPort()<<endl;
   if(!tt.name.empty())
@@ -212,7 +212,7 @@ static shared_ptr<SOARecordContent> loadRPZFromServer(const ComboAddress& master
 
       dr.d_name.makeUsRelative(zoneName);
       if(dr.d_type==QType::SOA) {
-	sr = dr.d_content->clone();
+	sr = make_unique<SOARecordContent>(dynamic_cast<SOARecordContent*>(dr.d_content)->clone());
 	continue;
       }
 
@@ -246,7 +246,7 @@ std::unique_ptr<SOARecordContent> loadRPZFromFile(const std::string& fname, std:
 	drr.content=".";
       DNSRecord dr(drr);
       if(dr.d_type == QType::SOA) {
-        sr = getRR<SOARecordContent>(dr);
+        sr = make_unique<SOARecordContent>(dynamic_cast<SOARecordContent*>(getRR<SOARecordContent>(dr)->clone()));
         domain = dr.d_name;
         zone->setDomain(domain);
       }
@@ -411,7 +411,7 @@ void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DN
 
   for(;;) {
     DNSRecord dr;
-    dr.d_content=sr;
+    dr.d_content = make_unique<SOARecordContent>(sr->clone());
 
     if (skipRefreshDelay) {
       skipRefreshDelay = false;
@@ -460,7 +460,7 @@ void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DN
       /* we need to make a _full copy_ of the zone we are going to work on */
       std::shared_ptr<DNSFilterEngine::Zone> newZone = std::make_shared<DNSFilterEngine::Zone>(*oldZone);
       /* initialize the current serial to the last one */
-      auto currentSR = sr->clone();
+      auto currentSR = make_unique<SOARecordContent>(sr->clone());
 
       int totremove=0, totadd=0;
       bool fullUpdate = false;
@@ -503,7 +503,7 @@ void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DN
             auto tempSR = getRR<SOARecordContent>(rr);
             //	  g_log<<Logger::Info<<"New SOA serial for "<<zoneName<<": "<<currentSR->d_st.serial<<endl;
             if (tempSR) {
-              currentSR = tempSR->clone();
+              currentSR = std::unique_ptr<SOARecordContent>(dynamic_cast<SOARecordContent*>(tempSR->clone()));
             }
           }
           else {
@@ -516,7 +516,7 @@ void RPZIXFRTracker(const std::vector<ComboAddress>& masters, boost::optional<DN
 
       /* only update sr now that all changes have been converted */
       if (currentSR) {
-        sr = currentSR->clone();
+        sr = make_unique<SOARecordContent>(currentSR->clone());
       }
       g_log<<Logger::Info<<"Had "<<totremove<<" RPZ removal"<<addS(totremove)<<", "<<totadd<<" addition"<<addS(totadd)<<" for "<<zoneName<<" New serial: "<<sr->d_st.serial<<endl;
       newZone->setSerial(sr->d_st.serial);

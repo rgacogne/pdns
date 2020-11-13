@@ -2,24 +2,24 @@
 #include "dnsrecords.hh"
 #include "iputils.hh"
 
-static inline std::shared_ptr<DNSRecordContent> getRecordContent(uint16_t type, const std::string& content)
+static inline std::unique_ptr<DNSRecordContent> getRecordContent(uint16_t type, const std::string& content)
 {
-  std::shared_ptr<DNSRecordContent> result = nullptr;
+  std::unique_ptr<DNSRecordContent> result = nullptr;
 
   if (type == QType::NS) {
-    result = std::make_shared<NSRecordContent>(DNSName(content));
+    result = make_unique<NSRecordContent>(DNSName(content));
   }
   else if (type == QType::A) {
-    result = std::make_shared<ARecordContent>(ComboAddress(content));
+    result = make_unique<ARecordContent>(ComboAddress(content));
   }
   else if (type == QType::AAAA) {
-    result = std::make_shared<AAAARecordContent>(ComboAddress(content));
+    result = make_unique<AAAARecordContent>(ComboAddress(content));
   }
   else if (type == QType::CNAME) {
-    result = std::make_shared<CNAMERecordContent>(DNSName(content));
+    result = make_unique<CNAMERecordContent>(DNSName(content));
   }
   else if (type == QType::OPT) {
-    result = std::make_shared<OPTRecordContent>();
+    result = make_unique<OPTRecordContent>();
   }
   else {
     result = DNSRecordContent::mastermake(type, QClass::IN, content);

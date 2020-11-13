@@ -35,13 +35,14 @@
 
 #define includeboilerplate(RNAME)   RNAME##RecordContent(const DNSRecord& dr, PacketReader& pr); \
   RNAME##RecordContent(const string& zoneData);                                                  \
+  std::unique_ptr<DNSRecordContent> clone() const override;                                      \
   static void report(void);                                                                      \
   static void unreport(void);                                                                    \
   static std::unique_ptr<DNSRecordContent> make(const DNSRecord &dr, PacketReader& pr);          \
   static std::unique_ptr<DNSRecordContent> make(const string& zonedata);                         \
   string getZoneRepresentation(bool noDot=false) const override;                                 \
   void toPacket(DNSPacketWriter& pw) override;                                                   \
-  uint16_t getType() const override { return QType::RNAME; }                                   \
+  uint16_t getType() const override { return QType::RNAME; }                                     \
   template<class Convertor> void xfrPacket(Convertor& conv, bool noDot=false);
 
 class NAPTRRecordContent : public DNSRecordContent
@@ -56,7 +57,6 @@ private:
   string d_flags, d_services, d_regexp;
   DNSName d_replacement;
 };
-
 
 class ARecordContent : public DNSRecordContent
 {

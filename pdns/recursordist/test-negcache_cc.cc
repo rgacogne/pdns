@@ -21,7 +21,7 @@ static recordsAndSignatures genRecsAndSigs(const DNSName& name, const uint16_t q
 
   if (sigs) {
     rec.d_type = QType::RRSIG;
-    rec.d_content = std::make_shared<RRSIGRecordContent>(QType(qtype).getName() + " 5 3 600 2037010100000000 2037010100000000 24567 dummy data");
+    rec.d_content = make_unique<RRSIGRecordContent>(QType(qtype).getName() + " 5 3 600 2037010100000000 2037010100000000 24567 dummy data");
     ret.signatures.push_back(rec);
   }
 

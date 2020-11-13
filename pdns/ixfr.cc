@@ -27,7 +27,7 @@
 #include "tsigverifier.hh"
 
 vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const ComboAddress& master, const DNSName& zone,
-                                                                        const vector<DNSRecord>& records, const std::unique_ptr<SOARecordContent>& masterSOA)
+                                                                        const vector<DNSRecord>& records, const SOARecordContent& masterSOA)
 {
   vector<pair<vector<DNSRecord>, vector<DNSRecord> > >  ret;
 

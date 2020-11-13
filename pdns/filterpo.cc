@@ -599,7 +599,7 @@ std::vector<DNSRecord> DNSFilterEngine::Policy::getCustomRecords(const DNSName& 
     dr.d_content = custom->clone();
 
     if (dr.d_type == QType::CNAME) {
-      const auto content = std::dynamic_pointer_cast<CNAMERecordContent>(custom);
+      const auto content = dynamic_cast<CNAMERecordContent*>(custom.get());
       if (content) {
         DNSName target = content->getTarget();
         if (target.isWildcard()) {

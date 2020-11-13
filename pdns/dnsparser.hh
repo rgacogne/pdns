@@ -467,6 +467,12 @@ T* getRR(const DNSRecord& dr)
   return dynamic_cast<T*>(dr.d_content.get());
 }
 
+template<typename T>
+T* castRRContent(std::unique_ptr<T>& content)
+{
+  return dynamic_cast<T*>(content.get());
+}
+
 /** Simple DNSPacketMangler. Ritual is: get a pointer into the packet and moveOffset() to beyond your needs
  *  If you survive that, feel free to read from the pointer */
 class DNSPacketMangler

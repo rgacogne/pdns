@@ -1317,7 +1317,7 @@ int getFakeAAAARecords(const DNSName& qname, ComboAddress prefix, vector<DNSReco
       if (auto rec = getRR<ARecordContent>(rr)) {
         ComboAddress ipv4(rec->getCA());
         memcpy(&prefix.sin6.sin6_addr.s6_addr[12], &ipv4.sin4.sin_addr.s_addr, sizeof(ipv4.sin4.sin_addr.s_addr));
-        rr.d_content = std::make_shared<AAAARecordContent>(prefix);
+        rr.d_content = make_unique<AAAARecordContent>(prefix);
         rr.d_type = QType::AAAA;
       }
       seenA = true;
@@ -1360,7 +1360,7 @@ int getFakePTRRecords(const DNSName& qname, vector<DNSRecord>& ret)
   DNSRecord rr;
   rr.d_name = qname;
   rr.d_type = QType::CNAME;
-  rr.d_content = std::make_shared<CNAMERecordContent>(newquery);
+  rr.d_content = make_unique<CNAMERecordContent>(newquery);
   ret.push_back(rr);
 
   int rcode = directResolve(DNSName(newquery), QType(QType::PTR), QClass::IN, ret);
