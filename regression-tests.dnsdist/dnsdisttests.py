@@ -245,58 +245,64 @@ class DNSDistTest(AssertEqualDNSMessageMixin, unittest.TestCase):
         sock.listen(100)
         while True:
             (conn, _) = sock.accept()
-            conn.settimeout(5.0)
-            data = conn.recv(2)
-            if not data:
-                conn.close()
-                continue
-
-            (datalen,) = struct.unpack("!H", data)
-            data = conn.recv(datalen)
-            forceRcode = None
             try:
-                request = dns.message.from_wire(data, ignore_trailing=ignoreTrailing)
-            except dns.message.TrailingJunk as e:
-                if trailingDataResponse is False or forceRcode is True:
-                    raise
-                print("TCP query with trailing data, synthesizing response")
-                request = dns.message.from_wire(data, ignore_trailing=True)
-                forceRcode = trailingDataResponse
+                conn.settimeout(15.0)
+                data = conn.recv(2)
+                if not data:
+                    conn.close()
+                    continue
 
-            if callback:
-              wire = callback(request)
-            else:
-              response = cls._getResponse(request, fromQueue, toQueue, synthesize=forceRcode)
-              if response:
-                wire = response.to_wire(max_size=65535)
-
-            if not wire:
-                conn.close()
-                continue
-
-            conn.send(struct.pack("!H", len(wire)))
-            conn.send(wire)
-
-            while multipleResponses:
-                if fromQueue.empty():
-                    break
-
-                response = fromQueue.get(True, cls._queueTimeout)
-                if not response:
-                    break
-
-                response = copy.copy(response)
-                response.id = request.id
-                wire = response.to_wire(max_size=65535)
+                (datalen,) = struct.unpack("!H", data)
+                data = conn.recv(datalen)
+                forceRcode = None
                 try:
-                    conn.send(struct.pack("!H", len(wire)))
-                    conn.send(wire)
-                except socket.error as e:
-                    # some of the tests are going to close
-                    # the connection on us, just deal with it
-                    break
+                    request = dns.message.from_wire(data, ignore_trailing=ignoreTrailing)
+                except dns.message.TrailingJunk as e:
+                    if trailingDataResponse is False or forceRcode is True:
+                        raise
+                    print("TCP query with trailing data, synthesizing response")
+                    request = dns.message.from_wire(data, ignore_trailing=True)
+                    forceRcode = trailingDataResponse
 
-            conn.close()
+                if callback:
+                    wire = callback(request)
+                else:
+                    response = cls._getResponse(request, fromQueue, toQueue, synthesize=forceRcode)
+                    if response:
+                        wire = response.to_wire(max_size=65535)
+
+                if not wire:
+                    conn.close()
+                    continue
+
+                conn.send(struct.pack("!H", len(wire)))
+                conn.send(wire)
+
+                while multipleResponses:
+                    if fromQueue.empty():
+                        break
+
+                    response = fromQueue.get(True, cls._queueTimeout)
+                    if not response:
+                        break
+
+                    response = copy.copy(response)
+                    response.id = request.id
+                    wire = response.to_wire(max_size=65535)
+                    try:
+                        conn.send(struct.pack("!H", len(wire)))
+                        conn.send(wire)
+                    except socket.error as e:
+                        # some of the tests are going to close
+                        # the connection on us, just deal with it
+                        break
+
+            except dns.message.TrailingJunk as e:
+                raise
+            except:
+              print("Got exception in the TCP responder thread: %s" % repr(e))
+            finally:
+                conn.close()
 
         sock.close()
 
