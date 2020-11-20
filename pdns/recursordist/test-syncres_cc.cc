@@ -71,22 +71,22 @@ bool primeHints(void)
     templ[sizeof(templ) - 1] = '\0';
     *templ = c;
     aaaarr.d_name = arr.d_name = DNSName(templ);
-    nsrr.d_content = std::make_shared<NSRecordContent>(DNSName(templ));
-    arr.d_content = std::make_shared<ARecordContent>(ComboAddress(rootIps4[c - 'a']));
+    nsrr.d_content = make_unique<NSRecordContent>(DNSName(templ));
+    arr.d_content = make_unique<ARecordContent>(ComboAddress(rootIps4[c - 'a']));
     vector<DNSRecord> aset;
     aset.push_back(arr);
-    g_recCache->replace(time(nullptr), DNSName(templ), QType(QType::A), aset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), true); // auth, nuke it all
+    g_recCache->replace(time(nullptr), DNSName(templ), QType(QType::A), aset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), true); // auth, nuke it all
     if (rootIps6[c - 'a'] != NULL) {
-      aaaarr.d_content = std::make_shared<AAAARecordContent>(ComboAddress(rootIps6[c - 'a']));
+      aaaarr.d_content = make_unique<AAAARecordContent>(ComboAddress(rootIps6[c - 'a']));
 
       vector<DNSRecord> aaaaset;
       aaaaset.push_back(aaaarr);
-      g_recCache->replace(time(nullptr), DNSName(templ), QType(QType::AAAA), aaaaset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), true);
+      g_recCache->replace(time(nullptr), DNSName(templ), QType(QType::AAAA), aaaaset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), true);
     }
 
     nsset.push_back(nsrr);
   }
-  g_recCache->replace(time(nullptr), g_rootdnsname, QType(QType::NS), nsset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), false); // and stuff in the cache
+  g_recCache->replace(time(nullptr), g_rootdnsname, QType(QType::NS), nsset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), false); // and stuff in the cache
   return true;
 }
 
@@ -309,7 +309,7 @@ bool addRRSIG(const testkeysset_t& keys, std::vector<DNSRecord>& records, const 
   rec.d_name = records[recordsCount - 1].d_name;
   rec.d_ttl = records[recordsCount - 1].d_ttl;
 
-  rec.d_content = std::make_shared<RRSIGRecordContent>(rrc);
+  rec.d_content = make_unique<RRSIGRecordContent>(rrc);
   records.push_back(rec);
 
   return true;
@@ -328,7 +328,7 @@ void addDNSKEY(const testkeysset_t& keys, const DNSName& signer, uint32_t ttl, s
   rec.d_type = QType::DNSKEY;
   rec.d_ttl = ttl;
 
-  rec.d_content = std::make_shared<DNSKEYRecordContent>(it->second.first.getDNSKEY());
+  rec.d_content = make_unique<DNSKEYRecordContent>(it->second.first.getDNSKEY());
   records.push_back(rec);
 }
 
@@ -344,7 +344,7 @@ bool addDS(const DNSName& domain, uint32_t ttl, std::vector<DNSRecord>& records,
   rec.d_type = QType::DS;
   rec.d_place = place;
   rec.d_ttl = ttl;
-  rec.d_content = std::make_shared<DSRecordContent>(it->second.second);
+  rec.d_content = make_unique<DSRecordContent>(it->second.second);
 
   records.push_back(rec);
   return true;
@@ -362,7 +362,7 @@ void addNSECRecordToLW(const DNSName& domain, const DNSName& next, const std::se
   rec.d_name = domain;
   rec.d_ttl = ttl;
   rec.d_type = QType::NSEC;
-  rec.d_content = std::make_shared<NSECRecordContent>(std::move(nrc));
+  rec.d_content = make_unique<NSECRecordContent>(std::move(nrc));
   rec.d_place = DNSResourceRecord::AUTHORITY;
 
   records.push_back(rec);
@@ -384,7 +384,7 @@ void addNSEC3RecordToLW(const DNSName& hashedName, const std::string& hashedNext
   rec.d_name = hashedName;
   rec.d_ttl = ttl;
   rec.d_type = QType::NSEC3;
-  rec.d_content = std::make_shared<NSEC3RecordContent>(std::move(nrc));
+  rec.d_content = make_unique<NSEC3RecordContent>(std::move(nrc));
   rec.d_place = DNSResourceRecord::AUTHORITY;
 
   records.push_back(rec);

@@ -16,8 +16,8 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheSimple)
   MemRecursorCache MRC;
 
   std::vector<DNSRecord> records;
-  std::vector<std::shared_ptr<DNSRecord>> authRecords;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+  std::vector<std::unique_ptr<DNSRecord>> authRecords;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> signatures;
   time_t now = time(nullptr);
 
   time_t ttd = now + 30;
@@ -342,8 +342,8 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheGhost)
   MemRecursorCache MRC;
 
   std::vector<DNSRecord> records;
-  std::vector<std::shared_ptr<DNSRecord>> authRecords;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+  std::vector<std::unique_ptr<DNSRecord>> authRecords;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> signatures;
   time_t now = time(nullptr);
 
   BOOST_CHECK_EQUAL(MRC.size(), 0U);
@@ -383,8 +383,8 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_ExpungingExpiredEntries)
   MemRecursorCache MRC(1);
 
   std::vector<DNSRecord> records;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
-  std::vector<std::shared_ptr<DNSRecord>> authRecs;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> signatures;
+  std::vector<std::unique_ptr<DNSRecord>> authRecs;
   BOOST_CHECK_EQUAL(MRC.size(), 0U);
   time_t now = time(nullptr);
   DNSName power1("powerdns.com.");
@@ -473,8 +473,8 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_ExpungingValidEntries)
   MemRecursorCache MRC(1);
 
   std::vector<DNSRecord> records;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
-  std::vector<std::shared_ptr<DNSRecord>> authRecs;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> signatures;
+  std::vector<std::unique_ptr<DNSRecord>> authRecs;
   BOOST_CHECK_EQUAL(MRC.size(), 0U);
   time_t now = time(nullptr);
   DNSName power1("powerdns.com.");
@@ -651,8 +651,8 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheECSIndex)
 
   const DNSName power("powerdns.com.");
   std::vector<DNSRecord> records;
-  std::vector<std::shared_ptr<DNSRecord>> authRecords;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+  std::vector<std::unique_ptr<DNSRecord>> authRecords;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> signatures;
   time_t now = time(nullptr);
   std::vector<DNSRecord> retrieved;
   ComboAddress who("192.0.2.1");
@@ -809,8 +809,8 @@ BOOST_AUTO_TEST_CASE(test_RecursorCache_Wipe)
 
   const DNSName power("powerdns.com.");
   std::vector<DNSRecord> records;
-  std::vector<std::shared_ptr<DNSRecord>> authRecords;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+  std::vector<std::unique_ptr<DNSRecord>> authRecords;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> signatures;
   time_t now = time(nullptr);
   std::vector<DNSRecord> retrieved;
   ComboAddress who("192.0.2.1");
@@ -896,8 +896,8 @@ BOOST_AUTO_TEST_CASE(test_RecursorCacheTagged)
 {
   MemRecursorCache MRC;
 
-  std::vector<std::shared_ptr<DNSRecord>> authRecords;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+  std::vector<std::unique_ptr<DNSRecord>> authRecords;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> signatures;
   time_t now = time(nullptr);
   time_t ttd = now + 30;
 

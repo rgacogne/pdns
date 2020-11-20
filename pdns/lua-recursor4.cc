@@ -197,7 +197,7 @@ void RecursorLua4::postPrepareContext()
         return result;
       }
 
-      #warnig FIXME
+      #warning FIXME
 //      for (const auto& dr : pol.d_custom) {
 //        if (!result.empty()) {
 //          result += "\n";

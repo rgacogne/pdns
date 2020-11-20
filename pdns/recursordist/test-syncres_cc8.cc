@@ -1,4 +1,4 @@
-#define BOOST_TEST_DYN_LINK
+#define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
 #include "test-syncres_cc.hh"
@@ -15,7 +15,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_denial_nowrap)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
     No wrap test case:
@@ -64,7 +64,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_denial_wrap_case_1)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
     Wrap case 1 test case:
@@ -100,7 +100,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_denial_wrap_case_2)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
     Wrap case 2 test case:
@@ -136,7 +136,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_denial_only_one_nsec)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
     Only one NSEC in the whole zone test case:
@@ -172,7 +172,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_root_nxd_denial)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
     The RRSIG from "." denies the existence of anything between a. and c.,
@@ -217,7 +217,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_ancestor_nxqtype_denial)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
     The RRSIG from "." denies the existence of any type except NS at a.
@@ -267,7 +267,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_insecure_delegation_denial)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
    * RFC 5155 section 8.9:
@@ -309,7 +309,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_nxqtype_cname)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   addNSECRecordToLW(DNSName("a.powerdns.com."), DNSName("a.c.powerdns.com."), {QType::CNAME}, 600, records);
   recordContents.insert(records.at(0).d_content);
@@ -338,7 +338,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_nxqtype_cname)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   addNSEC3UnhashedRecordToLW(DNSName("a.powerdns.com."), DNSName("powerdns.com."), "whatever", {QType::CNAME}, 600, records);
   recordContents.insert(records.at(0).d_content);
@@ -367,7 +367,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_nxdomain_denial_missing_wildcard)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   addNSECRecordToLW(DNSName("a.powerdns.com."), DNSName("d.powerdns.com"), {QType::A, QType::TXT, QType::RRSIG, QType::NSEC}, 600, records);
   recordContents.insert(records.at(0).d_content);
@@ -395,7 +395,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_nxdomain_denial_missing_wildcard)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   addNSEC3NarrowRecordToLW(DNSName("a.powerdns.com."), DNSName("powerdns.com."), {QType::A, QType::TXT, QType::RRSIG, QType::NSEC}, 600, records);
   recordContents.insert(records.at(0).d_content);
@@ -435,7 +435,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_ent_denial)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   addNSECRecordToLW(DNSName("a.powerdns.com."), DNSName("a.c.powerdns.com."), {QType::A}, 600, records);
   recordContents.insert(records.at(0).d_content);
@@ -494,7 +494,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_ancestor_nxqtype_denial)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
     The RRSIG from "." denies the existence of any type except NS at a.
@@ -570,7 +570,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_denial_too_many_iterations)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /* adding a NSEC3 with more iterations that we support */
   addNSEC3UnhashedRecordToLW(DNSName("a."), DNSName("."), "whatever", {QType::AAAA}, 600, records, g_maxNSEC3Iterations + 100);
@@ -600,7 +600,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_insecure_delegation_denial)
   vector<DNSRecord> records;
 
   sortedRecords_t recordContents;
-  vector<shared_ptr<RRSIGRecordContent>> signatureContents;
+  vector<unique_ptr<RRSIGRecordContent>> signatureContents;
 
   /*
    * RFC 5155 section 8.9:
@@ -821,7 +821,7 @@ BOOST_AUTO_TEST_CASE(test_dnssec_rrsig_cache_validity)
   /* check that the entry has not been cached for longer than the RRSIG validity */
   const ComboAddress who;
   vector<DNSRecord> cached;
-  vector<std::shared_ptr<RRSIGRecordContent>> signatures;
+  vector<std::unique_ptr<RRSIGRecordContent>> signatures;
   BOOST_REQUIRE_EQUAL(g_recCache->get(tnow, target, QType(QType::A), true, &cached, who, boost::none, &signatures), 1);
   BOOST_REQUIRE_EQUAL(cached.size(), 1U);
   BOOST_REQUIRE_EQUAL(signatures.size(), 1U);

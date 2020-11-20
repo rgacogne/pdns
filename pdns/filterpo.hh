@@ -89,7 +89,7 @@ public:
     {
     }
 
-    Policy(PolicyKind kind, PolicyType type, int32_t ttl, std::shared_ptr<PolicyZoneData> data, std::vector<unique_ptr<DNSRecordContent>>&& custom): d_custom(std::make_shared<std::vector<unique_ptr<DNSRecordContent>>>(std::move(custom))), d_zoneData(data), d_ttl(ttl), d_kind(kind), d_type(type)
+    Policy(PolicyKind kind, PolicyType type, int32_t ttl, std::shared_ptr<PolicyZoneData> data, std::shared_ptr<std::vector<unique_ptr<DNSRecordContent>>> custom=nullptr): d_custom(custom), d_zoneData(data), d_ttl(ttl), d_kind(kind), d_type(type)
     {
     }
 

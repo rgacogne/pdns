@@ -537,7 +537,7 @@ BOOST_AUTO_TEST_CASE(test_nsec_records_types) {
 
   {
     auto validNSEC = DNSRecordContent::mastermake(QType::NSEC, QClass::IN, "host.example.com. A MX RRSIG NSEC TYPE1234");
-    auto nsecContent = dynamic_cast<NSECRecordContent*>(validNSEC);
+    auto nsecContent = dynamic_cast<NSECRecordContent*>(validNSEC.get());
     BOOST_REQUIRE(nsecContent);
 
     for (const auto type : { QType::A, QType::MX, QType::RRSIG, QType::NSEC, static_cast<QType::typeenum>(1234) }) {
@@ -589,7 +589,7 @@ BOOST_AUTO_TEST_CASE(test_nsec3_records_types) {
   {
     const std::string str = "1 1 12 aabbccdd 2vptu5timamqttgl4luu9kg21e0aor3s a mx rrsig nsec3 type1234 type65535";
     auto validNSEC3 = DNSRecordContent::mastermake(QType::NSEC3, QClass::IN, str);
-    auto nsec3Content = dynamic_cast<NSEC3RecordContent*>(validNSEC3);
+    auto nsec3Content = dynamic_cast<NSEC3RecordContent*>(validNSEC3.get());
     BOOST_REQUIRE(nsec3Content);
 
     for (const auto type : { QType::A, QType::MX, QType::RRSIG, QType::NSEC3, static_cast<QType::typeenum>(1234), static_cast<QType::typeenum>(65535) }) {

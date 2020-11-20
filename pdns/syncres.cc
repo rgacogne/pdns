@@ -1344,8 +1344,8 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
   }
 
   vector<DNSRecord> cset;
-  vector<std::shared_ptr<RRSIGRecordContent>> signatures;
-  vector<std::shared_ptr<DNSRecord>> authorityRecs;
+  vector<std::unique_ptr<RRSIGRecordContent>> signatures;
+  vector<std::unique_ptr<DNSRecord>> authorityRecs;
   bool wasAuth;
   uint32_t capTTL = std::numeric_limits<uint32_t>::max();
   DNSName foundName;
@@ -1458,7 +1458,7 @@ bool SyncRes::doCNAMECacheCheck(const DNSName &qname, const QType &qtype, vector
           dr.d_type = QType::CNAME;
           dr.d_name = targetPrefix + foundName;
           newTarget = targetPrefix + dnameSuffix;
-          dr.d_content = std::make_shared<CNAMERecordContent>(CNAMERecordContent(newTarget));
+          dr.d_content = make_unique<CNAMERecordContent>(CNAMERecordContent(newTarget));
           ret.push_back(dr);
         } catch (const std::exception &e) {
           // We should probably catch an std::range_error here and set the rcode to YXDOMAIN (RFC 6672, section 2.2)
@@ -1530,7 +1530,7 @@ namespace {
 struct CacheEntry
 {
   vector<DNSRecord> records;
-  vector<shared_ptr<RRSIGRecordContent>> signatures;
+  vector<unique_ptr<RRSIGRecordContent>> signatures;
   uint32_t signaturesTTL{std::numeric_limits<uint32_t>::max()};
 };
 struct CacheKey
@@ -1566,10 +1566,10 @@ static void reapRecordsForValidation(std::map<uint16_t, CacheEntry>& entries, co
   }
 }
 
-static void reapSignaturesForValidation(std::map<uint16_t, CacheEntry>& entries, const vector<std::shared_ptr<RRSIGRecordContent>>& signatures)
+static void reapSignaturesForValidation(std::map<uint16_t, CacheEntry>& entries, const vector<std::unique_ptr<RRSIGRecordContent>>& signatures)
 {
   for (const auto& sig : signatures) {
-    entries[sig->d_type].signatures.push_back(sig);
+    entries[sig->d_type].signatures.push_back(&sig);
   }
 }
 
@@ -1741,8 +1741,8 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
 
   vector<DNSRecord> cset;
   bool found=false, expired=false;
-  vector<std::shared_ptr<RRSIGRecordContent>> signatures;
-  vector<std::shared_ptr<DNSRecord>> authorityRecs;
+  vector<std::unique_ptr<RRSIGRecordContent>> signatures;
+  vector<std::unique_ptr<DNSRecord>> authorityRecs;
   uint32_t ttl=0;
   uint32_t capTTL = std::numeric_limits<uint32_t>::max();
   bool wasCachedAuth;
@@ -1938,7 +1938,7 @@ inline vector<ComboAddress> SyncRes::shuffleForwardSpeed(const vector<ComboAddre
   return nameservers;
 }
 
-static uint32_t getRRSIGTTL(const time_t now, const std::shared_ptr<RRSIGRecordContent>& rrsig)
+static uint32_t getRRSIGTTL(const time_t now, const std::unique_ptr<RRSIGRecordContent>& rrsig)
 {
   uint32_t res = 0;
   if (now < rrsig->d_sigexpire) {
@@ -2259,7 +2259,7 @@ bool SyncRes::validationEnabled() const
   return g_dnssecmode != DNSSECMode::Off && g_dnssecmode != DNSSECMode::ProcessNoValidate;
 }
 
-uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const
+uint32_t SyncRes::computeLowestTTD(const std::vector<DNSRecord>& records, const std::vector<std::unique_ptr<RRSIGRecordContent> >& signatures, uint32_t signaturesTTL) const
 {
   uint32_t lowestTTD = std::numeric_limits<uint32_t>::max();
   for(const auto& record : records)
@@ -2589,7 +2589,7 @@ void SyncRes::computeZoneCuts(const DNSName& begin, const DNSName& end, unsigned
   d_wantsRPZ = oldWantsRPZ;
 }
 
-vState SyncRes::validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures, unsigned int depth)
+vState SyncRes::validateDNSKeys(const DNSName& zone, const std::vector<DNSRecord>& dnskeys, const std::vector<std::unique_ptr<RRSIGRecordContent> >& signatures, unsigned int depth)
 {
   dsmap_t ds;
   if (!signatures.empty()) {
@@ -2677,7 +2677,7 @@ vState SyncRes::getDNSKeys(const DNSName& signer, skeyset_t& keys, unsigned int 
   return vState::BogusUnableToGetDNSKEYs;
 }
 
-vState SyncRes::validateRecordsWithSigs(unsigned int depth, const DNSName& qname, const QType& qtype, const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::shared_ptr<RRSIGRecordContent> >& signatures)
+vState SyncRes::validateRecordsWithSigs(unsigned int depth, const DNSName& qname, const QType& qtype, const DNSName& name, const std::vector<DNSRecord>& records, const std::vector<std::unique_ptr<RRSIGRecordContent> >& signatures)
 {
   skeyset_t keys;
   if (!signatures.empty()) {
@@ -2889,7 +2889,7 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
 
   sanitizeRecords(prefix, lwr, qname, qtype, auth, wasForwarded, rdQuery);
 
-  std::vector<std::shared_ptr<DNSRecord>> authorityRecs;
+  std::vector<std::unique_ptr<DNSRecord>> authorityRecs;
   const unsigned int labelCount = qname.countLabels();
   bool isCNAMEAnswer = false;
   bool isDNAMEAnswer = false;
@@ -3517,7 +3517,7 @@ bool SyncRes::processRecords(const std::string& prefix, const DNSName& qname, co
     cnamerec.d_name = qname;
     cnamerec.d_type = QType::CNAME;
     cnamerec.d_ttl = dnameTTL;
-    cnamerec.d_content = std::make_shared<CNAMERecordContent>(CNAMERecordContent(newtarget));
+    cnamerec.d_content = make_unique<CNAMERecordContent>(CNAMERecordContent(newtarget));
     ret.push_back(std::move(cnamerec));
   }
   return done;

@@ -64,17 +64,17 @@ bool primeHints(void)
       *templ=c;
       aaaarr.d_name=arr.d_name=DNSName(templ);
       insertIntoRootNSZones(arr.d_name.getLastLabel());
-      nsrr.d_content=std::make_shared<NSRecordContent>(DNSName(templ));
-      arr.d_content=std::make_shared<ARecordContent>(ComboAddress(rootIps4[c-'a']));
+      nsrr.d_content=make_unique<NSRecordContent>(DNSName(templ));
+      arr.d_content=make_unique<ARecordContent>(ComboAddress(rootIps4[c-'a']));
       vector<DNSRecord> aset;
       aset.push_back(arr);
-      g_recCache->replace(time(0), DNSName(templ), QType(QType::A), aset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState); // auth, nuke it all
+      g_recCache->replace(time(0), DNSName(templ), QType(QType::A), aset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState); // auth, nuke it all
       if (rootIps6[c-'a'] != NULL) {
-        aaaarr.d_content=std::make_shared<AAAARecordContent>(ComboAddress(rootIps6[c-'a']));
+        aaaarr.d_content=make_unique<AAAARecordContent>(ComboAddress(rootIps6[c-'a']));
 
         vector<DNSRecord> aaaaset;
         aaaaset.push_back(aaaarr);
-        g_recCache->replace(time(0), DNSName(templ), QType(QType::AAAA), aaaaset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState);
+        g_recCache->replace(time(0), DNSName(templ), QType(QType::AAAA), aaaaset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState);
       }
       
       nsset.push_back(nsrr);
@@ -94,12 +94,12 @@ bool primeHints(void)
         seenA.insert(rr.qname);
         vector<DNSRecord> aset;
         aset.push_back(DNSRecord(rr));
-        g_recCache->replace(time(0), rr.qname, QType(QType::A), aset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState); // auth, etc see above
+        g_recCache->replace(time(0), rr.qname, QType(QType::A), aset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState); // auth, etc see above
       } else if(rr.qtype.getCode()==QType::AAAA) {
         seenAAAA.insert(rr.qname);
         vector<DNSRecord> aaaaset;
         aaaaset.push_back(DNSRecord(rr));
-        g_recCache->replace(time(0), rr.qname, QType(QType::AAAA), aaaaset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState);
+        g_recCache->replace(time(0), rr.qname, QType(QType::AAAA), aaaaset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), true, boost::none, boost::none, validationState);
       } else if(rr.qtype.getCode()==QType::NS) {
         seenNS.insert(DNSName(rr.content));
         rr.content=toLower(rr.content);
@@ -135,7 +135,7 @@ bool primeHints(void)
   }
 
   g_recCache->doWipeCache(g_rootdnsname, false, QType::NS);
-  g_recCache->replace(time(0), g_rootdnsname, QType(QType::NS), nsset, vector<std::shared_ptr<RRSIGRecordContent>>(), vector<std::shared_ptr<DNSRecord>>(), false, boost::none, boost::none, validationState); // and stuff in the cache
+  g_recCache->replace(time(0), g_rootdnsname, QType(QType::NS), nsset, vector<std::unique_ptr<RRSIGRecordContent>>(), vector<std::unique_ptr<DNSRecord>>(), false, boost::none, boost::none, validationState); // and stuff in the cache
   return true;
 }
 
@@ -185,7 +185,7 @@ static void makeNameToIPZone(std::shared_ptr<SyncRes::domainmap_t> newMap, const
   ad.d_records.insert(dr);
 
   dr.d_type=QType::NS;
-  dr.d_content=std::make_shared<NSRecordContent>("localhost.");
+  dr.d_content = make_unique<NSRecordContent>("localhost.");
 
   ad.d_records.insert(dr);
   
@@ -228,7 +228,7 @@ static void makeIPToNamesZone(std::shared_ptr<SyncRes::domainmap_t> newMap, cons
   ad.d_records.insert(dr);
 
   dr.d_type=QType::NS;
-  dr.d_content=std::make_shared<NSRecordContent>(DNSName("localhost."));
+  dr.d_content=make_unique<NSRecordContent>(DNSName("localhost."));
 
   ad.d_records.insert(dr);
   dr.d_type=QType::PTR;

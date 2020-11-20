@@ -31,7 +31,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const Co
 {
   vector<pair<vector<DNSRecord>, vector<DNSRecord> > >  ret;
 
-  if (records.size() == 0 || masterSOA == nullptr) {
+  if (records.size() == 0) {
     return ret;
   }
 
@@ -58,7 +58,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const Co
 
     // the serial of this SOA record is the serial of the
     // zone before the removals and updates of this sequence
-    if (sr->d_st.serial == masterSOA->d_st.serial) {
+    if (sr->d_st.serial == masterSOA.d_st.serial) {
       if (records.size() == 2) {
         // if the entire update is two SOAs records with the same
         // serial, this is actually an empty AXFR!
@@ -109,7 +109,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const Co
       throw std::runtime_error("Invalid serial (" + std::to_string(sr->d_st.serial) + ", expecting " + std::to_string(newSerial) + ") in the SOA record finishing the additions part of the IXFR sequence of zone '" + zone.toLogString() + "' from " + master.toStringWithPort());
     }
 
-    if (newSerial == masterSOA->d_st.serial) {
+    if (newSerial == masterSOA.d_st.serial) {
       // this was the last sequence
       if (pos != (records.size() - 1)) {
         throw std::runtime_error("Trailing records after the last IXFR sequence of zone '" + zone.toLogString() + "' from " + master.toStringWithPort());
@@ -256,5 +256,5 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
 
   //  cout<<"Got "<<records.size()<<" records"<<endl;
 
-  return processIXFRRecords(master, zone, records, masterSOA);
+  return processIXFRRecords(master, zone, records, *masterSOA);
 }

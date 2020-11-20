@@ -35,7 +35,7 @@ LuaConfigItems::LuaConfigItems()
 {
   DNSName root("."); // don't use g_rootdnsname here, it might not exist yet
   for (const auto &dsRecord : rootDSs) {
-    auto ds=std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(dsRecord));
+    auto ds = dynamic_cast<DSRecordContent*>(DSRecordContent::make(dsRecord).get());
     dsAnchors[root].insert(*ds);
   }
 }
@@ -63,8 +63,11 @@ static void parseRPZParameters(rpzOptions_t& have, std::string& polName, boost::
     defpol->d_kind = (DNSFilterEngine::PolicyKind)boost::get<uint32_t>(have["defpol"]);
     defpol->setName(polName);
     if(defpol->d_kind == DNSFilterEngine::PolicyKind::Custom) {
-      defpol->d_custom.push_back(DNSRecordContent::mastermake(QType::CNAME, QClass::IN,
-                                                              boost::get<string>(have["defcontent"])));
+      std::vector<std::unique_ptr<DNSRecordContent>> customs = {DNSRecordContent::mastermake(QType::CNAME, QClass::IN,
+                                                                                             boost::get<string>(have["defcontent"]))
+      };
+        
+      defpol->d_custom = std::make_shared<std::vector<std::unique_ptr<DNSRecordContent>>>(customs);
 
       if(have.count("defttl"))
         defpol->d_ttl = static_cast<int32_t>(boost::get<uint32_t>(have["defttl"]));
@@ -384,7 +387,7 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
         exit(1);  // FIXME proper exit code?
       }
 
-      delayedThreads.rpzMasterThreads.push_back(std::make_tuple(masters, defpol, defpolOverrideLocal, maxTTL, zoneIdx, tt, maxReceivedXFRMBytes, localAddress, axfrTimeout, refresh, sr, dumpFile));
+      delayedThreads.rpzMasterThreads.push_back(std::make_tuple(masters, defpol, defpolOverrideLocal, maxTTL, zoneIdx, tt, maxReceivedXFRMBytes, localAddress, axfrTimeout, refresh, std::move(sr), dumpFile));
     });
 
   typedef vector<pair<int,boost::variant<string, vector<pair<int, string> > > > > argvec_t;
@@ -422,7 +425,7 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
   Lua.writeFunction("addTA", [&lci](const std::string& who, const std::string& what) {
       warnIfDNSSECDisabled("Warning: adding Trust Anchor for DNSSEC (addTA), but dnssec is set to 'off'!");
       DNSName zone(who);
-      auto ds = std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(what));
+      auto ds = dynamic_cast<DSRecordContent*>(DSRecordContent::make(what).get());
       lci.dsAnchors[zone].insert(*ds);
   });
 
@@ -439,7 +442,7 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
       warnIfDNSSECDisabled("Warning: adding Trust Anchor for DNSSEC (addDS), but dnssec is set to 'off'!");
       g_log<<Logger::Warning<<"addDS is deprecated and will be removed in the future, switch to addTA"<<endl;
       DNSName zone(who);
-      auto ds = std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(what));
+      auto ds = dynamic_cast<DSRecordContent*>(DSRecordContent::make(what).get());
       lci.dsAnchors[zone].insert(*ds);
   });
 

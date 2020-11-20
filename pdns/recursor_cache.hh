@@ -79,15 +79,15 @@ private:
     {
     }
 
-    typedef vector<std::shared_ptr<DNSRecordContent>> records_t;
+    typedef vector<std::unique_ptr<DNSRecordContent>> records_t;
     time_t getTTD() const
     {
       return d_ttd;
     }
 
     records_t d_records;
-    std::vector<std::shared_ptr<RRSIGRecordContent>> d_signatures;
-    std::vector<std::shared_ptr<DNSRecord>> d_authorityRecs;
+    std::vector<std::unique_ptr<RRSIGRecordContent>> d_signatures;
+    std::vector<std::unique_ptr<DNSRecord>> d_authorityRecs;
     DNSName d_qname;
     Netmask d_netmask;
     OptTag d_rtag;
@@ -230,7 +230,7 @@ private:
   bool entryMatches(OrderedTagIterator_t& entry, uint16_t qt, bool requireAuth, const ComboAddress& who);
   Entries getEntries(MapCombo& map, const DNSName &qname, const QType& qt, const OptTag& rtag);
   cache_t::const_iterator getEntryUsingECSIndex(MapCombo& map, time_t now, const DNSName &qname, uint16_t qtype, bool requireAuth, const ComboAddress& who);
-  int32_t handleHit(MapCombo& map, OrderedTagIterator_t& entry, const DNSName& qname, vector<DNSRecord>* res, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, boost::optional<vState>& state, bool* wasAuth);
+  int32_t handleHit(MapCombo& map, OrderedTagIterator_t& entry, const DNSName& qname, vector<DNSRecord>* res, vector<std::unique_ptr<RRSIGRecordContent>>* signatures, std::vector<std::unique_ptr<DNSRecord>>* authorityRecs, bool* variable, boost::optional<vState>& state, bool* wasAuth);
 
 public:
   struct lock {
