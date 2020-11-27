@@ -39,6 +39,9 @@
 thread_local SyncRes::ThreadLocalStorage SyncRes::t_sstorage;
 thread_local std::unique_ptr<addrringbuf_t> t_timeouts;
 
+#include "aggressivensec.hh"
+thread_local std::unordered_map<DNSName, AggressiveNSECZoneData> aggNSECMap;
+
 std::unordered_set<DNSName> SyncRes::s_delegationOnly;
 std::unique_ptr<NetmaskGroup> SyncRes::s_dontQuery{nullptr};
 NetmaskGroup SyncRes::s_ednslocalsubnets;
@@ -1860,6 +1863,78 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
       LOG(prefix<<qname<<": cache had only stale entries"<<endl);
   }
 
+  cerr<<"looking for a SOA for "<<authname<<endl;
+  auto aggMapIt = aggNSECMap.find(authname);
+  if (aggMapIt != aggNSECMap.end()) {
+    DNSRecord nsec;
+    std::vector<std::shared_ptr<RRSIGRecordContent>> wcSignatures;
+    bool exact = false;
+    bool covered = false;
+    if (aggMapIt->second.getNSEC(qname, qtype.getCode(), d_now.tv_sec, nsec, signatures, exact)) {
+      if (!exact && qname.countLabels() > 1) {
+        /* we need a wildcard denial proof */
+        DNSName wc = qname;
+        wc.chopOff();
+        wc = g_wildcarddnsname + wc;
+        DNSRecord wcNsec;
+        if (aggMapIt->second.getNSEC(wc, qtype.getCode(), d_now.tv_sec, wcNsec, wcSignatures, exact)) {
+          if (exact) {
+            /* too complicated for now */
+            return false;
+          }
+#warning  needs to fix the TTL
+          for (auto& signature : wcSignatures) {
+            DNSRecord dr;
+            dr.d_type = QType::RRSIG;
+            dr.d_name = wcNsec.d_name;
+            dr.d_ttl = ttl;
+            dr.d_content = std::move(signature);
+            dr.d_place = DNSResourceRecord::ANSWER;
+            dr.d_class = QClass::IN;
+            ret.push_back(std::move(dr));
+          }
+
+          ret.push_back(std::move(wcNsec));
+          covered = true;
+        }
+      }
+      else {
+        covered = true;
+        res = RCode::NXDomain;
+      }
+      if (!covered) {
+        return false;
+      }
+
+#warning  needs to fix the TTLs
+      ret.push_back(aggMapIt->second.d_soa);
+
+      for (auto& signature : aggMapIt->second.d_soaSignatures) {
+        DNSRecord dr;
+        dr.d_type = QType::RRSIG;
+        dr.d_name = aggMapIt->first;
+        dr.d_ttl = ttl;
+        dr.d_content = signature;
+        dr.d_place = DNSResourceRecord::ANSWER;
+        dr.d_class = QClass::IN;
+        ret.push_back(std::move(dr));
+      }
+
+      for (auto& signature : signatures) {
+        DNSRecord dr;
+        dr.d_type = QType::RRSIG;
+        dr.d_name = nsec.d_name;
+        dr.d_ttl = ttl;
+        dr.d_content = std::move(signature);
+        dr.d_place = DNSResourceRecord::ANSWER;
+        dr.d_class = QClass::IN;
+        ret.push_back(std::move(dr));
+      }
+      ret.push_back(std::move(nsec));
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -3204,8 +3279,18 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
       }
     }
 
-    if(i->first.place == DNSResourceRecord::ANSWER && ednsmask)
-      d_wasVariable=true;
+    if (i->first.place == DNSResourceRecord::ANSWER && ednsmask) {
+      d_wasVariable = true;
+    }
+
+    if (i->first.type == QType::NSEC){
+      auto& zone = aggNSECMap[auth];
+      zone.addNSEC(i->first.name, d_now.tv_sec, i->second.records.at(0), i->second.signatures);
+    }
+    else if (i->first.type == QType::SOA) {
+      auto& zone = aggNSECMap[i->first.name];
+      zone.addSOA(i->second.records.at(0), i->second.signatures);
+    }
   }
 
   return RCode::NoError;

@@ -88,3 +88,4 @@ bool isRRSIGIncepted(const time_t now, const shared_ptr<RRSIGRecordContent>& sig
 bool isWildcardExpanded(unsigned int labelCount, const std::shared_ptr<RRSIGRecordContent>& sign);
 bool isWildcardExpandedOntoItself(const DNSName& owner, unsigned int labelCount, const std::shared_ptr<RRSIGRecordContent>& sign);
 void updateDNSSECValidationState(vState& state, const vState stateUpdate);
+dState matchesNSEC(const DNSName& name, uint16_t qtype, const DNSRecord& nsecRecord, const std::vector<std::shared_ptr<RRSIGRecordContent>>& signatures);
