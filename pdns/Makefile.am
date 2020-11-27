@@ -137,6 +137,9 @@ endif
 
 endif # TOOLS
 
+bin_PROGRAMS += \
+	xfrtocdb
+
 if IXFRDIST
 bin_PROGRAMS += \
 	ixfrdist
@@ -690,9 +693,55 @@ ixfrdist_LDFLAGS = \
 	$(BOOST_PROGRAM_OPTIONS_LDFLAGS) \
 	$(LIBCRYPTO_LDFLAGS)
 
+xfrtocdb_SOURCES = \
+	arguments.cc \
+	axfr-retriever.cc \
+	base32.cc \
+	base64.cc base64.hh \
+	cdb.cc cdb.hh \
+	dns.cc \
+	dns_random_urandom.cc dns_random.hh \
+	dnslabeltext.cc \
+	dnsname.cc dnsname.hh \
+	dnsparser.cc dnsparser.hh \
+	dnsrecords.cc \
+	dnssecinfra.cc \
+	dnswriter.cc dnswriter.hh \
+	iputils.hh iputils.cc \
+	xfrtocdb.cc \
+	logger.cc logger.hh\
+	misc.cc misc.hh \
+	mplexer.hh \
+	nsecrecords.cc \
+	pollmplexer.cc \
+	qtype.cc \
+	query-local-address.hh query-local-address.cc \
+	rcpgenerator.cc rcpgenerator.hh \
+	resolver.cc \
+	sillyrecords.cc \
+	sstuff.hh \
+	statbag.cc \
+	svc-records.cc svc-records.hh \
+	threadname.hh threadname.cc \
+	tsigverifier.cc tsigverifier.hh \
+	unix_utility.cc \
+	uuid-utils.hh uuid-utils.cc
+
+xfrtocdb_LDADD = \
+	$(BOOST_PROGRAM_OPTIONS_LIBS) \
+	$(CDB_LIBS) \
+	$(LIBCRYPTO_LIBS)
+
+xfrtocdb_LDFLAGS = \
+	$(AM_LDFLAGS) \
+	$(CDB_LDFLAGS \
+	$(LIBCRYPTO_LDFLAGS)
+
 if PKCS11
 ixfrdist_SOURCES += pkcs11signers.cc pkcs11signers.hh
 ixfrdist_LDADD += $(P11KIT1_LIBS)
+xfrtocdb_SOURCES += pkcs11signers.cc pkcs11signers.hh
+xfrtocdb_LDADD += $(P11KIT1_LIBS)
 endif
 
 ixplore_SOURCES = \
