@@ -55,12 +55,12 @@ private:
 
   struct ThreadInfo
   {
-	std::shared_ptr<pdns_ucontext_t> context;
+	std::shared_ptr<pdns_ucontext_t> context{nullptr};
 	boost::function<void(void)> start;
-	char* startOfStack;
-	char* highestStackSeen;
+	char* startOfStack{nullptr};
+	char* highestStackSeen{nullptr};
 #ifdef MTASKERTIMING
-    	CPUTime dt;
+	CPUTime dt;
 	unsigned int totTime;
 #endif
   };
@@ -79,7 +79,7 @@ public:
   struct Waiter
   {
     EventKey key;
-    std::shared_ptr<pdns_ucontext_t> context;
+    std::shared_ptr<pdns_ucontext_t> context{nullptr};
     struct timeval ttd;
     int tid;
   };

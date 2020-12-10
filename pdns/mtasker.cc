@@ -197,20 +197,20 @@ template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::waitEven
 
   d_waiters.insert(w);
 #ifdef MTASKERTIMING
-  unsigned int diff=d_threads[d_tid].dt.ndiff()/1000;
-  d_threads[d_tid].totTime+=diff;
+  unsigned int diff=d_threads.at(d_tid).dt.ndiff()/1000;
+  d_threads.at(d_tid).totTime+=diff;
 #endif
   notifyStackSwitchToKernel();
   pdns_swapcontext(*d_waiters.find(key)->context,d_kernel); // 'A' will return here when 'key' has arrived, hands over control to kernel first
   notifyStackSwitchDone();
 #ifdef MTASKERTIMING
-  d_threads[d_tid].dt.start();
+  d_threads.at(d_tid).dt.start();
 #endif
   if(val && d_waitstatus==Answer) 
     *val=d_waitval;
   d_tid=w.tid;
-  if((char*)&w < d_threads[d_tid].highestStackSeen) {
-    d_threads[d_tid].highestStackSeen = (char*)&w;
+  if((char*)&w < d_threads.at(d_tid).highestStackSeen) {
+    d_threads.at(d_tid).highestStackSeen = (char*)&w;
   }
   key=d_eventkey;
   return d_waitstatus;
@@ -223,7 +223,7 @@ template<class Key, class Val>void MTasker<Key,Val>::yield()
 {
   d_runQueue.push(d_tid);
   notifyStackSwitchToKernel();
-  pdns_swapcontext(*d_threads[d_tid].context ,d_kernel); // give control to the kernel
+  pdns_swapcontext(*d_threads.at(d_tid).context ,d_kernel); // give control to the kernel
   notifyStackSwitchDone();
 }
 
@@ -252,7 +252,7 @@ template<class EventKey, class EventVal>int MTasker<EventKey,EventVal>::sendEven
   d_eventkey=waiter->key;        // pass waitEvent the exact key it was woken for
   auto userspace=std::move(waiter->context);
   d_waiters.erase(waiter);             // removes the waitpoint
-  notifyStackSwitch(d_threads[d_tid].startOfStack, d_stacksize);
+  notifyStackSwitch(d_threads.at(d_tid).startOfStack, d_stacksize);
   pdns_swapcontext(d_kernel,*userspace); // swaps back to the above point 'A'
   notifyStackSwitchDone();
   return 1;
@@ -276,17 +276,17 @@ template<class Key, class Val>void MTasker<Key,Val>::makeThread(tfunc_t *start, 
 
   ++d_threadsCount;
   auto& thread = d_threads[d_maxtid];
+  thread.context = uc;
   auto mt = this;
   thread.start = [start, val, mt]() {
       char dummy;
-      mt->d_threads[mt->d_tid].startOfStack = mt->d_threads[mt->d_tid].highestStackSeen = &dummy;
+      mt->d_threads.at(mt->d_tid).startOfStack = mt->d_threads.at(mt->d_tid).highestStackSeen = &dummy;
       auto const tid = mt->d_tid;
       start (val);
       mt->d_zombiesQueue.push(tid);
   };
   pdns_makecontext (*uc, thread.start);
 
-  thread.context = std::move(uc);
   d_runQueue.push(d_maxtid++); // will run at next schedule invocation
 }
 
@@ -306,20 +306,23 @@ template<class Key, class Val>bool MTasker<Key,Val>::schedule(const struct timev
   if(!d_runQueue.empty()) {
     d_tid=d_runQueue.front();
 #ifdef MTASKERTIMING
-    d_threads[d_tid].dt.start();
+    d_threads.at(d_tid).dt.start();
 #endif
-    notifyStackSwitch(d_threads[d_tid].startOfStack, d_stacksize);
-    pdns_swapcontext(d_kernel, *d_threads[d_tid].context);
+    notifyStackSwitch(d_threads.at(d_tid).startOfStack, d_stacksize);
+    pdns_swapcontext(d_kernel, *d_threads.at(d_tid).context);
     notifyStackSwitchDone();
 
     d_runQueue.pop();
     return true;
   }
   if(!d_zombiesQueue.empty()) {
-    d_threads.erase(d_zombiesQueue.front());
-    --d_threadsCount;
-    d_zombiesQueue.pop();
-    return true;
+    auto it = d_threads.find(d_zombiesQueue.front());
+    if (it != d_threads.end()) {
+      d_threads.erase(it);
+      --d_threadsCount;
+      d_zombiesQueue.pop();
+      return true;
+    }
   }
   if(!d_waiters.empty()) {
     struct timeval rnow;
@@ -338,9 +341,9 @@ template<class Key, class Val>bool MTasker<Key,Val>::schedule(const struct timev
         d_eventkey=i->key;        // pass waitEvent the exact key it was woken for
         auto uc = i->context;
         d_tid = i->tid;
-        ttdindex.erase(i++);                  // removes the waitpoint
+        i = ttdindex.erase(i);                  // removes the waitpoint
 
-        notifyStackSwitch(d_threads[d_tid].startOfStack, d_stacksize);
+        notifyStackSwitch(d_threads.at(d_tid).startOfStack, d_stacksize);
         pdns_swapcontext(d_kernel, *uc); // swaps back to the above point 'A'
         notifyStackSwitchDone();
       }
@@ -398,14 +401,14 @@ template<class Key, class Val>int MTasker<Key,Val>::getTid() const
 //! Returns the maximum stack usage so far of this MThread
 template<class Key, class Val>unsigned int MTasker<Key,Val>::getMaxStackUsage()
 {
-  return d_threads[d_tid].startOfStack - d_threads[d_tid].highestStackSeen;
+  return d_threads.at(d_tid).startOfStack - d_threads.at(d_tid).highestStackSeen;
 }
 
 //! Returns the maximum stack usage so far of this MThread
 template<class Key, class Val>unsigned int MTasker<Key,Val>::getUsec()
 {
 #ifdef MTASKERTIMING
-  return d_threads[d_tid].totTime + d_threads[d_tid].dt.ndiff()/1000;
+  return d_threads.at(d_tid).totTime + d_threads[d_tid].dt.ndiff()/1000;
 #else 
   return 0;
 #endif

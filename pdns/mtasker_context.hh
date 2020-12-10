@@ -59,6 +59,9 @@ extern __thread size_t t_mainStackSize;
 
 static inline void notifyStackSwitch(void* startOfStack, size_t stackSize)
 {
+  if (startOfStack == nullptr) {
+    return;
+  }
 #ifdef HAVE_FIBER_SANITIZER
   __sanitizer_start_switch_fiber(nullptr, startOfStack, stackSize);
 #endif /* HAVE_FIBER_SANITIZER */

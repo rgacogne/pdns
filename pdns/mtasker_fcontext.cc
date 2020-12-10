@@ -136,7 +136,6 @@ threadWrapper (transfer_t const t) {
       *ptr = res.fctx;
     }
 #endif
-    notifyStackSwitchDone();
     args = nullptr;
 
     try {
