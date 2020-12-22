@@ -1874,31 +1874,53 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
   /* let's check if we have a NSEC covering that record */
   #if 1
   {
+    std::vector<DNSRecord> soaSet;
+    std::vector<std::shared_ptr<RRSIGRecordContent>> soaSignatures;
+    bool soaFound = false;
+    DNSName soa(qname);
+    while (!soaFound) {
+      // cerr<<"looking for a SOA for "<<soa<<endl;
+      if (g_recCache->get(d_now.tv_sec, soa, QType::SOA, true, &soaSet, d_cacheRemote, boost::none, d_doDNSSEC ? &soaSignatures : nullptr) > 0) {
+        soaFound = true;
+        // cerr<<"got it!"<<endl;
+      }
+      else {
+        if (!soa.chopOff()) {
+          break;
+        }
+      }
+    }
+
+    if (!soaFound) {
+      // cerr<<"no SOA for you"<<endl;
+      return false;
+    }
+
     DNSName nsecFound;
     std::vector<DNSRecord> wcSet;
     std::vector<std::shared_ptr<RRSIGRecordContent>> wcSignatures;
     cset.clear();
     signatures.clear();
-    //cerr<<"looking for nsec before "<<qname<<endl;
-    if (!g_recCache->getNSECBefore(d_now.tv_sec, qname, nsecFound, cset, signatures, cachedState)) {
-      //cerr<<"nothing found in aggressive cache either"<<endl;
+    // cerr<<"looking for nsec before "<<qname<<endl;
+    if (!g_recCache->getNSECBefore(d_now.tv_sec, soa, qname, nsecFound, cset, signatures, cachedState)) {
+      // cerr<<"nothing found in aggressive cache either"<<endl;
       return false;
     }
 
-    //cerr<<"nsecFound "<<nsecFound<<endl;
+    // cerr<<"nsecFound "<<nsecFound<<endl;
     if (cset.empty() || cachedState != vState::Secure) {
       return false;
     }
 
     bool covered = false;
-    //cerr<<"Got "<<cset.size()<<" records"<<endl;
+    // cerr<<"Got "<<cset.size()<<" records"<<endl;
     const auto& nsecRecord = cset.at(0);
     auto content = getRR<NSECRecordContent>(nsecRecord);
     if (!content) {
       return false;
     }
 
-    //cerr<<"next is "<<content->d_next<<endl;
+    // cerr<<"next is "<<content->d_next<<endl;
     auto denial = matchesNSEC(qname, qtype.getCode(), nsecRecord, signatures);
     if (denial == dState::NXQTYPE) {
       covered = true;
@@ -1912,7 +1934,7 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
 
         // cerr<<"looking for nsec before "<<wc<<endl;
         DNSName wcNSEC;
-        if (!g_recCache->getNSECBefore(d_now.tv_sec, wc, wcNSEC, wcSet, wcSignatures, cachedState)) {
+        if (!g_recCache->getNSECBefore(d_now.tv_sec, soa, wc, wcNSEC, wcSet, wcSignatures, cachedState)) {
           // cerr<<"nothing found in aggressive cache for Wildcard"<<endl;
           return false;
         }
@@ -1937,7 +1959,31 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
     }
 
     if (covered) {
-#warning FIXME / XXX: we should get the SOA here
+      LOG(prefix<<sqname<<": Found aggressive NSEC cache hit for "<<sqt.getName()<<endl);
+
+      ret.reserve(ret.size() + soaSet.size() + soaSignatures.size() + cset.size() + signatures.size() + wcSet.size() + wcSignatures.size());
+
+      for (auto& record : soaSet) {
+        if (record.d_class != QClass::IN) {
+          continue;
+        }
+
+        record.d_ttl -= d_now.tv_sec;
+        record.d_ttl = std::min(record.d_ttl, capTTL);
+        ttl = record.d_ttl;
+        ret.push_back(std::move(record));
+      }
+
+      for (auto& signature : soaSignatures) {
+        DNSRecord dr;
+        dr.d_type = QType::RRSIG;
+        dr.d_name = soa;
+        dr.d_ttl = ttl;
+        dr.d_content = std::move(signature);
+        dr.d_place = DNSResourceRecord::ANSWER;
+        dr.d_class = QClass::IN;
+        ret.push_back(std::move(dr));
+      }
 
       for (auto& record : cset) {
         if (record.d_class != QClass::IN) {
@@ -1949,8 +1995,6 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
         ttl = record.d_ttl;
         ret.push_back(std::move(record));
       }
-
-      ret.reserve(ret.size() + signatures.size());
 
       for (auto& signature : signatures) {
         DNSRecord dr;
@@ -1974,8 +2018,6 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
         ret.push_back(std::move(record));
       }
 
-      ret.reserve(ret.size() + wcSignatures.size());
-
       for (auto& signature : wcSignatures) {
         DNSRecord dr;
         dr.d_type = QType::RRSIG;
@@ -1986,6 +2028,9 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
         dr.d_class = QClass::IN;
         ret.push_back(std::move(dr));
       }
+
+      /* we would have given up otherwise */
+      state = vState::Secure;
 
       return true;
     }

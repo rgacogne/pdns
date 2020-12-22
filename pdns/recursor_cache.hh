@@ -61,7 +61,7 @@ public:
 
   void replace(time_t, const DNSName &qname, const QType& qt,  const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask=boost::none, const OptTag& routingTag = boost::none, vState state=vState::Indeterminate);
 
-  bool getNSECBefore(time_t now, const DNSName& qname, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state);
+  bool getNSECBefore(time_t now, const DNSName& zone, const DNSName& qname, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state);
 
   void doPrune(size_t keep);
   uint64_t doDump(int fd);
@@ -224,9 +224,14 @@ private:
   };
 
   vector<MapCombo> d_maps;
-  MapCombo& getMap(const DNSName &qname)
+  MapCombo& getMap(const DNSName &qname, bool skipChopOff=false)
   {
-    return d_maps[qname.hash() % d_maps.size()];
+    if (skipChopOff) {
+      return d_maps[qname.hash() % d_maps.size()];
+    }
+    else {
+      return d_maps[qname.choppedOffHash() % d_maps.size()];
+    }
   }
 
   bool entryMatches(OrderedTagIterator_t& entry, uint16_t qt, bool requireAuth, const ComboAddress& who);

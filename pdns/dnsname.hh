@@ -131,6 +131,7 @@ public:
   {
     return burtleCI((const unsigned char*)d_storage.c_str(), d_storage.size(), init);
   }
+  size_t choppedOffHash(size_t init=0) const;
   DNSName& operator+=(const DNSName& rhs)
   {
     if(d_storage.size() + rhs.d_storage.size() > 256) // one extra byte for the second root label

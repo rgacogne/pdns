@@ -402,6 +402,14 @@ bool DNSName::chopOff()
   return true;
 }
 
+size_t DNSName::choppedOffHash(size_t init) const
+{
+  if (empty() || isRoot()) {
+    return hash(init);
+  }
+  return burtleCI(reinterpret_cast<const unsigned char*>(d_storage.c_str() + static_cast<uint8_t>(d_storage.at(0))), d_storage.size() - static_cast<uint8_t>(d_storage.at(0)), init);
+}
+
 bool DNSName::isWildcard() const
 {
   if(d_storage.size() < 2)
