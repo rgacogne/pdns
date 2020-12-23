@@ -261,6 +261,8 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
     *wasAuth = true;
   }
 
+  // FIXME: this is a problem for ANY queries and NSEC/NSEC3, we could do a second lookup if we really care
+  #warning it is also a problem for direct NSEC queries..
   auto& map = getMap(qname);
   const lock l(map);
 
@@ -361,9 +363,10 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
   return -1;
 }
 
-void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt, const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask, const OptTag& routingTag, vState state)
+void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt, const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask, const OptTag& routingTag, vState state, const DNSName* zone)
 {
-  auto& map = getMap(qname);
+  auto& map = getMap(zone ? *zone : qname);
+  cerr<<"inserting "<<qname<<"|"<<qt.getName()<<" into map for "<<(zone ? *zone : qname)<<endl;
   const lock l(map);
 
   map.d_cachecachevalid = false;
@@ -465,6 +468,7 @@ size_t MemRecursorCache::doWipeCache(const DNSName& name, bool sub, uint16_t qty
   size_t count = 0;
 
   if (!sub) {
+    // FIXME: we need a second lookup to clean up NSEC/NSEC3
     auto& map = getMap(name);
     const lock l(map);
     map.d_cachecachevalid = false;
@@ -523,9 +527,9 @@ size_t MemRecursorCache::doWipeCache(const DNSName& name, bool sub, uint16_t qty
   return count;
 }
 
-bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& zone, const DNSName& qname, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state)
+bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& zone, const DNSName& qname, const QType& qtype, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state)
 {
-  // cerr<<"=> looking for a NSEC covering "<<qname<<" in map from zone "<<zone<<endl;
+  cerr<<"=> looking for a "<<qtype.getName()<<" covering "<<qname<<" in map from zone "<<zone<<endl;
   auto& map = getMap(zone);
   const lock l(map);
   auto& idx = map.d_map.get<OrderedTag>();
@@ -554,7 +558,7 @@ bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& zone, const DNSN
   // cerr<<"considering "<<entry->d_qname<<" "<<QType(entry->d_qtype).getName()<<endl;
 
   DNSName candidate = entry->d_qname;
-  while (!end && entry->d_qtype != QType::NSEC) {
+  while (!end && entry->d_qtype != qtype.getCode()) {
     if (entry == idx.begin()) {
       // can't go further
       end = true;
@@ -569,7 +573,7 @@ bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& zone, const DNSN
     }
   }
 
-  if (end || entry->d_ttd <= now || !entry->d_auth || entry->d_qtype != QType::NSEC) {
+  if (end || entry->d_ttd <= now || !entry->d_auth || entry->d_qtype != qtype.getCode()) {
     // cerr<<"not using it"<<endl;
     return false;
   }
