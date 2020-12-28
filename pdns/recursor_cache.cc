@@ -246,7 +246,7 @@ bool MemRecursorCache::entryMatches(MemRecursorCache::OrderedTagIterator_t& entr
 }
 
 // returns -1 for no hits
-int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth, const DNSName* zone)
+int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth)
 {
   boost::optional<vState> cachedState{boost::none};
   time_t ttd=0;
@@ -261,9 +261,7 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
     *wasAuth = true;
   }
 
-  // FIXME: this is a problem for ANY queries and NSEC/NSEC3, we could do a second lookup if we really care
-  #warning it is also a problem for direct NSEC queries..
-  auto& map = getMap(zone ? *zone : qname);
+  auto& map = getMap(qname);
   const lock l(map);
 
   /* If we don't have any netmask-specific entries at all, let's just skip this
@@ -363,10 +361,9 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
   return -1;
 }
 
-void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt, const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask, const OptTag& routingTag, vState state, const DNSName* zone)
+void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt, const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask, const OptTag& routingTag, vState state)
 {
-  auto& map = getMap(zone ? *zone : qname);
-  cerr<<"inserting "<<qname<<"|"<<qt.getName()<<" into map for "<<(zone ? *zone : qname)<<endl;
+  auto& map = getMap(qname);
   const lock l(map);
 
   map.d_cachecachevalid = false;
@@ -468,7 +465,6 @@ size_t MemRecursorCache::doWipeCache(const DNSName& name, bool sub, uint16_t qty
   size_t count = 0;
 
   if (!sub) {
-    // FIXME: we need a second lookup to clean up NSEC/NSEC3
     auto& map = getMap(name);
     const lock l(map);
     map.d_cachecachevalid = false;
@@ -527,6 +523,7 @@ size_t MemRecursorCache::doWipeCache(const DNSName& name, bool sub, uint16_t qty
   return count;
 }
 
+#if 0
 bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& zone, const DNSName& qname, const QType& qtype, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state)
 {
   cerr<<"=> looking for a "<<qtype.getName()<<" covering "<<qname<<" in map from zone "<<zone<<endl;
@@ -618,6 +615,7 @@ bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& zone, const DNSN
 
   return !found.empty();
 }
+#endif
 
 // Name should be doLimitTime or so
 bool MemRecursorCache::doAgeCache(time_t now, const DNSName& name, uint16_t qtype, uint32_t newTTL)

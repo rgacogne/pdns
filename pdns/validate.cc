@@ -376,19 +376,14 @@ static bool provesNSEC3NoWildCard(DNSName wildcard, uint16_t const qtype, const 
   return false;
 }
 
-dState matchesNSEC(const DNSName& name, uint16_t qtype, const DNSRecord& nsecRecord, const std::vector<std::shared_ptr<RRSIGRecordContent>>& signatures)
+dState matchesNSEC(const DNSName& name, uint16_t qtype, const DNSName& nsecOwner, const std::shared_ptr<NSECRecordContent>& nsec, const std::vector<std::shared_ptr<RRSIGRecordContent>>& signatures)
 {
-  auto nsec = std::dynamic_pointer_cast<NSECRecordContent>(nsecRecord.d_content);
-  if (!nsec) {
-    return dState::NODENIAL;
-  }
-
   const DNSName signer = getSigner(signatures);
-  if (!name.isPartOf(signer) || !nsecRecord.d_name.isPartOf(signer)) {
+  if (!name.isPartOf(signer) || !nsecOwner.isPartOf(signer)) {
     return dState::NODENIAL;
   }
 
-  const DNSName owner = getNSECOwnerName(nsecRecord.d_name, signatures);
+  const DNSName owner = getNSECOwnerName(nsecOwner, signatures);
   /* RFC 6840 section 4.1 "Clarifications on Nonexistence Proofs":
      Ancestor delegation NSEC or NSEC3 RRs MUST NOT be used to assume
      nonexistence of any RRs below that zone cut, which include all RRs at

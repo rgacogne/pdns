@@ -21,37 +21,83 @@
  */
 #pragma once
 
+#include <mutex>
+
+#include <boost/utility.hpp>
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index/hashed_index.hpp>
+#include <boost/multi_index/key_extractors.hpp>
+#include <boost/multi_index/sequenced_index.hpp>
+
 #include "dnsname.hh"
+#include "dnsrecords.hh"
 #include "lock.hh"
 
-class AggressiveNSECZoneIndex
+class AggressiveNSECCache
 {
 public:
-  void insertNSECZoneInfo(const DNSName& zone);
-  void insertNSEC3ZoneInfo(const DNSName& zone, const std::string& salt, uint16_t iterations);
-  void removeZoneInfo(const DNSName& zone);
-  bool getBestZoneInfo(DNSName& lookup, bool& nsec3, std::string& salt, uint16_t& iterations);
+  void insertNSEC(const DNSName& zone, const DNSName& owner, const DNSRecord& record, const std::vector<std::shared_ptr<RRSIGRecordContent>>& signatures, bool nsec3);
+  bool getDenial(time_t, const DNSName& name, const QType& type, std::vector<DNSRecord>& ret, int& res, const ComboAddress& who, const boost::optional<std::string>& routingTag, bool doDNSSEC);
+
+  //bool getBestZoneInfo(DNSName& lookup, bool& nsec3, std::string& salt, uint16_t& iterations);
+  //void removeZoneInfo(const DNSName& zone);
 
 private:
-  struct Entry
+
+  struct ZoneEntry
   {
-    Entry()
+    ZoneEntry()
     {
     }
 
-    Entry(const DNSName& zone, const std::string& salt, uint16_t iterations, bool nsec3): d_zone(zone), d_salt(salt), d_iterations(iterations), d_nsec3(nsec3)
+    ZoneEntry(const DNSName& zone, const std::string& salt, uint16_t iterations, bool nsec3): d_zone(zone), d_salt(salt), d_iterations(iterations), d_nsec3(nsec3)
     {
     }
 
+    struct HashedTag {};
+    struct SequencedTag {};
+    struct OrderedTag {};
+
+    struct CacheEntry
+    {
+      std::shared_ptr<DNSRecordContent> d_record;
+      std::vector<std::shared_ptr<RRSIGRecordContent>> d_signatures;
+
+      DNSName d_owner;
+      DNSName d_next;
+      time_t d_ttd;
+    };
+
+    typedef multi_index_container<
+      CacheEntry,
+      indexed_by <
+        ordered_unique<tag<OrderedTag>,
+                       member<CacheEntry,DNSName,&CacheEntry::d_owner>,
+                       CanonDNSNameCompare
+                       >,
+        sequenced<tag<SequencedTag> >,
+        hashed_non_unique<tag<HashedTag>,
+                          member<CacheEntry,DNSName,&CacheEntry::d_owner>
+                          >
+        >
+      > cache_t;
+
+    cache_t d_entries;
     DNSName d_zone;
     std::string d_salt;
+    std::mutex d_lock;
     uint16_t d_iterations{0};
     bool d_nsec3{false};
   };
 
-  SuffixMatchTree<Entry> d_zones;
+  std::shared_ptr<ZoneEntry> getZone(const DNSName& zone);
+  std::shared_ptr<ZoneEntry> getBestZone(const DNSName& zone);
+  bool getNSECBefore(time_t now, std::shared_ptr<ZoneEntry>& zoneEntry, const DNSName& name, ZoneEntry::CacheEntry& entry);
+
+  SuffixMatchTree<std::shared_ptr<ZoneEntry>> d_zones;
   ReadWriteLock d_lock;
 };
 
 
-extern std::unique_ptr<AggressiveNSECZoneIndex> g_aggressiveNSECCache;
+extern std::unique_ptr<AggressiveNSECCache> g_aggressiveNSECCache;

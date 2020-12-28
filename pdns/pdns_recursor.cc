@@ -4692,7 +4692,7 @@ static int serviceMain(int argc, char*argv[])
 
   if (::arg().mustDo("aggressive-nsec")) {
     if (g_dnssecmode == DNSSECMode::ValidateAll || g_dnssecmode == DNSSECMode::ValidateForLog) {
-      g_aggressiveNSECCache = make_unique<AggressiveNSECZoneIndex>();
+      g_aggressiveNSECCache = make_unique<AggressiveNSECCache>();
     }
     else {
       g_log<<Logger::Warning<<"Aggressive NSEC/NSEC3 caching is enabled but DNSSEC validation is not set to 'validate' or 'log-fail', ignoring"<<endl;

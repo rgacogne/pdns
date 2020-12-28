@@ -23,8 +23,6 @@
 #include <string>
 #include <set>
 #include <mutex>
-
-#include "aggressive_nsec.hh"
 #include "dns.hh"
 #include "qtype.hh"
 #include "misc.hh"
@@ -59,11 +57,9 @@ public:
 
   typedef boost::optional<std::string> OptTag;
 
-  int32_t get(time_t, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag = boost::none, vector<std::shared_ptr<RRSIGRecordContent>>* signatures=nullptr, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs=nullptr, bool* variable=nullptr, vState* state=nullptr, bool* wasAuth=nullptr, const DNSName* zone=nullptr);
+  int32_t get(time_t, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag = boost::none, vector<std::shared_ptr<RRSIGRecordContent>>* signatures=nullptr, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs=nullptr, bool* variable=nullptr, vState* state=nullptr, bool* wasAuth=nullptr);
 
-  void replace(time_t, const DNSName &qname, const QType& qt,  const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask=boost::none, const OptTag& routingTag = boost::none, vState state=vState::Indeterminate, const DNSName* zone=nullptr);
-
-  bool getNSECBefore(time_t now, const DNSName& zone, const DNSName& qname, const QType& qtype, DNSName& found, vector<DNSRecord>& res, vector<std::shared_ptr<RRSIGRecordContent>>& signatures, vState& state);
+  void replace(time_t, const DNSName &qname, const QType& qt,  const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask=boost::none, const OptTag& routingTag = boost::none, vState state=vState::Indeterminate);
 
   void doPrune(size_t keep);
   uint64_t doDump(int fd);
@@ -226,7 +222,6 @@ private:
   };
 
   vector<MapCombo> d_maps;
-
   MapCombo& getMap(const DNSName &qname)
   {
     return d_maps[qname.hash() % d_maps.size()];
@@ -256,10 +251,6 @@ public:
 
   void preRemoval(const CacheEntry& entry)
   {
-    if (entry.d_qtype == QType::SOA && g_aggressiveNSECCache) {
-      g_aggressiveNSECCache->removeZoneInfo(entry.d_qname);
-    }
-
     if (entry.d_netmask.empty()) {
       return;
     }

@@ -91,5 +91,5 @@ bool isWildcardExpanded(unsigned int labelCount, const std::shared_ptr<RRSIGReco
 bool isWildcardExpandedOntoItself(const DNSName& owner, unsigned int labelCount, const std::shared_ptr<RRSIGRecordContent>& sign);
 void updateDNSSECValidationState(vState& state, const vState stateUpdate);
 
-dState matchesNSEC(const DNSName& name, uint16_t qtype, const DNSRecord& nsecRecord, const std::vector<std::shared_ptr<RRSIGRecordContent>>& signatures);
+dState matchesNSEC(const DNSName& name, uint16_t qtype, const DNSName& nsecOwner, const std::shared_ptr<NSECRecordContent>& nsecRecord, const std::vector<std::shared_ptr<RRSIGRecordContent>>& signatures);
 

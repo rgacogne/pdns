@@ -24,7 +24,7 @@
 #endif
 
 #include "arguments.hh"
-#include "base32.hh"
+#include "aggressive_nsec.hh"
 #include "cachecleaner.hh"
 #include "dns_random.hh"
 #include "dnsparser.hh"
@@ -1655,267 +1655,6 @@ void SyncRes::computeNegCacheValidationStatus(const NegCache::NegCacheEntry& ne,
   }
 }
 
-bool SyncRes::doAggressiveNSEC3Cache(const std::string& prefix, const DNSName& qname, const QType& qtype, const DNSName& zone, const std::string& salt, uint16_t iterations, vector<DNSRecord>&ret, int& res, vState& state)
-{
-#warning FIXME: nsec3
-  cerr<<"nsec3, sorry"<<endl;
-  if (g_maxNSEC3Iterations && iterations > g_maxNSEC3Iterations) {
-    return false;
-  }
-
-  vector<DNSRecord> cset;
-  vector<std::shared_ptr<RRSIGRecordContent>> signatures;
-  vState cachedState;
-
-  auto qnameHash = toBase32Hex(hashQNameWithSalt(salt, iterations, qname));
-
-  cerr<<"looking for nsec3 "<<(DNSName(qnameHash) + zone)<<endl;
-  DNSName nsec3Found;
-  if (g_recCache->get(d_now.tv_sec, DNSName(qnameHash) + zone, QType::NSEC3, true, &cset, d_cacheRemote, d_routingTag, d_doDNSSEC ? &signatures : nullptr, nullptr, nullptr, &cachedState, nullptr, &zone) > 0) {
-    cerr<<"found direct match "<<qnameHash<<endl;
-    if (cachedState == vState::Secure) {
-      cerr<<"but not secure"<<endl;
-      return false;
-    }
-
-    return false;
-  }
-
-  cerr<<"no direct match, looking for closest encloser"<<endl;
-  DNSName closestEncloser(qname);
-  bool found = false;
-  while (!found && closestEncloser.chopOff()) {
-    auto closestHash = toBase32Hex(hashQNameWithSalt(salt, iterations, closestEncloser));
-    cerr<<"looking for nsec3 "<<(DNSName(closestHash) + zone)<<endl;
-
-    if (g_recCache->get(d_now.tv_sec, DNSName(closestHash) + zone, QType::NSEC3, true, &cset, d_cacheRemote, d_routingTag, d_doDNSSEC ? &signatures : nullptr, nullptr, nullptr, &cachedState, nullptr, &zone) > 0) {
-      cerr<<"found direct match for closest encloser "<<closestHash<<endl;
-      found = true;
-      break;
-    }
-  }
-
-  if (!found) {
-    cerr<<"nothing found in aggressive cache either"<<endl;
-    return false;
-  }
-
-  unsigned int labelIdx = qname.countLabels() - closestEncloser.countLabels();
-  if (labelIdx < 1) {
-    return false;
-  }
-
-  DNSName nsecFound;
-  DNSName nextCloser(closestEncloser);
-  nextCloser.prependRawLabel(qname.getRawLabel(labelIdx - 1));
-  auto nextCloserHash = toBase32Hex(hashQNameWithSalt(salt, iterations, nextCloser));
-  cerr<<"looking for a NSEC3 covering the next closer "<<nextCloser<<": "<<nextCloserHash<<endl;
-
-  if (!g_recCache->getNSECBefore(d_now.tv_sec, zone, DNSName(nextCloserHash) + zone, QType::NSEC3, nsecFound, cset, signatures, cachedState)) {
-    cerr<<"nothing found for the next closer in aggressive cache"<<endl;
-    return false;
-  }
-
-  DNSName wildcard(g_wildcarddnsname + closestEncloser);
-  auto wcHash = toBase32Hex(hashQNameWithSalt(salt, iterations, wildcard));
-  cerr<<"looking for a NSEC3 covering the wildcard "<<wildcard<<": "<<wcHash<<endl;
-
-  if (!g_recCache->getNSECBefore(d_now.tv_sec, zone, DNSName(wcHash) + zone, QType::NSEC3, nsecFound, cset, signatures, cachedState)) {
-    cerr<<"nothing found for the wildcard in aggressive cache"<<endl;
-    return false;
-  }
-
-  return false;
-}
-
-bool SyncRes::doAggressiveNSECCacheCheck(const std::string& prefix, const DNSName& qname, const QType& qtype, vector<DNSRecord>&ret, int& res, vState& state)
-{
-  if (!g_aggressiveNSECCache) {
-    cerr<<"no aggressive NSEC"<<endl;
-    return false;
-  }
-
-  DNSName zone(qname);
-  std::string salt;
-  uint16_t iterations = 0;
-  bool nsec3 = false;
-  if (!g_aggressiveNSECCache->getBestZoneInfo(zone, nsec3, salt, iterations)) {
-    cerr<<"zone info not found"<<endl;
-    return false;
-  }
-
-  vState cachedState;
-  std::vector<DNSRecord> soaSet;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> soaSignatures;
-  if (g_recCache->get(d_now.tv_sec, zone, QType::SOA, true, &soaSet, d_cacheRemote, d_routingTag, d_doDNSSEC ? &soaSignatures : nullptr, nullptr, nullptr, &cachedState) <= 0 || cachedState != vState::Secure) {
-    cerr<<"could not find SOA"<<endl;
-    return false;
-  }
-
-  vector<DNSRecord> cset;
-  vector<std::shared_ptr<RRSIGRecordContent>> signatures;
-
-  if (nsec3) {
-    return doAggressiveNSEC3Cache(prefix, qname, qtype, zone, salt, iterations, ret, res, state);
-  }
-
-  DNSName nsecFound;
-  std::vector<DNSRecord> wcSet;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> wcSignatures;
-
-   cerr<<"looking for nsec before "<<qname<<endl;
-   if (!g_recCache->getNSECBefore(d_now.tv_sec, zone, qname, QType::NSEC, nsecFound, cset, signatures, cachedState)) {
-     cerr<<"nothing found in aggressive cache either"<<endl;
-    return false;
-  }
-
-   cerr<<"nsecFound "<<nsecFound<<endl;
-  if (cset.empty() || cachedState != vState::Secure) {
-    return false;
-  }
-
-  bool covered = false;
-   cerr<<"Got "<<cset.size()<<" records"<<endl;
-  const auto& nsecRecord = cset.at(0);
-  auto content = getRR<NSECRecordContent>(nsecRecord);
-  if (!content) {
-    return false;
-  }
-
-   cerr<<"next is "<<content->d_next<<endl;
-  auto denial = matchesNSEC(qname, qtype.getCode(), nsecRecord, signatures);
-  if (denial == dState::NXQTYPE) {
-    covered = true;
-    res = RCode::NoError;
-  }
-  else if (denial == dState::NXDOMAIN) {
-    if (qname.countLabels() > 1) {
-      DNSName wc = qname;
-      wc.chopOff();
-      wc = g_wildcarddnsname + wc;
-
-       cerr<<"looking for nsec before "<<wc<<endl;
-      DNSName wcNSEC;
-      if (!g_recCache->getNSECBefore(d_now.tv_sec, zone, wc, QType::NSEC, wcNSEC, wcSet, wcSignatures, cachedState)) {
-         cerr<<"nothing found in aggressive cache for Wildcard"<<endl;
-        return false;
-      }
-
-      if (wcSet.empty() || cachedState != vState::Secure) {
-        cerr<<"nothing usable"<<endl;
-        return false;
-      }
-
-      cerr<<"wc nsec found "<<wcNSEC<<endl;
-      if (wcNSEC == nsecFound) {
-        wcSet.clear();
-        wcSignatures.clear();
-        covered = true;
-        res = RCode::NXDomain;
-      }
-      else {
-        const auto& wcNsecRecord = wcSet.at(0);
-        auto wcContent = getRR<NSECRecordContent>(wcNsecRecord);
-        if (!wcContent) {
-          return false;
-        }
-
-        if (wcNSEC == wc) {
-          /* too complicated for now */
-          return false;
-        }
-        else if (isCoveredByNSEC(wc, wcNsecRecord.d_name, wcContent->d_next)) {
-          cerr<<"next is "<<wcContent->d_next<<endl;
-          covered = true;
-          res = RCode::NXDomain;
-        }
-      }
-    }
-  }
-
-  if (!covered) {
-    return false;
-  }
-
-  LOG(prefix<<qname<<": Found aggressive NSEC cache hit for "<<qtype.getName()<<endl);
-
-  uint32_t ttl=0;
-  uint32_t capTTL = std::numeric_limits<uint32_t>::max();
-
-  ret.reserve(ret.size() + soaSet.size() + soaSignatures.size() + cset.size() + signatures.size() + wcSet.size() + wcSignatures.size());
-
-  for (auto& record : soaSet) {
-    if (record.d_class != QClass::IN) {
-      continue;
-    }
-
-    record.d_ttl -= d_now.tv_sec;
-    record.d_ttl = std::min(record.d_ttl, capTTL);
-    ttl = record.d_ttl;
-    ret.push_back(std::move(record));
-  }
-
-  for (auto& signature : soaSignatures) {
-    DNSRecord dr;
-    dr.d_type = QType::RRSIG;
-    dr.d_name = zone;
-    dr.d_ttl = ttl;
-    dr.d_content = std::move(signature);
-    dr.d_place = DNSResourceRecord::ANSWER;
-    dr.d_class = QClass::IN;
-    ret.push_back(std::move(dr));
-  }
-
-  for (auto& record : cset) {
-    if (record.d_class != QClass::IN) {
-      continue;
-    }
-
-    record.d_ttl -= d_now.tv_sec;
-    record.d_ttl = std::min(record.d_ttl, capTTL);
-    ttl = record.d_ttl;
-    ret.push_back(std::move(record));
-  }
-
-  for (auto& signature : signatures) {
-    DNSRecord dr;
-    dr.d_type = QType::RRSIG;
-    dr.d_name = qname;
-    dr.d_ttl = ttl;
-    dr.d_content = std::move(signature);
-    dr.d_place = DNSResourceRecord::ANSWER;
-    dr.d_class = QClass::IN;
-    ret.push_back(std::move(dr));
-  }
-
-  for (auto& record : wcSet) {
-    if (record.d_class != QClass::IN) {
-      continue;
-    }
-
-    record.d_ttl -= d_now.tv_sec;
-    record.d_ttl = std::min(record.d_ttl, capTTL);
-    ttl = record.d_ttl;
-    ret.push_back(std::move(record));
-  }
-
-  for (auto& signature : wcSignatures) {
-    DNSRecord dr;
-    dr.d_type = QType::RRSIG;
-    dr.d_name = qname;
-    dr.d_ttl = ttl;
-    dr.d_content = std::move(signature);
-    dr.d_place = DNSResourceRecord::ANSWER;
-    dr.d_class = QClass::IN;
-    ret.push_back(std::move(dr));
-  }
-
-  /* we would have given up otherwise */
-  state = vState::Secure;
-
-  return true;
-}
-
 bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool wasForwardedOrAuthZone, bool wasAuthZone, bool wasForwardRecurse, const QType &qtype, vector<DNSRecord>&ret, unsigned int depth, int &res, vState& state)
 {
   bool giveNegative=false;
@@ -2134,7 +1873,18 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
   }
 
   /* let's check if we have a NSEC covering that record */
-  return doAggressiveNSECCacheCheck(prefix, qname, qtype, ret, res, state);
+  if (g_aggressiveNSECCache) {
+    cerr<<"calling get denial"<<endl;
+    if (g_aggressiveNSECCache->getDenial(d_now.tv_sec, qname, qtype, ret, res, d_cacheRemote, d_routingTag, d_doDNSSEC)) {
+      state = vState::Secure;
+      return true;
+    }
+  }
+  else {
+    cerr<<"no cache"<<endl;
+  }
+
+  return false;
 }
 
 bool SyncRes::moreSpecificThan(const DNSName& a, const DNSName &b) const
@@ -3167,10 +2917,8 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
   const unsigned int labelCount = qname.countLabels();
   bool isCNAMEAnswer = false;
   bool isDNAMEAnswer = false;
-  bool seenNSEC = false;
-  bool seenNSEC3 = false;
-  std::string salt;
-  uint16_t iterations = 0;
+  DNSName seenAuth;
+
   for (auto& rec : lwr.d_records) {
     if (rec.d_type == QType::OPT || rec.d_class != QClass::IN) {
       continue;
@@ -3178,26 +2926,16 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
 
     rec.d_ttl = min(s_maxcachettl, rec.d_ttl);
 
-    if(!isCNAMEAnswer && rec.d_place == DNSResourceRecord::ANSWER && rec.d_type == QType::CNAME && (!(qtype==QType(QType::CNAME))) && rec.d_name == qname && !isDNAMEAnswer) {
+    if (!isCNAMEAnswer && rec.d_place == DNSResourceRecord::ANSWER && rec.d_type == QType::CNAME && (!(qtype==QType(QType::CNAME))) && rec.d_name == qname && !isDNAMEAnswer) {
       isCNAMEAnswer = true;
     }
-    if(!isDNAMEAnswer && rec.d_place == DNSResourceRecord::ANSWER && rec.d_type == QType::DNAME && qtype != QType(QType::DNAME) && qname.isPartOf(rec.d_name)) {
+    if (!isDNAMEAnswer && rec.d_place == DNSResourceRecord::ANSWER && rec.d_type == QType::DNAME && qtype != QType(QType::DNAME) && qname.isPartOf(rec.d_name)) {
       isDNAMEAnswer = true;
       isCNAMEAnswer = false;
     }
 
-    if (g_aggressiveNSECCache) {
-      if (rec.d_type == QType::NSEC) {
-        seenNSEC = true;
-      }
-      else if (rec.d_type == QType::NSEC3) {
-        seenNSEC3 = true;
-        auto nsec3content = getRR<NSEC3RecordContent>(rec);
-        if (nsec3content) {
-          salt = nsec3content->d_salt;
-          iterations = nsec3content->d_iterations;
-        }
-      }
+    if (rec.d_type == QType::SOA && rec.d_place == DNSResourceRecord::AUTHORITY && qname.isPartOf(rec.d_name)) {
+      seenAuth = rec.d_name;
     }
 
     if (rec.d_type == QType::RRSIG) {
@@ -3466,17 +3204,16 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
       }
     }
 
-    /* Except if we do aggressive NSEC3, we don't need to store NSEC3 records in the positive cache because:
+    /* We don't need to store NSEC3 records in the positive cache because:
        - we don't allow direct NSEC3 queries
        - denial of existence proofs in wildcard expanded positive responses are stored in authorityRecs
        - denial of existence proofs for negative responses are stored in the negative cache
-
        We also don't want to cache non-authoritative data except for:
        - records coming from non forward-recurse servers (those will never be AA)
        - DS (special case)
        - NS, A and AAAA (used for infra queries)
     */
-    if ((i->first.type != QType::NSEC3 || g_aggressiveNSECCache != nullptr) && (i->first.type == QType::DS || i->first.type == QType::NS || i->first.type == QType::A || i->first.type == QType::AAAA || isAA || wasForwardRecurse)) {
+    if (i->first.type != QType::NSEC3 && (i->first.type == QType::DS || i->first.type == QType::NS || i->first.type == QType::A || i->first.type == QType::AAAA || isAA || wasForwardRecurse)) {
 
       bool doCache = true;
       if (i->first.place == DNSResourceRecord::ANSWER && ednsmask) {
@@ -3501,40 +3238,19 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, LWResult& lwr
       }
 
       if (doCache) {
-        if (!g_aggressiveNSECCache || (i->first.type != QType::NSEC && i->first.type != QType::NSEC3)) {
-          g_recCache->replace(d_now.tv_sec, i->first.name, QType(i->first.type), i->second.records, i->second.signatures, authorityRecs, i->first.type == QType::DS ? true : isAA, i->first.place == DNSResourceRecord::ANSWER ? ednsmask : boost::none, d_routingTag, recordState);
-        }
-        else {
-          DNSName zone(auth);
-          if (!i->second.signatures.empty()) {
-            zone = getSigner(i->second.signatures);
-          }
-
-          g_recCache->replace(d_now.tv_sec, i->first.name, QType(i->first.type), i->second.records, i->second.signatures, authorityRecs, i->first.type == QType::DS ? true : isAA, i->first.place == DNSResourceRecord::ANSWER ? ednsmask : boost::none, d_routingTag, recordState, &zone);
-          cerr<<"inserted "<<i->first.name<<"|"<<QType(i->first.type).getName()<<" in zone "<<zone<<endl;
-        }
-
-        if (recordState == vState::Secure && i->first.type == QType::SOA && i->first.place == DNSResourceRecord::AUTHORITY && g_aggressiveNSECCache) {
-          /* Looks like a candidate for our aggressive NSEC cache, but do we have a NSEC{,3}? */
-          cerr<<"Good candidate for aggressive NSEC caching"<<endl;          
-
-          if (seenNSEC) {
-            cerr<<"we have a NSEC!"<<endl;
-            g_aggressiveNSECCache->insertNSECZoneInfo(i->first.name);
-          }
-          else if (seenNSEC3) {
-            cerr<<"we have a NSEC3!"<<endl;              
-            g_aggressiveNSECCache->insertNSEC3ZoneInfo(i->first.name, salt, iterations);
-          }
-          else {
-            cerr<<"but no NSEC{3}"<<endl;
-          }
-        }
+        g_recCache->replace(d_now.tv_sec, i->first.name, QType(i->first.type), i->second.records, i->second.signatures, authorityRecs, i->first.type == QType::DS ? true : isAA, i->first.place == DNSResourceRecord::ANSWER ? ednsmask : boost::none, d_routingTag, recordState);
       }
     }
 
-    if(i->first.place == DNSResourceRecord::ANSWER && ednsmask)
+    if ((i->first.type == QType::NSEC || i->first.type == QType::NSEC3) && recordState == vState::Secure && !seenAuth.empty() && g_aggressiveNSECCache) {
+      cerr<<"Good candidate for aggressive NSEC caching"<<endl;
+
+      g_aggressiveNSECCache->insertNSEC(seenAuth, i->first.name, i->second.records.at(0), i->second.signatures, i->first.type == QType::NSEC3);
+    }
+
+    if (i->first.place == DNSResourceRecord::ANSWER && ednsmask) {
       d_wasVariable=true;
+    }
   }
 
   return RCode::NoError;
