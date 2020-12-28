@@ -246,7 +246,7 @@ bool MemRecursorCache::entryMatches(MemRecursorCache::OrderedTagIterator_t& entr
 }
 
 // returns -1 for no hits
-int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth)
+int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt, bool requireAuth, vector<DNSRecord>* res, const ComboAddress& who, const OptTag& routingTag, vector<std::shared_ptr<RRSIGRecordContent>>* signatures, std::vector<std::shared_ptr<DNSRecord>>* authorityRecs, bool* variable, vState* state, bool* wasAuth, const DNSName* zone)
 {
   boost::optional<vState> cachedState{boost::none};
   time_t ttd=0;
@@ -263,7 +263,7 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
 
   // FIXME: this is a problem for ANY queries and NSEC/NSEC3, we could do a second lookup if we really care
   #warning it is also a problem for direct NSEC queries..
-  auto& map = getMap(qname);
+  auto& map = getMap(zone ? *zone : qname);
   const lock l(map);
 
   /* If we don't have any netmask-specific entries at all, let's just skip this
@@ -539,47 +539,62 @@ bool MemRecursorCache::getNSECBefore(time_t now, const DNSName& zone, const DNSN
 
   auto entry = idx.upper_bound(qname);
   bool end = false;
+  if (entry != idx.end() && 
   while (!end && (entry == idx.end() || (entry->d_qname != qname && !entry->d_qname.canonCompare(qname))))
   {
+    if (entry == idx.end()) {
+      cerr<<"GOT END"<<endl;
+    }
+    else {
+      cerr<<"got "<<entry->d_qname<<endl;
+    }
+
     if (entry == idx.begin()) {
       // can't go further
       end = true;
     }
     else {
       entry--;
-      // cerr<<"looping with "<<entry->d_qname<<endl;
+       cerr<<"looping with "<<entry->d_qname<<endl;
     }
   }
 
   if (end) {
-    // cerr<<"nothing left"<<endl;
+     cerr<<"nothing left"<<endl;
     return false;
   }
-  // cerr<<"considering "<<entry->d_qname<<" "<<QType(entry->d_qtype).getName()<<endl;
+   cerr<<"considering "<<entry->d_qname<<" "<<QType(entry->d_qtype).getName()<<endl;
 
   DNSName candidate = entry->d_qname;
   while (!end && entry->d_qtype != qtype.getCode()) {
     if (entry == idx.begin()) {
       // can't go further
+      cerr<<"got begin"<<endl;
+      auto last = idx.end();
+      last--;
+      if (last != entry) {
+        cerr<<"just before end would have been "<<last->d_qname<<endl;
+      }
       end = true;
     }
     else {
       entry--;
-      // cerr<<"looping with "<<entry->d_qname<<endl;
+       cerr<<"looping with "<<entry->d_qname<<endl;
       if (entry->d_qname != candidate) {
         // different name, we are not interested anymore
+        cerr<<"different name"<<endl;
         end = true;
       }
     }
   }
 
   if (end || entry->d_ttd <= now || !entry->d_auth || entry->d_qtype != qtype.getCode()) {
-    // cerr<<"not using it"<<endl;
+     cerr<<"not using it"<<endl;
     return false;
   }
 
   found = entry->d_qname;
-  // cerr<<"selecting "<<found<<endl;
+  cerr<<"selecting "<<found<<endl;
 
   res.clear();
   res.reserve(entry->d_records.size());

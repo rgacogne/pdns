@@ -384,7 +384,7 @@ dState matchesNSEC(const DNSName& name, uint16_t qtype, const DNSRecord& nsecRec
   }
 
   const DNSName signer = getSigner(signatures);
-  if (!name.isPartOf(signer)) {
+  if (!name.isPartOf(signer) || !nsecRecord.d_name.isPartOf(signer)) {
     return dState::NODENIAL;
   }
 
@@ -454,6 +454,7 @@ dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const uint16
     if(v.first.second==QType::NSEC) {
       for(const auto& r : v.second.records) {
         LOG("\t"<<r->getZoneRepresentation()<<endl);
+
         auto nsec = std::dynamic_pointer_cast<NSECRecordContent>(r);
         if(!nsec)
           continue;
@@ -479,7 +480,7 @@ dState getDenial(const cspmap_t &validrrsets, const DNSName& qname, const uint16
         }
 
         /* check if the type is denied */
-        if(qname == owner) {
+        if (qname == owner) {
           if (nsec->isSet(qtype)) {
             LOG("Does _not_ deny existence of type "<<QType(qtype).getName()<<endl);
             return dState::NODENIAL;
