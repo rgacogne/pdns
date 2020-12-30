@@ -1921,9 +1921,6 @@ bool SyncRes::doCacheCheck(const DNSName &qname, const DNSName& authname, bool w
       return true;
     }
   }
-  else {
-    cerr<<"no cache"<<endl;
-  }
 
   return false;
 }
