@@ -451,6 +451,9 @@ static string doWipeCache(T begin, T end, uint16_t qtype)
       count += g_recCache->doWipeCache(wipe.first, wipe.second, qtype);
       pcount += broadcastAccFunction<uint64_t>([=]{ return pleaseWipePacketCache(wipe.first, wipe.second, qtype);});
       countNeg += g_negCache->wipe(wipe.first, wipe.second);
+      if (g_aggressiveNSECCache) {
+        g_aggressiveNSECCache->removeZoneInfo(wipe.first, wipe.second);
+      }
     }
     catch (const std::exception& e) {
       g_log<<Logger::Warning<<", failed: "<<e.what()<<endl;
@@ -559,6 +562,9 @@ static string doAddNTA(T begin, T end)
     g_recCache->doWipeCache(who, true, 0xffff);
     broadcastAccFunction<uint64_t>([=]{return pleaseWipePacketCache(who, true, 0xffff);});
     g_negCache->wipe(who, true);
+    if (g_aggressiveNSECCache) {
+      g_aggressiveNSECCache->removeZoneInfo(who, true);
+    }
   }
   catch (std::exception& e) {
     g_log<<Logger::Warning<<", failed: "<<e.what()<<endl;
@@ -613,6 +619,9 @@ static string doClearNTA(T begin, T end)
       g_recCache->doWipeCache(entry, true, 0xffff);
       broadcastAccFunction<uint64_t>([=]{return pleaseWipePacketCache(entry, true, 0xffff);});
       g_negCache->wipe(entry, true);
+      if (g_aggressiveNSECCache) {
+        g_aggressiveNSECCache->removeZoneInfo(entry, true);
+      }
       if (!first) {
         first = false;
         removed += ",";
@@ -676,6 +685,9 @@ static string doAddTA(T begin, T end)
     g_recCache->doWipeCache(who, true, 0xffff);
     broadcastAccFunction<uint64_t>([=]{return pleaseWipePacketCache(who, true, 0xffff);});
     g_negCache->wipe(who, true);
+    if (g_aggressiveNSECCache) {
+      g_aggressiveNSECCache->removeZoneInfo(who, true);
+    }
     g_log<<Logger::Warning<<endl;
     return "Added Trust Anchor for " + who.toStringRootDot() + " with data " + what + "\n";
   }
@@ -723,6 +735,9 @@ static string doClearTA(T begin, T end)
       g_recCache->doWipeCache(entry, true, 0xffff);
       broadcastAccFunction<uint64_t>([=]{return pleaseWipePacketCache(entry, true, 0xffff);});
       g_negCache->wipe(entry, true);
+      if (g_aggressiveNSECCache) {
+        g_aggressiveNSECCache->removeZoneInfo(entry, true);
+      }
       if (!first) {
         first = false;
         removed += ",";
