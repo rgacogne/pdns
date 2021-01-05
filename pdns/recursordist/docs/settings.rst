@@ -12,6 +12,18 @@ As an example:
  - ``serve-rfc1918=off`` or ``serve-rfc1918=no`` means: do not serve those zones.
  - Anything else means: do serve those zones.
 
+.. _setting-aggressive-nsec:
+
+``aggressive-nsec``
+-------------------
+.. versionadded:: 4.5.0
+
+-  Boolean
+-  Default: no
+
+If set, and DNSSEC validation is enabled, the recursor cache NSEC and NSEC3 records to generate negative answers, and use cached wildcards to synthesize positive answsers, as defined in :rfc:`8198`.
+This setting requires DNSSEC validation to be enabled via the `dnssec_` setting.
+
 .. _setting-allow-from:
 
 ``allow-from``
