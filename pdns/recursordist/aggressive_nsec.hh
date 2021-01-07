@@ -68,6 +68,8 @@ public:
     return d_nsec3WildcardHits;
   }
 
+  void prune();
+
 private:
 
   struct ZoneEntry
@@ -135,6 +137,5 @@ private:
   std::atomic<uint64_t> d_nsec3WildcardHits{0};
   std::atomic<uint64_t> d_entriesCount{0};
 };
-
 
 extern std::unique_ptr<AggressiveNSECCache> g_aggressiveNSECCache;
