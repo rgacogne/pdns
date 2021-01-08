@@ -236,6 +236,27 @@ static uint64_t dumpNegCache(int fd)
   return g_negCache->dumpToFile(fp.get(), now);
 }
 
+static uint64_t dumpAggressiveNSECCache(int fd)
+{
+  if (!g_aggressiveNSECCache) {
+    return 0;
+  }
+
+  int newfd = dup(fd);
+  if (newfd == -1) {
+    return 0;
+  }
+  auto fp = std::unique_ptr<FILE, int(*)(FILE*)>(fdopen(newfd, "w"), fclose);
+  if (!fp) {
+    return 0;
+  }
+  fprintf(fp.get(), "; aggressive NSEC cache dump follows\n;\n");
+
+  struct timeval now;
+  Utility::gettimeofday(&now, nullptr);
+  return g_aggressiveNSECCache->dumpToFile(fp, now);
+}
+
 static uint64_t* pleaseDump(int fd)
 {
   return new uint64_t(t_packetCache->doDump(fd));
@@ -306,7 +327,7 @@ static string doDumpCache(T begin, T end)
     return "Error opening dump file for writing: "+stringerror()+"\n";
   uint64_t total = 0;
   try {
-    total = g_recCache->doDump(fd) + dumpNegCache(fd) + broadcastAccFunction<uint64_t>([=]{ return pleaseDump(fd); });
+    total = g_recCache->doDump(fd) + dumpNegCache(fd) + broadcastAccFunction<uint64_t>([=]{ return pleaseDump(fd); }) + dumpAggressiveNSECCache(fd);
   }
   catch(...){}
   
