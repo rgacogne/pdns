@@ -3457,7 +3457,7 @@ static void houseKeeping(void *)
         g_recCache->doPrune(g_maxCacheEntries);
         g_negCache->prune(g_maxCacheEntries / 10);
         if (g_aggressiveNSECCache) {
-          g_aggressiveNSECCache->prune();
+          g_aggressiveNSECCache->prune(now.tv_sec);
         }
         last_RC_prune = now.tv_sec;
       }
