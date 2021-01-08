@@ -105,8 +105,7 @@ void AggressiveNSECCache::removeZoneInfo(const DNSName& zone, bool subzones)
 
 void AggressiveNSECCache::prune()
 {
-#warning FIXME: size of the cache
-  uint64_t maxNumberOfEntries = 10;
+  uint64_t maxNumberOfEntries = d_maxEntries;
   time_t now = time(nullptr);
   std::vector<DNSName> emptyEntries;
 
