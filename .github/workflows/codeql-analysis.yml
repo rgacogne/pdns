@@ -99,10 +99,11 @@ jobs:
       if: matrix.product == 'auth'
       run: |
         autoreconf -vfi
-        ./configure --with-modules='bind geoip gmysql godbc gpgsql gsqlite3 ldap lmdb lua2 pipe random remote tinydns' --enable-tools --enable-ixfrdist --enable-dns-over-tls --enable-experimental-pkcs11 --with-libsodium --enable-lua-records CFLAGS='-O0' CXXFLAGS='-O0'
+        ./configure --with-modules='bind geoip gmysql godbc gpgsql gsqlite3 ldap lmdb lua2 pipe random remote tinydns' --enable-tools --enable-ixfrdist --enable-dns-over-tls --enable-experimental-pkcs11 --with-libsodium --enable-lua-records CFLAGS='-O0 -coverage' CXXFLAGS='-O0 -coverage'
         make -j8 -C ext
         make -j8 -C modules
         make -j8 -C pdns
+        make -j8 check
 
     - name: Build dnsdist
       if: matrix.product == 'dnsdist'
@@ -113,6 +114,7 @@ jobs:
         make -j8 -C ext/ipcrypt
         make -j8 -C ext/yahttp
         make -j4 dnsdist
+        make -j4 check
 
     - name: Build recursor
       if: matrix.product == 'rec'
@@ -123,6 +125,10 @@ jobs:
         make -j8 -C ext
         make htmlfiles.h
         make -j8 pdns_recursor rec_control
+        make -j8 check
+
+    - name: Codecov
+      run: bash <(curl -s https://codecov.io/bash)
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
