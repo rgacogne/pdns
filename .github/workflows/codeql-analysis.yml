@@ -128,7 +128,7 @@ jobs:
         make -j8 check
 
     - name: Codecov
-      run: bash <(curl -s https://codecov.io/bash) -p pdns/recursordist
+      run: bash <(curl -s https://codecov.io/bash) -p pdns/recursordist -p pdns/dnsdistdist -p pdns
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
