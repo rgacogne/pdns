@@ -363,7 +363,8 @@ pdns_recursor_SOURCES += \
 	sodiumsigners.cc
 pdns_recursor_LDADD += $(LIBSODIUM_LIBS)
 
-rec_control_LDADD = $(LIBSODIUM_LIBS)
+rec_control_LDADD = $(LIBSODIUM_LIBS) \
+	$(LIBCRYPTO_LIBS)
 
 testrunner_SOURCES += \
 	sodiumsigners.cc
