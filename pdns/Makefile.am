@@ -201,6 +201,7 @@ pdns_server_SOURCES = \
 	comment.hh \
 	common_startup.cc common_startup.hh \
 	communicator.cc communicator.hh \
+	credentials.cc credentials.hh \
 	dbdnsseckeeper.cc \
 	digests.hh \
 	distributor.hh \
@@ -333,6 +334,7 @@ pdnsutil_SOURCES = \
 	bindparser.yy \
 	cachecleaner.hh \
 	circular_buffer.hh \
+	credentials.cc credentials.hh \
 	dbdnsseckeeper.cc \
 	dns.cc \
 	dns_random.cc \
@@ -676,6 +678,7 @@ ixfrdist_SOURCES = \
 	axfr-retriever.cc \
 	base32.cc \
 	base64.cc base64.hh \
+	credentials.cc credentials.hh \
 	dns.cc \
 	dns_random_urandom.cc dns_random.hh \
 	dnslabeltext.cc \
@@ -710,7 +713,6 @@ ixfrdist_SOURCES = \
 	webserver.hh webserver.cc \
 	zoneparser-tng.cc
 
-
 ixfrdist_LDADD = \
 	$(BOOST_PROGRAM_OPTIONS_LIBS) \
 	$(JSON11_LIBS) \
@@ -722,6 +724,10 @@ ixfrdist_LDFLAGS = \
 	$(AM_LDFLAGS) \
 	$(BOOST_PROGRAM_OPTIONS_LDFLAGS) \
 	$(LIBCRYPTO_LDFLAGS)
+
+if LIBSODIUM
+ixfrdist_LDADD += $(LIBSODIUM_LIBS)
+endif
 
 if PKCS11
 ixfrdist_SOURCES += pkcs11signers.cc pkcs11signers.hh

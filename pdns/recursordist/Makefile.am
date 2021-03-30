@@ -105,6 +105,7 @@ pdns_recursor_SOURCES = \
 	capabilities.cc capabilities.hh \
 	circular_buffer.hh \
 	comment.hh \
+	credentials.cc credentials.hh \
 	dns.hh dns.cc \
 	dns_random.hh dns_random.cc \
 	dnsbackend.hh \
@@ -361,6 +362,9 @@ if LIBSODIUM
 pdns_recursor_SOURCES += \
 	sodiumsigners.cc
 pdns_recursor_LDADD += $(LIBSODIUM_LIBS)
+
+rec_control_LDADD = $(LIBSODIUM_LIBS)
+
 testrunner_SOURCES += \
 	sodiumsigners.cc
 testrunner_LDADD += $(LIBSODIUM_LIBS)
@@ -418,6 +422,7 @@ endif
 
 rec_control_SOURCES = \
 	arguments.cc arguments.hh \
+	credentials.cc credentials.hh \
 	dnslabeltext.cc \
 	dnsname.hh dnsname.cc \
 	logger.cc \
