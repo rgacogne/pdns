@@ -626,3 +626,6 @@ std::string getCarbonHostName();
 size_t parseRFC1035CharString(const std::string &in, std::string &val); // from ragel
 
 std::string makeLuaString(const std::string& in);
+
+bool constantTimeStringEquals(const std::string& a, const std::string& b);
+
