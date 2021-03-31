@@ -54,6 +54,7 @@
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsdist-rings.hh"
 #include "dnsdist-secpoll.hh"
+#include "dnsdist-tcp.hh"
 #include "dnsdist-web.hh"
 #include "dnsdist-xpf.hh"
 
@@ -640,8 +641,11 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
         }
         memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
-        if (!processResponse(response, localRespRuleActions, dr, ids->cs && ids->cs->muted)) {
-          continue;
+        /* don't call processResponse on a truncated answer for DoH, we will retry over TCP */
+        if (!(du && dh->tc)) {
+          if (!processResponse(response, localRespRuleActions, dr, ids->cs && ids->cs->muted)) {
+            continue;
+          }
         }
 
         if (ids->cs && !ids->cs->muted) {
@@ -2381,7 +2385,7 @@ int main(int argc, char** argv)
       g_maxTCPClientThreads = 1;
     }
 
-    g_tcpclientthreads = std::unique_ptr<TCPClientCollection>(new TCPClientCollection(*g_maxTCPClientThreads, g_useTCPSinglePipe));
+    g_tcpclientthreads = std::make_unique<TCPClientCollection>(*g_maxTCPClientThreads);
 
     for (auto& t : todo) {
       t();
