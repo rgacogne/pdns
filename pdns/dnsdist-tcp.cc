@@ -28,6 +28,7 @@
 #include "dnsdist-ecs.hh"
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsdist-rings.hh"
+#include "dnsdist-tcp.hh"
 #include "dnsdist-tcp-downstream.hh"
 #include "dnsdist-tcp-upstream.hh"
 #include "dnsdist-xpf.hh"
@@ -73,7 +74,6 @@ uint64_t g_maxTCPQueuedConnections{1000};
 uint16_t g_downstreamTCPCleanupInterval{60};
 int g_tcpRecvTimeout{2};
 int g_tcpSendTimeout{2};
-bool g_useTCPSinglePipe{false};
 std::atomic<uint64_t> g_tcpStatesDumpRequested{0};
 
 class DownstreamConnectionsManager
@@ -251,32 +251,8 @@ std::shared_ptr<TCPConnectionToBackend> IncomingTCPConnectionState::getDownstrea
 
 static void tcpClientThread(int pipefd);
 
-TCPClientCollection::TCPClientCollection(size_t maxThreads, bool useSinglePipe): d_tcpclientthreads(maxThreads), d_maxthreads(maxThreads), d_singlePipe{-1,-1}, d_useSinglePipe(useSinglePipe)
+TCPClientCollection::TCPClientCollection(size_t maxThreads): d_tcpclientthreads(maxThreads), d_maxthreads(maxThreads)
 {
-  if (d_useSinglePipe) {
-    if (pipe(d_singlePipe) < 0) {
-      int err = errno;
-      throw std::runtime_error("Error creating the TCP single communication pipe: " + stringerror(err));
-    }
-
-    if (!setNonBlocking(d_singlePipe[0])) {
-      int err = errno;
-      close(d_singlePipe[0]);
-      close(d_singlePipe[1]);
-      throw std::runtime_error("Error setting the TCP single communication pipe non-blocking: " + stringerror(err));
-    }
-
-    if (!setNonBlocking(d_singlePipe[1])) {
-      int err = errno;
-      close(d_singlePipe[0]);
-      close(d_singlePipe[1]);
-      throw std::runtime_error("Error setting the TCP single communication pipe non-blocking: " + stringerror(err));
-    }
-
-    if (g_tcpInternalPipeBufferSize > 0 && getPipeBufferSize(d_singlePipe[0]) < g_tcpInternalPipeBufferSize) {
-      setPipeBufferSize(d_singlePipe[0], g_tcpInternalPipeBufferSize);
-    }
-  }
 }
 
 void TCPClientCollection::addTCPClientThread()
@@ -285,35 +261,29 @@ void TCPClientCollection::addTCPClientThread()
 
   vinfolog("Adding TCP Client thread");
 
-  if (d_useSinglePipe) {
-    pipefds[0] = d_singlePipe[0];
-    pipefds[1] = d_singlePipe[1];
+  if (pipe(pipefds) < 0) {
+    errlog("Error creating the TCP thread communication pipe: %s", stringerror());
+    return;
   }
-  else {
-    if (pipe(pipefds) < 0) {
-      errlog("Error creating the TCP thread communication pipe: %s", stringerror());
-      return;
-    }
 
-    if (!setNonBlocking(pipefds[0])) {
-      int err = errno;
-      close(pipefds[0]);
-      close(pipefds[1]);
-      errlog("Error setting the TCP thread communication pipe non-blocking: %s", stringerror(err));
-      return;
-    }
+  if (!setNonBlocking(pipefds[0])) {
+    int err = errno;
+    close(pipefds[0]);
+    close(pipefds[1]);
+    errlog("Error setting the TCP thread communication pipe non-blocking: %s", stringerror(err));
+    return;
+  }
 
-    if (!setNonBlocking(pipefds[1])) {
-      int err = errno;
-      close(pipefds[0]);
-      close(pipefds[1]);
-      errlog("Error setting the TCP thread communication pipe non-blocking: %s", stringerror(err));
-      return;
-    }
+  if (!setNonBlocking(pipefds[1])) {
+    int err = errno;
+    close(pipefds[0]);
+    close(pipefds[1]);
+    errlog("Error setting the TCP thread communication pipe non-blocking: %s", stringerror(err));
+    return;
+  }
 
-    if (g_tcpInternalPipeBufferSize > 0 && getPipeBufferSize(pipefds[0]) < g_tcpInternalPipeBufferSize) {
-      setPipeBufferSize(pipefds[0], g_tcpInternalPipeBufferSize);
-    }
+  if (g_tcpInternalPipeBufferSize > 0 && getPipeBufferSize(pipefds[0]) < g_tcpInternalPipeBufferSize) {
+    setPipeBufferSize(pipefds[0], g_tcpInternalPipeBufferSize);
   }
 
   {
@@ -321,13 +291,14 @@ void TCPClientCollection::addTCPClientThread()
 
     if (d_numthreads >= d_tcpclientthreads.size()) {
       vinfolog("Adding a new TCP client thread would exceed the vector size (%d/%d), skipping. Consider increasing the maximum amount of TCP client threads with setMaxTCPClientThreads() in the configuration.", d_numthreads.load(), d_tcpclientthreads.size());
-      if (!d_useSinglePipe) {
-        close(pipefds[0]);
-        close(pipefds[1]);
-      }
+      close(pipefds[0]);
+      close(pipefds[1]);
       return;
     }
 
+    /* from now on this side of the pipe will be managed by that object,
+       no need to worry about it */
+    TCPWorkerThread worker(pipefds[1]);
     try {
       std::thread t1(tcpClientThread, pipefds[0]);
       t1.detach();
@@ -335,14 +306,11 @@ void TCPClientCollection::addTCPClientThread()
     catch (const std::runtime_error& e) {
       /* the thread creation failed, don't leak */
       errlog("Error creating a TCP thread: %s", e.what());
-      if (!d_useSinglePipe) {
-        close(pipefds[0]);
-        close(pipefds[1]);
-      }
+      close(pipefds[0]);
       return;
     }
 
-    d_tcpclientthreads.at(d_numthreads) = pipefds[1];
+    d_tcpclientthreads.at(d_numthreads) = std::move(worker);
     ++d_numthreads;
   }
 }
@@ -1228,7 +1196,6 @@ void tcpAcceptorThread(ClientState* cs)
 
   auto acl = g_ACL.getLocal();
   for(;;) {
-    bool queuedCounterIncremented = false;
     std::unique_ptr<ConnectionInfo> ci;
     tcpClientCountIncremented = false;
     try {
@@ -1284,23 +1251,7 @@ void tcpAcceptorThread(ClientState* cs)
       vinfolog("Got TCP connection from %s", remote.toStringWithPort());
 
       ci->remote = remote;
-      int pipe = g_tcpclientthreads->getThread();
-      if (pipe >= 0) {
-        queuedCounterIncremented = true;
-        auto tmp = ci.release();
-        try {
-          // throws on failure
-          writen2WithTimeout(pipe, &tmp, sizeof(tmp), 0);
-        }
-        catch (...) {
-          delete tmp;
-          tmp = nullptr;
-          throw;
-        }
-      }
-      else {
-        g_tcpclientthreads->decrementQueuedCount();
-        queuedCounterIncremented = false;
+      if (!g_tcpclientthreads->passQueryToThread(std::move(ci))) {
         if (tcpClientCountIncremented) {
           decrementTCPClientCount(remote);
         }
@@ -1310,9 +1261,6 @@ void tcpAcceptorThread(ClientState* cs)
       errlog("While reading a TCP question: %s", e.what());
       if (tcpClientCountIncremented) {
         decrementTCPClientCount(remote);
-      }
-      if (queuedCounterIncremented) {
-        g_tcpclientthreads->decrementQueuedCount();
       }
     }
     catch (...){}

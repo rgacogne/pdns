@@ -846,49 +846,6 @@ struct ClientState
   }
 };
 
-class TCPClientCollection {
-  std::vector<int> d_tcpclientthreads;
-  stat_t d_numthreads{0};
-  stat_t d_pos{0};
-  stat_t d_queued{0};
-  const uint64_t d_maxthreads{0};
-  std::mutex d_mutex;
-  int d_singlePipe[2];
-  const bool d_useSinglePipe;
-public:
-
-  TCPClientCollection(size_t maxThreads, bool useSinglePipe=false);
-  int getThread()
-  {
-    if (d_numthreads == 0) {
-      throw std::runtime_error("No TCP worker thread yet");
-    }
-
-    uint64_t pos = d_pos++;
-    ++d_queued;
-    return d_tcpclientthreads.at(pos % d_numthreads);
-  }
-  bool hasReachedMaxThreads() const
-  {
-    return d_numthreads >= d_maxthreads;
-  }
-  uint64_t getThreadsCount() const
-  {
-    return d_numthreads;
-  }
-  uint64_t getQueuedCount() const
-  {
-    return d_queued;
-  }
-  void decrementQueuedCount()
-  {
-    --d_queued;
-  }
-  void addTCPClientThread();
-};
-
-extern std::unique_ptr<TCPClientCollection> g_tcpclientthreads;
-
 struct DownstreamState
 {
    typedef std::function<std::tuple<DNSName, uint16_t, uint16_t>(const DNSName&, uint16_t, uint16_t, dnsheader*)> checkfunc_t;

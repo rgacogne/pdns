@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dolog.hh"
+#include "dnsdist-tcp.hh"
 
 class TCPClientThreadData
 {
@@ -12,47 +13,6 @@ public:
   LocalHolders holders;
   LocalStateHolder<vector<DNSDistResponseRuleAction> > localRespRuleActions;
   std::unique_ptr<FDMultiplexer> mplexer{nullptr};
-};
-
-struct ConnectionInfo
-{
-  ConnectionInfo(ClientState* cs_): cs(cs_), fd(-1)
-  {
-  }
-  ConnectionInfo(ConnectionInfo&& rhs): remote(rhs.remote), cs(rhs.cs), fd(rhs.fd)
-  {
-    rhs.cs = nullptr;
-    rhs.fd = -1;
-  }
-
-  ConnectionInfo(const ConnectionInfo& rhs) = delete;
-  ConnectionInfo& operator=(const ConnectionInfo& rhs) = delete;
-
-  ConnectionInfo& operator=(ConnectionInfo&& rhs)
-  {
-    remote = rhs.remote;
-    cs = rhs.cs;
-    rhs.cs = nullptr;
-    fd = rhs.fd;
-    rhs.fd = -1;
-    return *this;
-  }
-
-  ~ConnectionInfo()
-  {
-    if (fd != -1) {
-      close(fd);
-      fd = -1;
-    }
-
-    if (cs) {
-      --cs->tcpCurrentConnections;
-    }
-  }
-
-  ComboAddress remote;
-  ClientState* cs{nullptr};
-  int fd{-1};
 };
 
 class IncomingTCPConnectionState

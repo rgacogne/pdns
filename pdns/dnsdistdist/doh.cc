@@ -1148,6 +1148,12 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
     return;
   }
 
+  const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
+
+  if (dh->tc && !du->tcp) {
+    
+  }
+
   if (du->self) {
     // we are back in the h2o main thread now, so we don't risk
     // a race (h2o killing the query) when accessing du->req anymore
