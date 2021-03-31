@@ -918,6 +918,7 @@ endif
 speedtest_SOURCES = \
 	base32.cc \
 	base64.cc base64.hh \
+	credentials.cc credentials.hh \
 	dnslabeltext.cc \
 	dnsname.cc dnsname.hh \
 	dnsparser.cc dnsparser.hh \
@@ -1427,6 +1428,7 @@ endif
 if LIBSODIUM
 testrunner_SOURCES += sodiumsigners.cc
 testrunner_LDADD += $(LIBSODIUM_LIBS)
+speedtest_LDADD += $(LIBSODIUM_LIBS)
 endif
 
 if LIBDECAF
