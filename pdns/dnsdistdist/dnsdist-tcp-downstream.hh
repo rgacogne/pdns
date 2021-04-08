@@ -5,22 +5,9 @@
 #include "sstuff.hh"
 #include "tcpiohandler-mplexer.hh"
 #include "dnsdist.hh"
+#include "dnsdist-tcp.hh"
 
-struct TCPQuery
-{
-  TCPQuery()
-  {
-  }
-
-  TCPQuery(PacketBuffer&& buffer, IDState&& state): d_idstate(std::move(state)), d_buffer(std::move(buffer))
-  {
-  }
-
-  IDState d_idstate;
-  PacketBuffer d_buffer;
-  std::string d_proxyProtocolPayload;
-  bool d_proxyProtocolPayloadAdded{false};
-};
+using TCPQuery = InternalQuery;
 
 class TCPConnectionToBackend;
 
@@ -42,12 +29,20 @@ struct TCPResponse : public TCPQuery
   bool d_selfGenerated{false};
 };
 
-class IncomingTCPConnectionState;
-
-class TCPConnectionToBackend
+class TCPQuerySender
 {
 public:
-  TCPConnectionToBackend(std::shared_ptr<DownstreamState>& ds, const struct timeval& now): d_responseBuffer(s_maxPacketCacheEntrySize), d_ds(ds), d_connectionStartTime(now), d_lastDataReceivedTime(now), d_enableFastOpen(ds->tcpFastOpen)
+  virtual bool active() const = 0;
+  virtual ClientState& getClientState() = 0;
+  virtual void handleResponse(const struct timeval& now, TCPResponse&& response) = 0;
+  virtual void handleXFRResponse(const struct timeval& now, TCPResponse&& response) = 0;
+  virtual void notifyIOError(IDState&& query, const struct timeval& now) = 0;
+};
+
+class TCPConnectionToBackend : public std::enable_shared_from_this<TCPConnectionToBackend>
+{
+public:
+  TCPConnectionToBackend(std::shared_ptr<DownstreamState>& ds, std::unique_ptr<FDMultiplexer>& mplexer, const struct timeval& now): d_responseBuffer(s_maxPacketCacheEntrySize), d_mplexer(mplexer), d_ds(ds), d_connectionStartTime(now), d_lastDataReceivedTime(now), d_enableFastOpen(ds->tcpFastOpen)
   {
     reconnect();
   }
@@ -63,8 +58,6 @@ public:
       d_ds->updateTCPMetrics(d_queries, diff.tv_sec * 1000 + diff.tv_usec / 1000);
     }
   }
-
-  void assignToClientConnection(std::shared_ptr<IncomingTCPConnectionState>& clientConn, bool isXFR);
 
   int getHandle() const
   {
@@ -163,7 +156,7 @@ public:
     return ds == d_ds;
   }
 
-  void queueQuery(TCPQuery&& query, std::shared_ptr<TCPConnectionToBackend>& sharedSelf);
+  void queueQuery(std::shared_ptr<TCPQuerySender>& sender, TCPQuery&& query, bool xfr);
   void handleTimeout(const struct timeval& now, bool write);
   void release();
 
@@ -177,7 +170,7 @@ public:
   std::string toString() const
   {
     ostringstream o;
-    o << "TCP connection to backend "<<(d_ds ? d_ds->getName() : "empty")<<" over FD "<<(d_handler ? std::to_string(d_handler->getDescriptor()) : "no socket")<<", state is "<<(int)d_state<<", io state is "<<(d_ioState ? std::to_string((int)d_ioState->getState()) : "empty")<<", queries count is "<<d_queries<<", pending queries count is "<<d_pendingQueries.size()<<", "<<d_pendingResponses.size()<<" pending responses, linked to "<<(d_clientConn ? " a client" : "no client");
+    o << "TCP connection to backend "<<(d_ds ? d_ds->getName() : "empty")<<" over FD "<<(d_handler ? std::to_string(d_handler->getDescriptor()) : "no socket")<<", state is "<<(int)d_state<<", io state is "<<(d_ioState ? std::to_string((int)d_ioState->getState()) : "empty")<<", queries count is "<<d_queries<<", pending queries count is "<<d_pendingQueries.size()<<", "<<d_pendingResponses.size()<<" pending responses, linked to "<<(d_sender ? " a client" : "no client");
     return o.str();
   }
 
@@ -251,11 +244,12 @@ private:
   PacketBuffer d_responseBuffer;
   std::deque<TCPQuery> d_pendingQueries;
   std::unordered_map<uint16_t, TCPQuery> d_pendingResponses;
+  std::unique_ptr<FDMultiplexer>& d_mplexer;
   std::unique_ptr<std::vector<ProxyProtocolValue>> d_proxyProtocolValuesSent{nullptr};
   std::unique_ptr<TCPIOHandler> d_handler{nullptr};
   std::unique_ptr<IOStateHandler> d_ioState{nullptr};
   std::shared_ptr<DownstreamState> d_ds{nullptr};
-  std::shared_ptr<IncomingTCPConnectionState> d_clientConn;
+  std::shared_ptr<TCPQuerySender> d_sender{nullptr};
   TCPQuery d_currentQuery;
   struct timeval d_connectionStartTime;
   struct timeval d_lastDataReceivedTime;
