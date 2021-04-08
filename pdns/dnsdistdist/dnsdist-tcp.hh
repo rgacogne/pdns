@@ -62,6 +62,36 @@ struct ConnectionInfo
   int fd{-1};
 };
 
+struct InternalQuery
+{
+  InternalQuery()
+  {
+  }
+
+  InternalQuery(PacketBuffer&& buffer, IDState&& state): d_idstate(std::move(state)), d_buffer(std::move(buffer))
+  {
+  }
+
+  InternalQuery(InternalQuery&& rhs): d_idstate(std::move(rhs.d_idstate)), d_buffer(std::move(rhs.d_buffer)), d_proxyProtocolPayload(std::move(rhs.d_proxyProtocolPayload)), d_proxyProtocolPayloadAdded(rhs.d_proxyProtocolPayloadAdded)
+  {
+  }
+  InternalQuery(const InternalQuery& rhs) = delete;
+  InternalQuery& operator=(const InternalQuery& rhs) = delete;
+
+  IDState d_idstate;
+  PacketBuffer d_buffer;
+  std::string d_proxyProtocolPayload;
+  bool d_proxyProtocolPayloadAdded{false};
+};
+
+struct CrossProtocolQuery 
+{
+  InternalQuery query;
+  std::shared_ptr<DownstreamState> downstream{nullptr};
+  const void* cbData{nullptr};
+  int responsePipe{-1};
+};
+
 class TCPClientCollection {
 public:
   TCPClientCollection(size_t maxThreads);
@@ -77,8 +107,8 @@ public:
     return d_tcpclientthreads.at(pos % d_numthreads).d_newConnectionPipe;
   }
 
-  bool passQueryToThread(std::unique_ptr<ConnectionInfo>&& conn)
-  { 
+  bool passConnectionToThread(std::unique_ptr<ConnectionInfo>&& conn)
+  {
     if (d_numthreads == 0) {
       throw std::runtime_error("No TCP worker thread yet");
     }
@@ -93,6 +123,25 @@ public:
       return false;
     }
     ++d_queued;
+    return true;
+  }
+
+  bool passCrossProtocolQueryToThread(std::unique_ptr<CrossProtocolQuery>&& cpq)
+  {
+    if (d_numthreads == 0) {
+      throw std::runtime_error("No TCP worker thread yet");
+    }
+
+    uint64_t pos = d_pos++;
+    auto pipe = d_tcpclientthreads.at(pos % d_numthreads).d_crossProtocolQueryPipe;
+    auto tmp = cpq.release();
+
+    if (write(pipe, &tmp, sizeof(tmp)) != sizeof(tmp)) {
+      delete tmp;
+      tmp = nullptr;
+      return false;
+    }
+
     return true;
   }
 
@@ -125,18 +174,48 @@ private:
     {
     }
 
-    TCPWorkerThread(int newConnPipe): d_newConnectionPipe(newConnPipe)
+    TCPWorkerThread(int newConnPipe, int crossProtocolPipe): d_newConnectionPipe(newConnPipe), d_crossProtocolQueryPipe(crossProtocolPipe)
     {
     }
+
+    TCPWorkerThread(TCPWorkerThread&& rhs): d_newConnectionPipe(rhs.d_newConnectionPipe), d_crossProtocolQueryPipe(rhs.d_crossProtocolQueryPipe)
+    {
+      rhs.d_newConnectionPipe = -1;
+      rhs.d_crossProtocolQueryPipe = -1;
+    }
+
+    TCPWorkerThread& operator=(TCPWorkerThread&& rhs)
+    {
+      if (d_newConnectionPipe != -1) {
+        close(d_newConnectionPipe);
+      }
+      if (d_crossProtocolQueryPipe != -1) {
+        close(d_crossProtocolQueryPipe);
+      }
+
+      d_newConnectionPipe = rhs.d_newConnectionPipe;
+      d_crossProtocolQueryPipe = rhs.d_crossProtocolQueryPipe;
+      rhs.d_newConnectionPipe = -1;
+      rhs.d_crossProtocolQueryPipe = -1;
+
+      return *this;
+    }
+
+    TCPWorkerThread(const TCPWorkerThread& rhs) = delete;
+    TCPWorkerThread& operator=(const TCPWorkerThread&) = delete;
 
     ~TCPWorkerThread()
     {
       if (d_newConnectionPipe != -1) {
         close(d_newConnectionPipe);
       }
+      if (d_crossProtocolQueryPipe != -1) {
+        close(d_crossProtocolQueryPipe);
+      }
     }
 
     int d_newConnectionPipe{-1};
+    int d_crossProtocolQueryPipe{-1};
   };
 
   std::mutex d_mutex;

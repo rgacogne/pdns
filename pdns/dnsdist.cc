@@ -79,8 +79,8 @@
 
 /* the RuleAction plan
    Set of Rules, if one matches, it leads to an Action
-   Both rules and actions could conceivably be Lua based. 
-   On the C++ side, both could be inherited from a class Rule and a class Action, 
+   Both rules and actions could conceivably be Lua based.
+   On the C++ side, both could be inherited from a class Rule and a class Action,
    on the Lua side we can't do that. */
 
 using std::thread;
@@ -108,7 +108,7 @@ GlobalStateHolder<pools_t> g_pools;
 size_t g_udpVectorSize{1};
 
 /* UDP: the grand design. Per socket we listen on for incoming queries there is one thread.
-   Then we have a bunch of connected sockets for talking to downstream servers. 
+   Then we have a bunch of connected sockets for talking to downstream servers.
    We send directly to those sockets.
 
    For the return path, per downstream server we have a thread that listens to responses.
@@ -116,7 +116,7 @@ size_t g_udpVectorSize{1};
    Per socket there is an array of 2^16 states, when we send out a packet downstream, we note
    there the original requestor and the original id. The new ID is the offset in the array.
 
-   When an answer comes in on a socket, we look up the offset by the id, and lob it to the 
+   When an answer comes in on a socket, we look up the offset by the id, and lob it to the
    original requestor.
 
    IDs are assigned by atomic increments of the socket offset.
@@ -635,44 +635,35 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
 
         dh->id = ids->origID;
 
+        /* don't call processResponse on a truncated answer for DoH, we will retry over TCP */
+        if (du && dh->tc) {
+#ifdef HAVE_DNS_OVER_HTTPS
+          // DoH query
+          cerr<<"truncated answer for DoH"<<endl;
+          du->handleUDPResponse(std::move(response), std::move(*ids));
+#endif
+          continue;
+        }
+
         DNSResponse dr = makeDNSResponseFromIDState(*ids, response, false);
         if (dh->tc && g_truncateTC) {
           truncateTC(response, dr.getMaximumSize(), qnameWireLength);
         }
         memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
-        /* don't call processResponse on a truncated answer for DoH, we will retry over TCP */
-        if (!(du && dh->tc)) {
-          if (!processResponse(response, localRespRuleActions, dr, ids->cs && ids->cs->muted)) {
-            continue;
-          }
+        if (!processResponse(response, localRespRuleActions, dr, ids->cs && ids->cs->muted)) {
+          continue;
         }
 
         if (ids->cs && !ids->cs->muted) {
           if (du) {
 #ifdef HAVE_DNS_OVER_HTTPS
             // DoH query
-            du->response = std::move(response);
-            static_assert(sizeof(du) <= PIPE_BUF, "Writes up to PIPE_BUF are guaranteed not to be interleaved and to either fully succeed or fail");
-            ssize_t sent = write(du->rsock, &du, sizeof(du));
-            if (sent != sizeof(du)) {
-              if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                ++g_stats.dohResponsePipeFull;
-                vinfolog("Unable to pass a DoH response to the DoH worker thread because the pipe is full");
-              }
-              else {
-                vinfolog("Unable to pass a DoH response to the DoH worker thread because we couldn't write to the pipe: %s", stringerror());
-              }
-
-              /* at this point we have the only remaining pointer on this
-                 DOHUnit object since we did set ids->du to nullptr earlier,
-                 except if we got the response before the pointer could be
-                 released by the frontend */
-              du->release();
-            }
-#endif /* HAVE_DNS_OVER_HTTPS */
+            du->handleUDPResponse(std::move(response), IDState());
+#endif
             du = nullptr;
           }
+
           else {
             ComboAddress empty;
             empty.sin4.sin_family = 0;
@@ -895,7 +886,7 @@ static bool applyRulesToQuery(LocalHolders& holders, DNSQuestion& dq, const stru
       case DNSAction::Action::Refused:
         vinfolog("Query from %s refused because of dynamic block", dq.remote->toStringWithPort());
         updateBlockStats();
-      
+
         dq.getHeader()->rcode = RCode::Refused;
         dq.getHeader()->qr = true;
         return true;
@@ -960,7 +951,7 @@ static bool applyRulesToQuery(LocalHolders& holders, DNSQuestion& dq, const stru
       case DNSAction::Action::Truncate:
         if(!dq.tcp) {
           updateBlockStats();
-      
+
           vinfolog("Query from %s for %s truncated because of dynamic block", dq.remote->toStringWithPort(), dq.qname->toLogString());
           dq.getHeader()->tc = true;
           dq.getHeader()->qr = true;
@@ -1717,7 +1708,7 @@ static void healthChecksThread()
       dss->dropRate = 1.0*(dss->reuseds.load() - dss->prev.reuseds.load())/delta;
       dss->prev.queries.store(dss->queries.load());
       dss->prev.reuseds.store(dss->reuseds.load());
-      
+
       for (IDState& ids  : dss->idStates) { // timeouts
         int64_t usageIndicator = ids.usageIndicator;
         if(IDState::isInUse(usageIndicator) && ids.age++ > g_udpTimeout) {
@@ -1750,7 +1741,7 @@ static void healthChecksThread()
           fake.id = ids.origID;
 
           g_rings.insertResponse(ts, ids.origRemote, ids.qname, ids.qtype, std::numeric_limits<unsigned int>::max(), 0, fake, dss->remote);
-        }          
+        }
       }
     }
 
@@ -1970,7 +1961,7 @@ static void setUpLocalBind(std::unique_ptr<ClientState>& cs)
   cs->ready = true;
 }
 
-struct 
+struct
 {
   vector<string> locals;
   vector<string> remotes;
@@ -2045,7 +2036,7 @@ int main(int argc, char** argv)
       srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
       g_hashperturb=random();
     }
-  
+
 #endif
     ComboAddress clientAddress = ComboAddress();
     g_cmdLine.config=SYSCONFDIR "/dnsdist.conf";
@@ -2463,7 +2454,7 @@ int main(int argc, char** argv)
 
     thread stattid(maintThread);
     stattid.detach();
-  
+
     thread healththread(healthChecksThread);
 
     thread dynBlockMaintThread(dynBlockMaintenanceThread);

@@ -20,6 +20,7 @@
 #include "dnsname.hh"
 #undef CERT
 #include "dnsdist.hh"
+#include "dnsdist-tcp.hh"
 #include "misc.hh"
 #include "dns.hh"
 #include "dolog.hh"
@@ -471,8 +472,7 @@ static int processDOHQuery(DOHUnit* du)
     dq.du = du;
     dq.sni = std::move(du->sni);
 
-    std::shared_ptr<DownstreamState> ss{nullptr};
-    auto result = processQuery(dq, cs, holders, ss);
+    auto result = processQuery(dq, cs, holders, du->downstream);
 
     if (result == ProcessQueryResult::Drop) {
       du->status_code = 403;
@@ -494,14 +494,14 @@ static int processDOHQuery(DOHUnit* du)
       return -1;
     }
 
-    if (ss == nullptr) {
+    if (du->downstream == nullptr) {
       du->status_code = 502;
       return -1;
     }
 
     ComboAddress dest = du->dest;
-    unsigned int idOffset = (ss->idOffset++) % ss->idStates.size();
-    IDState* ids = &ss->idStates[idOffset];
+    unsigned int idOffset = (du->downstream->idOffset++) % du->downstream->idStates.size();
+    IDState* ids = &du->downstream->idStates[idOffset];
     ids->age = 0;
     DOHUnit* oldDU = nullptr;
     if (ids->isInUse()) {
@@ -517,13 +517,13 @@ static int processDOHQuery(DOHUnit* du)
       /* the state was not in use.
          we reset 'oldDU' because it might have still been in use when we read it. */
       oldDU = nullptr;
-      ++ss->outstanding;
+      ++du->downstream->outstanding;
     }
     else {
       ids->du = nullptr;
       /* we are reusing a state, no change in outstanding but if there was an existing DOHUnit we need
          to handle it because it's about to be overwritten. */
-      ++ss->reuseds;
+      ++du->downstream->reuseds;
       ++g_stats.downstreamTimeouts;
       handleDOHTimeout(oldDU);
     }
@@ -555,16 +555,16 @@ static int processDOHQuery(DOHUnit* du)
       ids->destHarvested = false;
     }
 
-    if (ss->useProxyProtocol) {
+    if (du->downstream->useProxyProtocol) {
       addProxyProtocol(dq);
     }
 
-    int fd = pickBackendSocketForSending(ss);
+    int fd = pickBackendSocketForSending(du->downstream);
     try {
       /* you can't touch du after this line, because it might already have been freed */
-      ssize_t ret = udpClientSendRequestToBackend(ss, fd, du->query);
+      ssize_t ret = udpClientSendRequestToBackend(du->downstream, fd, du->query);
 
-      if(ret < 0) {
+      if (ret < 0) {
         /* we are about to handle the error, make sure that
            this pointer is not accessed when the state is cleaned,
            but first check that it still belongs to us */
@@ -572,9 +572,9 @@ static int processDOHQuery(DOHUnit* du)
           ids->du = nullptr;
           du->release();
           duRefCountIncremented = false;
-          --ss->outstanding;
+          --du->downstream->outstanding;
         }
-        ++ss->sendErrors;
+        ++du->downstream->sendErrors;
         ++g_stats.downstreamSendErrors;
         du->status_code = 502;
         return -1;
@@ -587,7 +587,7 @@ static int processDOHQuery(DOHUnit* du)
       throw;
     }
 
-    vinfolog("Got query for %s|%s from %s (https), relayed to %s", ids->qname.toString(), QType(ids->qtype).getName(), remote.toStringWithPort(), ss->getName());
+    vinfolog("Got query for %s|%s from %s (https), relayed to %s", ids->qname.toString(), QType(ids->qtype).getName(), remote.toStringWithPort(), du->downstream->getName());
   }
   catch(const std::exception& e) {
     vinfolog("Got an error in DOH question thread while parsing a query from %s, id %d: %s", remote.toStringWithPort(), queryId, e.what());
@@ -1148,10 +1148,25 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
     return;
   }
 
-  const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
+  if (!du->response.empty() && !du->tcp) {
+    const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
 
-  if (dh->tc && !du->tcp) {
-    
+    if (dh->tc) {
+      cerr<<"truncated answer over UDP, crap"<<endl;
+      auto cpq = std::make_unique<CrossProtocolQuery>();
+      cpq->downstream = std::move(du->downstream);
+      cpq->query = InternalQuery(std::move(du->query), std::move(du->ids));
+      cpq->cbData = du;
+      du->tcp = true;
+
+      du->get();
+      if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
+        return;
+      }
+      else {
+        du->release();
+      }
+    }
   }
 
   if (du->self) {
@@ -1456,6 +1471,32 @@ void dohThread(ClientState* cs)
   }
   catch (...) {
     throw runtime_error("DOH thread failed to launch");
+  }
+}
+
+void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, IDState&& state)
+{
+  static_assert(sizeof(*this) <= PIPE_BUF, "Writes up to PIPE_BUF are guaranteed not to be interleaved and to either fully succeed or fail");
+
+  response = std::move(udpResponse);
+  ids = std::move(state);
+
+  auto du = this;
+  ssize_t sent = write(rsock, &du, sizeof(du));
+  if (sent != sizeof(this)) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      ++g_stats.dohResponsePipeFull;
+      vinfolog("Unable to pass a DoH response to the DoH worker thread because the pipe is full");
+    }
+    else {
+      vinfolog("Unable to pass a DoH response to the DoH worker thread because we couldn't write to the pipe: %s", stringerror());
+    }
+
+    /* at this point we have the only remaining pointer on this
+       DOHUnit object since we did set ids->du to nullptr earlier,
+       except if we got the response before the pointer could be
+       released by the frontend */
+    release();
   }
 }
 
