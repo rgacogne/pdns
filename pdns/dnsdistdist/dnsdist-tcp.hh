@@ -75,6 +75,15 @@ struct InternalQuery
   InternalQuery(InternalQuery&& rhs): d_idstate(std::move(rhs.d_idstate)), d_buffer(std::move(rhs.d_buffer)), d_proxyProtocolPayload(std::move(rhs.d_proxyProtocolPayload)), d_proxyProtocolPayloadAdded(rhs.d_proxyProtocolPayloadAdded)
   {
   }
+  InternalQuery& operator=(InternalQuery&& rhs)
+  {
+    d_idstate = std::move(rhs.d_idstate);
+    d_buffer = std::move(rhs.d_buffer);
+    d_proxyProtocolPayload = std::move(rhs.d_proxyProtocolPayload);
+    d_proxyProtocolPayloadAdded = rhs.d_proxyProtocolPayloadAdded;
+    return *this;
+  }
+
   InternalQuery(const InternalQuery& rhs) = delete;
   InternalQuery& operator=(const InternalQuery& rhs) = delete;
 
@@ -86,6 +95,16 @@ struct InternalQuery
 
 struct CrossProtocolQuery 
 {
+  CrossProtocolQuery()
+  {
+  }
+
+  CrossProtocolQuery(CrossProtocolQuery&& rhs): query(std::move(rhs.query)), downstream(std::move(rhs.downstream)), cbData(rhs.cbData), responsePipe(rhs.responsePipe)
+  {
+    rhs.cbData = nullptr;
+    rhs.responsePipe = -1;
+  }
+
   InternalQuery query;
   std::shared_ptr<DownstreamState> downstream{nullptr};
   const void* cbData{nullptr};
