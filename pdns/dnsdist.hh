@@ -40,6 +40,7 @@
 #include "dnsdist-lbpolicies.hh"
 #include "dnsname.hh"
 #include "doh.hh"
+#include "doq.hh"
 #include "ednsoptions.hh"
 #include "gettime.hh"
 #include "iputils.hh"
@@ -728,6 +729,7 @@ struct ClientState
   std::shared_ptr<DNSCryptContext> dnscryptCtx{nullptr};
   std::shared_ptr<TLSFrontend> tlsFrontend{nullptr};
   std::shared_ptr<DOHFrontend> dohFrontend{nullptr};
+  std::shared_ptr<DOQFrontend> doqFrontend{nullptr};
   std::string interface;
   stat_t queries{0};
   mutable stat_t responses{0};
@@ -780,7 +782,7 @@ struct ClientState
 
   bool hasTLS() const
   {
-    return tlsFrontend != nullptr || dohFrontend != nullptr;
+    return tlsFrontend != nullptr || dohFrontend != nullptr || doqFrontend != nullptr;
   }
 
   std::string getType() const
@@ -789,6 +791,9 @@ struct ClientState
 
     if (dohFrontend) {
       result += " (DNS over HTTPS)";
+    }
+    else if (doqFrontend) {
+      result += " (DNS over QUIC)";
     }
     else if (tlsFrontend) {
       result += " (DNS over TLS)";
@@ -1183,6 +1188,7 @@ extern ComboAddress g_serverControl; // not changed during runtime
 
 extern std::vector<shared_ptr<TLSFrontend>> g_tlslocals;
 extern std::vector<shared_ptr<DOHFrontend>> g_dohlocals;
+extern std::vector<shared_ptr<DOQFrontend>> g_doqlocals;
 extern std::vector<std::unique_ptr<ClientState>> g_frontends;
 extern bool g_truncateTC;
 extern bool g_fixupCase;
@@ -1236,6 +1242,9 @@ void setMaxCachedTCPConnectionsPerDownstream(size_t max);
 #ifdef HAVE_DNS_OVER_HTTPS
 void dohThread(ClientState* cs);
 #endif /* HAVE_DNS_OVER_HTTPS */
+//#ifdef HAVE_DNS_OVER_QUIC
+void doqThread(ClientState* cs);
+//#endif
 
 void setLuaNoSideEffect(); // if nothing has been declared, set that there are no side effects
 void setLuaSideEffect();   // set to report a side effect, cancelling all _no_ side effect calls

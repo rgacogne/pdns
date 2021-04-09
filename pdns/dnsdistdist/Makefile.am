@@ -178,6 +178,7 @@ dnsdist_SOURCES = \
 	dnswriter.cc dnswriter.hh \
 	doh.hh doh.cc \
 	dolog.hh \
+	doq.hh doq.cc \
 	ednscookies.cc ednscookies.hh \
 	ednsoptions.cc ednsoptions.hh \
 	ednssubnet.cc ednssubnet.hh \

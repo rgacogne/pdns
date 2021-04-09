@@ -1024,6 +1024,19 @@ bool setTCPNoDelay(int sock)
                     sizeof(flag)) == 0;    /* length of option value */
 }
 
+bool setSocketReceiveECN(int fd, int family)
+{
+  int tos = 1;
+
+  if (family == AF_INET) {
+    return setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &tos, sizeof(tos)) == -0;
+  }
+  else if (family == AF_INET6) {
+    return setsockopt(fd, IPPROTO_IPV6, IP_RECVTCLASS, &tos, sizeof(tos)) == -0;
+  }
+
+  return false;
+}
 
 bool setNonBlocking(int sock)
 {

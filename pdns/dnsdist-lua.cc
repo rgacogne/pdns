@@ -2332,6 +2332,47 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         }
       });
 
+  luaCtx.writeFunction("addDOQLocal", [client](const std::string& addr, boost::optional<boost::variant<std::string, std::vector<std::pair<int,std::string>>>> certFiles, boost::optional<boost::variant<std::string, std::vector<std::pair<int,std::string>>>> keyFiles, boost::optional<localbind_t> vars) {
+    if (client) {
+      return;
+    }
+//#ifdef HAVE_DNS_OVER_QUIC
+    setLuaSideEffect();
+    if (g_configurationDone) {
+      g_outputBuffer="addDOQLocal cannot be used at runtime!\n";
+      return;
+    }
+    auto frontend = std::make_shared<DOQFrontend>();
+
+    if (!loadTLSCertificateAndKeys("addDOQLocal", frontend->d_tlsConfig.d_certKeyPairs, *certFiles, *keyFiles)) {
+      return;
+    }
+
+    frontend->d_local = ComboAddress(addr, 9053);
+
+    bool reusePort = false;
+    int tcpFastOpenQueueSize = 0;
+    int tcpListenQueueSize = 0;
+    size_t maxInFlightQueriesPerConn = 0;
+    size_t tcpMaxConcurrentConnections = 0;
+    std::string interface;
+    std::set<int> cpus;
+
+    if (vars) {
+      parseLocalBindVars(vars, reusePort, tcpFastOpenQueueSize, interface, cpus, tcpListenQueueSize, maxInFlightQueriesPerConn, tcpMaxConcurrentConnections);
+
+      parseTLSConfig(frontend->d_tlsConfig, "addDOQLocal", vars);
+    }
+    g_doqlocals.push_back(frontend);
+    auto cs = std::unique_ptr<ClientState>(new ClientState(frontend->d_local, false, reusePort, tcpFastOpenQueueSize, interface, cpus));
+    cs->doqFrontend = frontend;
+
+    g_frontends.push_back(std::move(cs));
+//#else
+//    throw std::runtime_error("addDOQLocal() called but DNS over QUIC support is not present!");
+//#endif
+  });
+
   luaCtx.writeFunction("addTLSLocal", [client](const std::string& addr, boost::variant<std::string, std::vector<std::pair<int,std::string>>> certFiles, boost::variant<std::string, std::vector<std::pair<int,std::string>>> keyFiles, boost::optional<localbind_t> vars) {
         if (client) {
           return;

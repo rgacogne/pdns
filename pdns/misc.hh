@@ -544,6 +544,7 @@ void setFilenumLimit(unsigned int lim);
 bool readFileIfThere(const char* fname, std::string* line);
 uint32_t burtle(const unsigned char* k, uint32_t length, uint32_t init);
 bool setSocketTimestamps(int fd);
+bool setSocketReceiveECN(int fd, int family);
 
 //! Sets the socket into blocking mode.
 bool setBlocking( int sock );

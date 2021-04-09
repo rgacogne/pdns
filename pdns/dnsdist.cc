@@ -1912,6 +1912,10 @@ static void setUpLocalBind(std::unique_ptr<ClientState>& cs)
     }
   }
 
+  if (cs->doqFrontend != nullptr) {
+    setSocketReceiveECN(cs->udpFD, cs->local.sin4.sin_family);
+  }
+
   const std::string& itf = cs->interface;
   if (!itf.empty()) {
 #ifdef SO_BINDTODEVICE
@@ -2436,6 +2440,16 @@ int main(int argc, char** argv)
         }
         t1.detach();
 #endif /* HAVE_DNS_OVER_HTTPS */
+        continue;
+      }
+      else if (cs->doqFrontend != nullptr) {
+//#ifdef HAVE_DNS_OVER_QUIC
+        std::thread t1(doqThread, cs.get());
+        if (!cs->cpus.empty()) {
+          mapThreadToCPUList(t1.native_handle(), cs->cpus);
+        }
+        t1.detach();
+//#endif /* HAVE_DNS_OVER_QUIC */
         continue;
       }
       if (cs->udpFD >= 0) {
