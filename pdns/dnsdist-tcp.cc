@@ -743,7 +743,8 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
 
   ++state->d_currentQueriesCount;
   vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", query.d_idstate.qname.toLogString(), QType(query.d_idstate.qtype).getName(), state->d_proxiedRemote.toStringWithPort(), (state->d_ci.cs->tlsFrontend ? "DoT" : "TCP"), query.d_buffer.size(), ds->getName());
-  downstreamConnection->queueQuery(state, std::move(query), state->d_isXFR);
+  std::shared_ptr<IncomingTCPConnectionState> incoming = state;
+  downstreamConnection->queueQuery(incoming, std::move(query), state->d_isXFR);
 }
 
 void IncomingTCPConnectionState::handleIOCallback(int fd, FDMultiplexer::funcparam_t& param)
@@ -1105,6 +1106,48 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
   }
 }
 
+class TCPCrossQuerySender : public TCPQuerySender
+{
+public:
+  bool active() const override
+  {
+    return true;
+  }
+
+  ClientState& getClientState() override
+  {
+    return *d_cpq->query.d_idstate.cs;
+  }
+
+  void handleResponse(const struct timeval& now, TCPResponse&& response) override
+  {
+    if (d_cpq->responsePipe == -1) {
+      return;
+    }
+
+    d_cpq->query.d_buffer = std::move(response.d_buffer);
+    auto ptr = d_cpq.release();
+
+    auto sent = write(d_cpq->responsePipe, &ptr, sizeof(ptr));
+    if (sent != sizeof(ptr)) {
+      delete ptr;
+      ptr = nullptr;
+    }
+  }
+
+  void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override
+  {
+    throw std::runtime_error("Oops");
+  }
+
+  void notifyIOError(IDState&& query, const struct timeval& now) override
+  {
+    throw std::runtime_error("Oops");
+  }
+
+  std::unique_ptr<CrossProtocolQuery> d_cpq;
+};
+
 static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& param)
 {
   auto threadData = boost::any_cast<TCPClientThreadData*>(param);
@@ -1131,14 +1174,16 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
     //auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*tmp), *threadData, now);
     cerr<<"Got cross-protocol query, no idea what to do"<<endl;
 
-    auto cpq = std::unique_ptr<CrossProtocolQuery>(std::move(*tmp));
+    auto cpq = std::make_unique<CrossProtocolQuery>(std::move(*tmp));
     delete tmp;
     tmp = nullptr;
 
     auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, cpq->downstream, now);
-#warning actually, could it be a XFR?
-    
-    downstream->queueQuery(state, std::move(query), downstream, false);
+
+    auto state = std::make_shared<TCPCrossQuerySender>();
+    state->d_cpq = std::move(cpq);
+#warning actually, could it be a XFR?    
+    downstream->queueQuery(state, std::move(state->d_cpq->query.d_buffer), downstream, false);
   }
   catch (...) {
     delete tmp;
