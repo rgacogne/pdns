@@ -208,16 +208,6 @@ struct DOHServerConfig
       unixDie("Creating a pipe for DNS over HTTPS");
     }
 
-    dohcrossprotocolpair[0] = fd[1];
-    dohcrossprotocolpair[1] = fd[0];
-
-    setNonBlocking(dohcrossprotocolpair[0]);
-    if (internalPipeBufferSize > 0) {
-      setPipeBufferSize(dohcrossprotocolpair[0], internalPipeBufferSize);
-    }
-
-    setNonBlocking(dohcrossprotocolpair[1]);
-
     h2o_config_init(&h2o_config);
     h2o_config.http2.idle_timeout = idleTimeout * 1000;
   }
@@ -233,7 +223,6 @@ struct DOHServerConfig
   std::shared_ptr<DOHFrontend> df{nullptr};
   int dohquerypair[2]{-1,-1};
   int dohresponsepair[2]{-1,-1};
-  int dohcrossprotocolpair[2]{-1,-1};
 };
 
 
@@ -1140,53 +1129,93 @@ static void dnsdistclient(int qsock)
   }
 }
 
-/* Called in the main DoH thread if h2o finds that dnsdist gave us a cross protocol answer by writing into
-   the dohcrossprotocolpair[0] side of the pipe so from a TCP worker thread
-   */
-static void on_cross_protocol_response(h2o_socket_t *listener, const char *err)
+class DoHTCPCrossQuerySender : public TCPQuerySender
 {
-  CrossProtocolQuery *tmp = nullptr;
-  DOHServerConfig* dsc = reinterpret_cast<DOHServerConfig*>(listener->data);
-  ssize_t got = read(dsc->dohcrossprotocolpair[1], &tmp, sizeof(tmp));
-
-  if (got < 0) {
-    warnlog("Error reading a DOH cross protocol response: %s", strerror(errno));
-    return;
-  }
-  else if (static_cast<size_t>(got) != sizeof(tmp)) {
-    return;
+public:
+  DoHTCPCrossQuerySender(DOHUnit* du_): du(du_)
+  {
   }
 
-  cerr<<"got cross-protocol response!"<<endl;
-  auto du = reinterpret_cast<DOHUnit*>(tmp->cbData);
-  auto response = std::move(tmp->query.d_buffer);
-  delete tmp;
-
-  if (!du) {
-    cerr<<"but no DU"<<endl;
-    return;
+  ~DoHTCPCrossQuerySender()
+  {
+    if (du != nullptr) {
+      du->release();
+    }
   }
 
-  if (!du->req) { // it got killed in flight
-    cerr<<"but killed in the meantime"<<endl;
-    du->self = nullptr;
-    du->release();
-    return;
+  bool active() const override
+  {
+    return true;
   }
 
-  if (du->self) {
-    // we are back in the h2o main thread now, so we don't risk
-    // a race (h2o killing the query) when accessing du->req anymore
-    *du->self = nullptr; // so we don't clean up again in on_generator_dispose
-    du->self = nullptr;
+  const ClientState& getClientState() override
+  {
+    if (!du || !du->dsc || !du->dsc->cs) {
+      throw std::runtime_error("No query associated to this DoHTCPCrossQuerySender");
+    }
+
+    return *du->dsc->cs;
   }
 
-  cerr<<"handling the cross protocol response"<<endl;
-  du->response = std::move(response);
-  handleResponse(*dsc->df, du->req, du->status_code, du->response, dsc->df->d_customResponseHeaders, du->contentType, true);
+  void handleResponse(const struct timeval& now, TCPResponse&& response) override
+  {
+    if (!du) {
+      return;
+    }
 
-  du->release();
-}
+    if (du->rsock == -1) {
+      return;
+    }
+
+    du->response = std::move(response.d_buffer);
+
+    auto sent = write(du->rsock, &du, sizeof(du));
+    if (sent != sizeof(du)) {
+      du->release();
+      du = nullptr;
+   }
+  }
+
+  void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override
+  {
+    throw std::runtime_error("Oops");
+  }
+
+  void notifyIOError(IDState&& query, const struct timeval& now) override
+  {
+    throw std::runtime_error("Oops");
+  }
+
+private:
+  DOHUnit* du{nullptr};
+};
+
+class DoHCrossProtocolQuery : public CrossProtocolQuery
+{
+public:
+  DoHCrossProtocolQuery(DOHUnit* du_): du(du_)
+  {
+    query = InternalQuery(std::move(du->query), std::move(du->ids));
+    downstream = du->downstream;
+  }
+
+  ~DoHCrossProtocolQuery()
+  {
+    if (du != nullptr) {
+      du->release();
+    }
+  }
+
+  std::shared_ptr<TCPQuerySender> getTCPQuerySender() override
+  {
+    auto sender = std::make_shared<DoHTCPCrossQuerySender>(du);
+    du = nullptr;
+    return sender;
+  }
+
+private:
+  DOHUnit* du{nullptr};
+};
 
 /* Called in the main DoH thread if h2o finds that dnsdist gave us an answer by writing into
    the dohresponsepair[0] side of the pipe so from:
@@ -1209,9 +1238,7 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
     return;
   }
 
-  cerr<<"got response!"<<endl;
   if (!du->req) { // it got killed in flight
-    cerr<<"but killed in the meantime"<<endl;
     du->self = nullptr;
     du->release();
     return;
@@ -1221,15 +1248,15 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
     const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
 
     if (dh->tc) {
-      cerr<<"truncated answer over UDP, crap"<<endl;
-      auto cpq = std::make_unique<CrossProtocolQuery>();
-      cpq->downstream = std::move(du->downstream);
-      cpq->query = InternalQuery(std::move(du->query), std::move(du->ids));
-      cpq->responsePipe = dsc->dohcrossprotocolpair[0];
-      cpq->cbData = du;
-      du->tcp = true;
+      /* restoring the original ID */
+      dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(du->query.data());
+      queryDH->id = htons(du->ids.origID);
+
+      auto cpq = std::make_unique<DoHCrossProtocolQuery>(du);
 
       du->get();
+      du->tcp = true;
+
       if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
         return;
       }
@@ -1246,7 +1273,6 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
     du->self = nullptr;
   }
 
-  cerr<<"handling the response"<<endl;
   handleResponse(*dsc->df, du->req, du->status_code, du->response, dsc->df->d_customResponseHeaders, du->contentType, true);
 
   du->release();
@@ -1517,12 +1543,6 @@ void dohThread(ClientState* cs)
 
     // this listens to responses from dnsdist to turn into http responses
     h2o_socket_read_start(sock, on_dnsdist);
-
-    auto crossProtocolSock = h2o_evloop_socket_create(dsc->h2o_ctx.loop, dsc->dohcrossprotocolpair[1], H2O_SOCKET_FLAG_DONT_READ);
-    crossProtocolSock->data = dsc.get();
-
-    // this listens to cross protocol responses from dnsdist to turn into http responses
-    h2o_socket_read_start(crossProtocolSock, on_cross_protocol_response);
 
     setupAcceptContext(*dsc->accept_ctx, *dsc, false);
 

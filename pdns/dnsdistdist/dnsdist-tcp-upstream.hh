@@ -118,7 +118,7 @@ static void handleTimeout(std::shared_ptr<IncomingTCPConnectionState>& state, bo
   void handleResponse(const struct timeval& now, TCPResponse&& response) override;
   void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override;
   void notifyIOError(IDState&& query, const struct timeval& now) override;
-  
+
   void terminateClientConnection();
   void queueQuery(TCPQuery&& query);
 

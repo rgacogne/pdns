@@ -93,22 +93,57 @@ struct InternalQuery
   bool d_proxyProtocolPayloadAdded{false};
 };
 
-struct CrossProtocolQuery 
+using TCPQuery = InternalQuery;
+
+class TCPConnectionToBackend;
+
+struct TCPResponse : public TCPQuery
+{
+  TCPResponse()
+  {
+    /* let's make Coverity happy */
+    memset(&d_cleartextDH, 0, sizeof(d_cleartextDH));
+  }
+
+  TCPResponse(PacketBuffer&& buffer, IDState&& state, std::shared_ptr<TCPConnectionToBackend> conn): TCPQuery(std::move(buffer), std::move(state)), d_connection(conn)
+  {
+    memset(&d_cleartextDH, 0, sizeof(d_cleartextDH));
+  }
+
+  std::shared_ptr<TCPConnectionToBackend> d_connection{nullptr};
+  dnsheader d_cleartextDH;
+  bool d_selfGenerated{false};
+};
+
+class TCPQuerySender
+{
+public:
+  virtual ~TCPQuerySender()
+  {
+  }
+
+  virtual bool active() const = 0;
+  virtual const ClientState& getClientState() = 0;
+  virtual void handleResponse(const struct timeval& now, TCPResponse&& response) = 0;
+  virtual void handleXFRResponse(const struct timeval& now, TCPResponse&& response) = 0;
+  virtual void notifyIOError(IDState&& query, const struct timeval& now) = 0;
+};
+
+struct CrossProtocolQuery
 {
   CrossProtocolQuery()
   {
   }
 
-  CrossProtocolQuery(CrossProtocolQuery&& rhs): query(std::move(rhs.query)), downstream(std::move(rhs.downstream)), cbData(rhs.cbData), responsePipe(rhs.responsePipe)
+  CrossProtocolQuery(CrossProtocolQuery&& rhs) = delete;
+  virtual ~CrossProtocolQuery()
   {
-    rhs.cbData = nullptr;
-    rhs.responsePipe = -1;
   }
+
+  virtual std::shared_ptr<TCPQuerySender> getTCPQuerySender() = 0;
 
   InternalQuery query;
   std::shared_ptr<DownstreamState> downstream{nullptr};
-  void* cbData{nullptr};
-  int responsePipe{-1};
 };
 
 class TCPClientCollection {
