@@ -107,7 +107,7 @@ struct CrossProtocolQuery
 
   InternalQuery query;
   std::shared_ptr<DownstreamState> downstream{nullptr};
-  const void* cbData{nullptr};
+  void* cbData{nullptr};
   int responsePipe{-1};
 };
 
