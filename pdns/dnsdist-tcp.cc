@@ -1142,6 +1142,7 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
 
     auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, downstreamServer, now);
 
+#warning FIXME: what if a proxy protocol payload was inserted?
     prependSizeToTCPQuery(query.d_buffer);
     downstream->queueQuery(tqs, std::move(query), false);
   }
