@@ -380,6 +380,16 @@ static void handleResponseSent(std::shared_ptr<IncomingTCPConnectionState>& stat
   }
 }
 
+static void prependSizeToTCPQuery(PacketBuffer& buffer)
+{
+  uint16_t queryLen = buffer.size();
+  const uint8_t sizeBytes[] = { static_cast<uint8_t>(queryLen / 256), static_cast<uint8_t>(queryLen % 256) };
+  /* prepend the size. Yes, this is not the most efficient way but it prevents mistakes
+     that could occur if we had to deal with the size during the processing,
+     especially alignment issues */
+  buffer.insert(buffer.begin(), sizeBytes, sizeBytes + 2);
+}
+
 bool IncomingTCPConnectionState::canAcceptNewQueries(const struct timeval& now)
 {
   if (d_hadErrors) {
@@ -703,12 +713,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   setIDStateFromDNSQuestion(ids, dq, std::move(qname));
   ids.origID = ntohs(dh->id);
 
-  uint16_t queryLen = state->d_buffer.size();
-  const uint8_t sizeBytes[] = { static_cast<uint8_t>(queryLen / 256), static_cast<uint8_t>(queryLen % 256) };
-  /* prepend the size. Yes, this is not the most efficient way but it prevents mistakes
-     that could occur if we had to deal with the size during the processing,
-     especially alignment issues */
-  state->d_buffer.insert(state->d_buffer.begin(), sizeBytes, sizeBytes + 2);
+  prependSizeToTCPQuery(state->d_buffer);
 
   auto downstreamConnection = state->getDownstreamConnection(ds, dq.proxyProtocolValues, now);
 
@@ -743,7 +748,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
 
   ++state->d_currentQueriesCount;
   vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", query.d_idstate.qname.toLogString(), QType(query.d_idstate.qtype).getName(), state->d_proxiedRemote.toStringWithPort(), (state->d_ci.cs->tlsFrontend ? "DoT" : "TCP"), query.d_buffer.size(), ds->getName());
-  std::shared_ptr<IncomingTCPConnectionState> incoming = state;
+  std::shared_ptr<TCPQuerySender> incoming = state;
   downstreamConnection->queueQuery(incoming, std::move(query), state->d_isXFR);
 }
 
@@ -1114,24 +1119,38 @@ public:
     return true;
   }
 
-  ClientState& getClientState() override
+  const ClientState& getClientState() override
   {
+    if (!d_cpq) {
+      throw std::runtime_error("Asking for a client state on an invalid TCPCrossQuerySender");
+    }
     return *d_cpq->query.d_idstate.cs;
   }
 
   void handleResponse(const struct timeval& now, TCPResponse&& response) override
   {
+    cerr<<"got response !"<<endl;
+    if (!d_cpq) {
+      cerr<<"but no query here"<<endl;
+      return;
+    }
+
     if (d_cpq->responsePipe == -1) {
+      cerr<<"but the pipe is not valid.."<<endl;
       return;
     }
 
     d_cpq->query.d_buffer = std::move(response.d_buffer);
     auto ptr = d_cpq.release();
 
-    auto sent = write(d_cpq->responsePipe, &ptr, sizeof(ptr));
+    auto sent = write(ptr->responsePipe, &ptr, sizeof(ptr));
     if (sent != sizeof(ptr)) {
       delete ptr;
       ptr = nullptr;
+      cerr<<"writing to pipe failed"<<endl;
+    }
+    else {
+      cerr<<"response written to the pipe"<<endl;
     }
   }
 
@@ -1145,13 +1164,12 @@ public:
     throw std::runtime_error("Oops");
   }
 
-  std::unique_ptr<CrossProtocolQuery> d_cpq;
+  std::unique_ptr<CrossProtocolQuery> d_cpq{nullptr};
 };
 
 static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& param)
 {
   auto threadData = boost::any_cast<TCPClientThreadData*>(param);
-  #warning TBD
   CrossProtocolQuery* tmp{nullptr};
 
   ssize_t got = read(pipefd, &tmp, sizeof(tmp));
@@ -1171,19 +1189,21 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
   try {
     struct timeval now;
     gettimeofday(&now, nullptr);
-    //auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*tmp), *threadData, now);
-    cerr<<"Got cross-protocol query, no idea what to do"<<endl;
 
     auto cpq = std::make_unique<CrossProtocolQuery>(std::move(*tmp));
     delete tmp;
     tmp = nullptr;
 
+    cerr<<"Got cross-protocol query, getting a new connection"<<endl;
     auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, cpq->downstream, now);
 
     auto state = std::make_shared<TCPCrossQuerySender>();
     state->d_cpq = std::move(cpq);
-#warning actually, could it be a XFR?    
-    downstream->queueQuery(state, std::move(state->d_cpq->query.d_buffer), downstream, false);
+    std::shared_ptr<TCPQuerySender> tqs = state;
+#warning actually, could it be a XFR?
+
+    prependSizeToTCPQuery(state->d_cpq->query.d_buffer);
+    downstream->queueQuery(tqs, std::move(state->d_cpq->query), false);
   }
   catch (...) {
     delete tmp;
