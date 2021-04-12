@@ -167,7 +167,7 @@ dnsdist_SOURCES = \
 	dnsdist-systemd.cc dnsdist-systemd.hh \
 	dnsdist-tcp-downstream.cc dnsdist-tcp-downstream.hh \
 	dnsdist-tcp-upstream.hh \
-	dnsdist-tcp.cc \
+	dnsdist-tcp.cc dnsdist-tcp.hh \
 	dnsdist-web.cc dnsdist-web.hh \
 	dnsdist-xpf.cc dnsdist-xpf.hh \
 	dnsdist.cc dnsdist.hh \
@@ -241,7 +241,7 @@ testrunner_SOURCES = \
 	dnsdist-proxy-protocol.cc dnsdist-proxy-protocol.hh \
 	dnsdist-rings.cc dnsdist-rings.hh \
 	dnsdist-tcp-downstream.cc \
-	dnsdist-tcp.cc \
+	dnsdist-tcp.cc dnsdist-tcp.hh \
 	dnsdist-xpf.cc dnsdist-xpf.hh \
 	dnsdist.hh \
 	dnslabeltext.cc \
