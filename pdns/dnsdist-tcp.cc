@@ -1104,68 +1104,12 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
 
     IncomingTCPConnectionState::handleIO(state, now);
   }
-  catch(...) {
+  catch (...) {
     delete citmp;
     citmp = nullptr;
     throw;
   }
 }
-
-class TCPCrossQuerySender : public TCPQuerySender
-{
-public:
-  bool active() const override
-  {
-    return true;
-  }
-
-  const ClientState& getClientState() override
-  {
-    if (!d_cpq) {
-      throw std::runtime_error("Asking for a client state on an invalid TCPCrossQuerySender");
-    }
-    return *d_cpq->query.d_idstate.cs;
-  }
-
-  void handleResponse(const struct timeval& now, TCPResponse&& response) override
-  {
-    cerr<<"got response !"<<endl;
-    if (!d_cpq) {
-      cerr<<"but no query here"<<endl;
-      return;
-    }
-
-    if (d_cpq->responsePipe == -1) {
-      cerr<<"but the pipe is not valid.."<<endl;
-      return;
-    }
-
-    d_cpq->query.d_buffer = std::move(response.d_buffer);
-    auto ptr = d_cpq.release();
-
-    auto sent = write(ptr->responsePipe, &ptr, sizeof(ptr));
-    if (sent != sizeof(ptr)) {
-      delete ptr;
-      ptr = nullptr;
-      cerr<<"writing to pipe failed"<<endl;
-    }
-    else {
-      cerr<<"response written to the pipe"<<endl;
-    }
-  }
-
-  void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override
-  {
-    throw std::runtime_error("Oops");
-  }
-
-  void notifyIOError(IDState&& query, const struct timeval& now) override
-  {
-    throw std::runtime_error("Oops");
-  }
-
-  std::unique_ptr<CrossProtocolQuery> d_cpq{nullptr};
-};
 
 static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& param)
 {
@@ -1190,20 +1134,16 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
     struct timeval now;
     gettimeofday(&now, nullptr);
 
-    auto cpq = std::make_unique<CrossProtocolQuery>(std::move(*tmp));
+    auto query = std::move(tmp->query);
+    auto downstreamServer = std::move(tmp->downstream);
+    std::shared_ptr<TCPQuerySender> tqs = tmp->getTCPQuerySender();
     delete tmp;
     tmp = nullptr;
 
-    cerr<<"Got cross-protocol query, getting a new connection"<<endl;
-    auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, cpq->downstream, now);
+    auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, downstreamServer, now);
 
-    auto state = std::make_shared<TCPCrossQuerySender>();
-    state->d_cpq = std::move(cpq);
-    std::shared_ptr<TCPQuerySender> tqs = state;
-#warning actually, could it be a XFR?
-
-    prependSizeToTCPQuery(state->d_cpq->query.d_buffer);
-    downstream->queueQuery(tqs, std::move(state->d_cpq->query), false);
+    prependSizeToTCPQuery(query.d_buffer);
+    downstream->queueQuery(tqs, std::move(query), false);
   }
   catch (...) {
     delete tmp;

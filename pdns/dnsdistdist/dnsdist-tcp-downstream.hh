@@ -7,42 +7,6 @@
 #include "dnsdist.hh"
 #include "dnsdist-tcp.hh"
 
-using TCPQuery = InternalQuery;
-
-class TCPConnectionToBackend;
-
-struct TCPResponse : public TCPQuery
-{
-  TCPResponse()
-  {
-    /* let's make Coverity happy */
-    memset(&d_cleartextDH, 0, sizeof(d_cleartextDH));
-  }
-
-  TCPResponse(PacketBuffer&& buffer, IDState&& state, std::shared_ptr<TCPConnectionToBackend> conn): TCPQuery(std::move(buffer), std::move(state)), d_connection(conn)
-  {
-    memset(&d_cleartextDH, 0, sizeof(d_cleartextDH));
-  }
-
-  std::shared_ptr<TCPConnectionToBackend> d_connection{nullptr};
-  dnsheader d_cleartextDH;
-  bool d_selfGenerated{false};
-};
-
-class TCPQuerySender
-{
-public:
-  virtual ~TCPQuerySender()
-  {
-  }
-
-  virtual bool active() const = 0;
-  virtual const ClientState& getClientState() = 0;
-  virtual void handleResponse(const struct timeval& now, TCPResponse&& response) = 0;
-  virtual void handleXFRResponse(const struct timeval& now, TCPResponse&& response) = 0;
-  virtual void notifyIOError(IDState&& query, const struct timeval& now) = 0;
-};
-
 class TCPConnectionToBackend : public std::enable_shared_from_this<TCPConnectionToBackend>
 {
 public:
@@ -242,8 +206,6 @@ private:
 
     return res;
   }
-
-  static const uint16_t s_xfrID;
 
   PacketBuffer d_responseBuffer;
   std::deque<TCPQuery> d_pendingQueries;

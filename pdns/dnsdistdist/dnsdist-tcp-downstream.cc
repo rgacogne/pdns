@@ -2,8 +2,6 @@
 #include "dnsdist-tcp-downstream.hh"
 #include "dnsdist-tcp-upstream.hh"
 
-const uint16_t TCPConnectionToBackend::s_xfrID = 0;
-
 void TCPConnectionToBackend::release()
 {
   if (!d_usedForXFR) {
