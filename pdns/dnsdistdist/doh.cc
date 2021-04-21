@@ -467,7 +467,7 @@ static int processDOHQuery(DOHUnit* du)
     uint16_t qtype, qclass;
     unsigned int qnameWireLength = 0;
     DNSName qname(reinterpret_cast<const char*>(du->query.data()), du->query.size(), sizeof(dnsheader), false, &qtype, &qclass, &qnameWireLength);
-    DNSQuestion dq(&qname, qtype, qclass, &du->dest, &du->remote, du->query, false, &queryRealTime);
+    DNSQuestion dq(&qname, qtype, qclass, &du->dest, &du->remote, du->query, DNSQuestion::Protocol::DoH, &queryRealTime);
     dq.ednsAdded = du->ednsAdded;
     dq.du = du;
     dq.sni = std::move(du->sni);
@@ -1096,6 +1096,7 @@ static void dnsdistclient(int qsock)
       auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(du->query.data()));
 
       if (!dh->arcount) {
+        cerr<<"adding OPT RR"<<endl;
         if (generateOptRR(std::string(), du->query, 4096, 4096, 0, false)) {
           dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(du->query.data())); // may have reallocated
           dh->arcount = htons(1);
@@ -1103,6 +1104,7 @@ static void dnsdistclient(int qsock)
         }
       }
       else {
+        cerr<<"leaving existing EDNS in place"<<endl;
         // we leave existing EDNS in place
       }
 
@@ -1165,11 +1167,11 @@ public:
     du->ids = std::move(response.d_idstate);
 
     thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
-    DNSResponse dr = makeDNSResponseFromIDState(du->ids, du->response, true);
+    DNSResponse dr = makeDNSResponseFromIDState(du->ids, du->response, DNSQuestion::Protocol::DoH);
     dnsheader cleartextDH;
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
-    if (!processResponse(du->response, localRespRuleActions, dr, false)) {
+    if (!processResponse(du->response, localRespRuleActions, dr, false, false)) {
       du->release();
       return;
     }
@@ -1594,11 +1596,11 @@ void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, IDState&& state)
   const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(response.data());
   if (!dh->tc) {
     thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
-    DNSResponse dr = makeDNSResponseFromIDState(ids, response, false);
+    DNSResponse dr = makeDNSResponseFromIDState(ids, response, DNSQuestion::Protocol::DoH);
     dnsheader cleartextDH;
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
-    if (!processResponse(response, localRespRuleActions, dr, false)) {
+    if (!processResponse(response, localRespRuleActions, dr, false, true)) {
       release();
       return;
     }

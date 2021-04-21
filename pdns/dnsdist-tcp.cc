@@ -360,7 +360,7 @@ static void handleResponseSent(std::shared_ptr<IncomingTCPConnectionState>& stat
     const auto& ds = currentResponse.d_connection->getDS();
     const auto& ids = currentResponse.d_idstate;
     double udiff = ids.sentTime.udiff();
-    vinfolog("Got answer from %s, relayed to %s (%s, %d bytes), took %f usec", ds->remote.toStringWithPort(), ids.origRemote.toStringWithPort(), (state->d_ci.cs->tlsFrontend ? "DoT" : "TCP"), currentResponse.d_buffer.size(), udiff);
+    vinfolog("Got answer from %s, relayed to %s (%s, %d bytes), took %f usec", ds->remote.toStringWithPort(), ids.origRemote.toStringWithPort(), (state->d_handler.isTLS() ? "DoT" : "TCP"), currentResponse.d_buffer.size(), udiff);
 
     ::handleResponseSent(ids, udiff, state->d_ci.remote, ds->remote, static_cast<unsigned int>(currentResponse.d_buffer.size()), currentResponse.d_cleartextDH);
 
@@ -570,11 +570,11 @@ void IncomingTCPConnectionState::handleResponse(const struct timeval& now, TCPRe
       ++response.d_connection->getDS()->responses;
     }
 
-    DNSResponse dr = makeDNSResponseFromIDState(ids, response.d_buffer, true);
+    DNSResponse dr = makeDNSResponseFromIDState(ids, response.d_buffer, state->d_handler.isTLS() ? DNSQuestion::Protocol::DoT : DNSQuestion::Protocol::DoTCP);
 
     memcpy(&response.d_cleartextDH, dr.getHeader(), sizeof(response.d_cleartextDH));
 
-    if (!processResponse(response.d_buffer, state->d_threadData.localRespRuleActions, dr, false)) {
+    if (!processResponse(response.d_buffer, state->d_threadData.localRespRuleActions, dr, false, false)) {
       state->terminateClientConnection();
       return;
     }
@@ -663,7 +663,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   uint16_t qtype, qclass;
   unsigned int qnameWireLength = 0;
   DNSName qname(reinterpret_cast<const char*>(state->d_buffer.data()), state->d_buffer.size(), sizeof(dnsheader), false, &qtype, &qclass, &qnameWireLength);
-  DNSQuestion dq(&qname, qtype, qclass, &state->d_proxiedDestination, &state->d_proxiedRemote, state->d_buffer, true, &queryRealTime);
+  DNSQuestion dq(&qname, qtype, qclass, &state->d_proxiedDestination, &state->d_proxiedRemote, state->d_buffer, state->d_handler.isTLS() ? DNSQuestion::Protocol::DoT : DNSQuestion::Protocol::DoTCP, &queryRealTime);
   dq.dnsCryptQuery = std::move(dnsCryptQuery);
   dq.sni = state->d_handler.getServerNameIndication();
   if (state->d_proxyProtocolValues) {
