@@ -1104,7 +1104,6 @@ static void dnsdistclient(int qsock)
         }
       }
       else {
-        cerr<<"leaving existing EDNS in place"<<endl;
         // we leave existing EDNS in place
       }
 
@@ -1192,12 +1191,22 @@ public:
 
   void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override
   {
-    throw std::runtime_error("Oops");
+    return handleResponse(now, std::move(response));
   }
 
   void notifyIOError(IDState&& query, const struct timeval& now) override
   {
-    throw std::runtime_error("Oops");
+    if (!du) {
+      return;
+    }
+
+    if (du->rsock == -1) {
+      return;
+    }
+
+    du->status_code = 502;
+    sendDoHUnitToTheMainThread(du, "cross-protocol error response");
+    du->release();
   }
 
 private:
