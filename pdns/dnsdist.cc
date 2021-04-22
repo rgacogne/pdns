@@ -1200,8 +1200,8 @@ ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& 
       // we need ECS parsing (parseECS) to be true so we can be sure that the initial incoming query did not have an existing
       // ECS option, which would make it unsuitable for the zero-scope feature.
       if (dq.packetCache && !dq.skipCache && (!selectedBackend || !selectedBackend->disableZeroScope) && dq.packetCache->isECSParsingEnabled()) {
-        #warning FIXME
-        if (dq.packetCache->get(dq, dq.getHeader()->id, &dq.cacheKeyNoECS, dq.subnet, dq.dnssecOK, dq.overTCP(), allowExpired)) {
+
+        if (dq.packetCache->get(dq, dq.getHeader()->id, &dq.cacheKeyNoECS, dq.subnet, dq.dnssecOK, !dq.overTCP(), allowExpired)) {
 
           if (!prepareOutgoingResponse(holders, cs, dq, true)) {
             return ProcessQueryResult::Drop;
@@ -1223,8 +1223,7 @@ ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& 
     }
 
     if (dq.packetCache && !dq.skipCache) {
-      #warning FIXME
-      if (dq.packetCache->get(dq, dq.getHeader()->id, &dq.cacheKey, dq.subnet, dq.dnssecOK, dq.overTCP(), allowExpired)) {
+      if (dq.packetCache->get(dq, dq.getHeader()->id, &dq.cacheKey, dq.subnet, dq.dnssecOK, !dq.overTCP(), allowExpired)) {
 
         if (!prepareOutgoingResponse(holders, cs, dq, true)) {
           return ProcessQueryResult::Drop;
@@ -1232,6 +1231,23 @@ ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& 
 
         return ProcessQueryResult::SendAnswer;
       }
+      else if (dq.protocol == DNSQuestion::Protocol::DoH) {
+        /* do a second-lookup for UDP responses */
+        uint32_t udpCacheKey = 0;
+        /* we need to do a copy to be able to restore the query on a TC=1 cached answer */
+        PacketBuffer initialQuery(dq.getData());
+        if (dq.packetCache->get(dq, dq.getHeader()->id, &udpCacheKey, dq.subnet, dq.dnssecOK, true, allowExpired)) {
+          if (dq.getHeader()->tc == 0) {
+            if (!prepareOutgoingResponse(holders, cs, dq, true)) {
+              return ProcessQueryResult::Drop;
+            }
+
+            return ProcessQueryResult::SendAnswer;
+          }
+          dq.getMutableData() = std::move(initialQuery);
+        }
+      }
+
       ++g_stats.cacheMisses;
     }
 
