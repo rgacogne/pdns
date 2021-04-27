@@ -362,6 +362,7 @@ try {
     questions.push_back(make_pair(name, type));
   }
 
+  DTime timer;
   if (doh) {
 #ifdef HAVE_LIBCURL
     vector<uint8_t> packet;
@@ -374,8 +375,19 @@ try {
     mch.insert(std::make_pair("Accept", "application/dns-message"));
     string question(packet.begin(), packet.end());
     // FIXME: how do we use proxyheader here?
+    for (size_t idx = 0; idx < 10; idx++) {
+    timer.set();
     reply = mc.postURL(argv[1], question, mch, timeout, fastOpen);
+    auto elapsed = timer.udiffNoReset();
     printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    cerr<<"Connect time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::Connect)<<endl;
+    cerr<<"TLS done time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::TLSDone)<<endl;
+    cerr<<"Query ready to be sent time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::QueryReadyToBeSent)<<endl;
+    cerr<<"Response ready time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::ResponseReady)<<endl;
+    cerr<<"Total time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::Total)<<endl;
+    cerr<<"Measured: "<<elapsed<<endl;
+    }
+
 #else
     throw PDNSException("please link sdig against libcurl for DoH support");
 #endif
@@ -411,12 +423,15 @@ try {
     Socket sock(dest.sin4.sin_family, SOCK_STREAM);
     setTCPNoDelay(sock.getHandle()); // disable NAGLE, which does not play nicely with delayed ACKs
     TCPIOHandler handler(subjectName, sock.releaseHandle(), timeout, tlsCtx, time(nullptr));
+    timer.set();
     handler.connect(fastOpen, dest, timeout);
+    cerr<<"after connect: "<<timer.udiffNoReset()<<endl;
     // we are writing the proxyheader inside the TLS connection. Is that right?
     if (proxyheader.size() > 0 && handler.write(proxyheader.data(), proxyheader.size(), timeout) != proxyheader.size()) {
       throw PDNSException("tcp write failed");
     }
 
+    for (size_t idx = 0; idx < 10; idx++) {
     for (const auto& it : questions) {
       vector<uint8_t> packet;
       s_expectedIDs.insert(counter);
@@ -435,6 +450,7 @@ try {
         throw PDNSException("tcp write failed");
       }
     }
+    cerr<<"after write: "<<timer.udiffNoReset()<<endl;
     for (size_t i = 0; i < questions.size(); i++) {
       uint16_t len;
       if (handler.read((char *)&len, sizeof(len), timeout) != sizeof(len)) {
@@ -445,8 +461,12 @@ try {
       if (handler.read(&reply[0], len, timeout) != len) {
         throw PDNSException("tcp read failed");
       }
+      cerr<<"after read: "<<timer.udiffNoReset()<<endl;
       printReply(reply, showflags, hidesoadetails, dumpluaraw);
     }
+    timer.set();
+    }
+
   } else // udp
   {
     vector<uint8_t> packet;
@@ -456,6 +476,7 @@ try {
     string question(packet.begin(), packet.end());
     Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
     question = proxyheader + question;
+    timer.set();
     sock.sendTo(question, dest);
     int result = waitForData(sock.getHandle(), timeout);
     if (result < 0)
@@ -463,9 +484,10 @@ try {
     if (!result)
       throw std::runtime_error("Timeout waiting for data");
     sock.recvFrom(reply, dest);
+    auto elapsed = timer.udiffNoReset();
     printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    cerr<<"Measured: "<<elapsed<<endl;
   }
-
 } catch (std::exception& e) {
   cerr << "Fatal: " << e.what() << endl;
 } catch (PDNSException& e) {
