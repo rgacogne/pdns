@@ -103,13 +103,14 @@ static void fillPacket(vector<uint8_t>& packet, const string& q, const string& t
   pw.getHeader()->id = htons(qid);
 }
 
-static void printReply(const string& reply, bool showflags, bool hidesoadetails, bool dumpluaraw)
+static void printReply(const string& reply, bool showflags, bool hidesoadetails, bool dumpluaraw, bool doh=false)
 {
   MOADNSParser mdp(false, reply);
-  if (!s_expectedIDs.count(ntohs(mdp.d_header.id))) {
+  if (!doh && !s_expectedIDs.count(ntohs(mdp.d_header.id))) {
     cout << "ID " << ntohs(mdp.d_header.id) << " was not expected, this response was not meant for us!"<<endl;
+  } else {
+    s_expectedIDs.erase(ntohs(mdp.d_header.id));
   }
-  s_expectedIDs.erase(ntohs(mdp.d_header.id));
 
   cout << "Reply to question for qname='" << mdp.d_qname.toString()
        << "', qtype=" << DNSRecordContent::NumberToType(mdp.d_qtype) << endl;
@@ -349,9 +350,6 @@ try {
 
   vector<pair<string, string>> questions;
   if (name == "-" && type == "-") {
-    if (!tcp) {
-      throw PDNSException("multi-query from stdin only supported for tcp");
-    }
     string line;
     while (getline(std::cin, line)) {
       auto fields = splitField(line, ' ');
@@ -362,31 +360,41 @@ try {
     questions.push_back(make_pair(name, type));
   }
 
+  std::vector<std::string> packets;
+  packets.reserve(questions.size());
+  uint16_t counter = 0;
+  for (const auto& question : questions) {
+    std::vector<uint8_t> packet;
+    fillPacket(packet, question.first, question.second, dnssec, ednsnm, recurse, xpfcode, xpfversion,
+               xpfproto, xpfsrc, xpfdst, qclass, doh ? 0 : counter);
+    if (!doh) {
+      s_expectedIDs.insert(counter);
+      counter++;
+    }
+    packets.push_back(std::string(packet.begin(), packet.end()));
+  }
+
   DTime timer;
   if (doh) {
 #ifdef HAVE_LIBCURL
-    vector<uint8_t> packet;
-    s_expectedIDs.insert(0);
-    fillPacket(packet, name, type, dnssec, ednsnm, recurse, xpfcode, xpfversion,
-               xpfproto, xpfsrc, xpfdst, qclass, 0);
     MiniCurl mc;
     MiniCurl::MiniCurlHeaders mch;
     mch.insert(std::make_pair("Content-Type", "application/dns-message"));
     mch.insert(std::make_pair("Accept", "application/dns-message"));
-    string question(packet.begin(), packet.end());
-    // FIXME: how do we use proxyheader here?
-    for (size_t idx = 0; idx < 10; idx++) {
+
     timer.set();
-    reply = mc.postURL(argv[1], question, mch, timeout, fastOpen);
-    auto elapsed = timer.udiffNoReset();
-    printReply(reply, showflags, hidesoadetails, dumpluaraw);
-    cerr<<"Connect time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::Connect)<<endl;
-    cerr<<"TLS done time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::TLSDone)<<endl;
-    cerr<<"Query ready to be sent time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::QueryReadyToBeSent)<<endl;
-    cerr<<"Response ready time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::ResponseReady)<<endl;
-    cerr<<"Total time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::Total)<<endl;
-    cerr<<"Measured: "<<elapsed<<endl;
+    for (const auto& packet : packets) {
+      reply = mc.postURL(argv[1], packet, mch, timeout, fastOpen);
+      auto elapsed = timer.udiffNoReset();
+      printReply(reply, showflags, hidesoadetails, dumpluaraw, true);
+      cerr<<"Connect time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::Connect)<<endl;
+      cerr<<"TLS done time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::TLSDone)<<endl;
+      cerr<<"Query ready to be sent time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::QueryReadyToBeSent)<<endl;
+      cerr<<"Response ready time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::ResponseReady)<<endl;
+      cerr<<"Total time is "<<mc.getTimingInfo(MiniCurl::TimingInfo::Total)<<endl;
+      cerr<<"Measured: "<<elapsed<<endl;
     }
+    cerr<<"Total time (all queries): "<<timer.udiffNoReset()<<endl;
 
 #else
     throw PDNSException("please link sdig against libcurl for DoH support");
@@ -419,7 +427,7 @@ try {
       tlsParams.d_caStore = caStore;
       tlsCtx = getTLSContext(tlsParams);
     }
-    uint16_t counter = 0;
+
     Socket sock(dest.sin4.sin_family, SOCK_STREAM);
     setTCPNoDelay(sock.getHandle()); // disable NAGLE, which does not play nicely with delayed ACKs
     TCPIOHandler handler(subjectName, sock.releaseHandle(), timeout, tlsCtx, time(nullptr));
@@ -431,14 +439,7 @@ try {
       throw PDNSException("tcp write failed");
     }
 
-    for (size_t idx = 0; idx < 10; idx++) {
-    for (const auto& it : questions) {
-      vector<uint8_t> packet;
-      s_expectedIDs.insert(counter);
-      fillPacket(packet, it.first, it.second, dnssec, ednsnm, recurse, xpfcode,
-                 xpfversion, xpfproto, xpfsrc, xpfdst, qclass, counter);
-      counter++;
-
+    for (const auto& packet : packets) {
       // Prefer to do a single write, so that fastopen can send all the data on SYN
       uint16_t len = packet.size();
       string question;
@@ -451,7 +452,7 @@ try {
       }
     }
     cerr<<"after write: "<<timer.udiffNoReset()<<endl;
-    for (size_t i = 0; i < questions.size(); i++) {
+    for (size_t i = 0; i < packets.size(); i++) {
       uint16_t len;
       if (handler.read((char *)&len, sizeof(len), timeout) != sizeof(len)) {
         throw PDNSException("tcp read failed");
@@ -464,29 +465,28 @@ try {
       cerr<<"after read: "<<timer.udiffNoReset()<<endl;
       printReply(reply, showflags, hidesoadetails, dumpluaraw);
     }
-    timer.set();
-    }
+    cerr<<"Total : "<<timer.udiffNoReset()<<endl;
 
   } else // udp
   {
-    vector<uint8_t> packet;
-    s_expectedIDs.insert(0);
-    fillPacket(packet, name, type, dnssec, ednsnm, recurse, xpfcode, xpfversion,
-               xpfproto, xpfsrc, xpfdst, qclass, 0);
-    string question(packet.begin(), packet.end());
     Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
-    question = proxyheader + question;
     timer.set();
-    sock.sendTo(question, dest);
-    int result = waitForData(sock.getHandle(), timeout);
-    if (result < 0)
-      throw std::runtime_error("Error waiting for data: " + stringerror());
-    if (!result)
-      throw std::runtime_error("Timeout waiting for data");
-    sock.recvFrom(reply, dest);
-    auto elapsed = timer.udiffNoReset();
-    printReply(reply, showflags, hidesoadetails, dumpluaraw);
-    cerr<<"Measured: "<<elapsed<<endl;
+    for (const auto& packet : packets) {
+      auto question = proxyheader + packet;
+      sock.sendTo(question, dest);
+    }
+    for (size_t i = 0; i < packets.size(); i++) {
+      int result = waitForData(sock.getHandle(), timeout);
+      if (result < 0)
+        throw std::runtime_error("Error waiting for data: " + stringerror());
+      if (!result)
+        throw std::runtime_error("Timeout waiting for data");
+      sock.recvFrom(reply, dest);
+      auto elapsed = timer.udiffNoReset();
+      printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      cerr<<"Measured: "<<elapsed<<endl;
+    }
+    cerr<<"Total : "<<timer.udiffNoReset()<<endl;
   }
 } catch (std::exception& e) {
   cerr << "Fatal: " << e.what() << endl;
