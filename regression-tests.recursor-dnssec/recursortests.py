@@ -522,11 +522,9 @@ distributor-threads={threads}""".format(confdir=confdir,
         print("Launching pdns_server..")
         authcmd = list(cls._auth_cmd)
         authcmd.append('--config-dir=%s' % confdir)
-        authcmd.append('--local-address=%s' % ipaddress)
         if (confdir[-4:] == "ROOT") and have_ipv6():
-            authcmd.append('--local-ipv6=::1')
-        else:
-            authcmd.append('--local-ipv6=')
+            ipaddress.append(',::1')
+        authcmd.append('--local-address=%s' % ipaddress)
         print(' '.join(authcmd))
 
         logFile = os.path.join(confdir, 'pdns.log')
