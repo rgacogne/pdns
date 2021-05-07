@@ -208,7 +208,11 @@ template <typename T>
 class LockGuarded
 {
 public:
-  explicit LockGuarded(T value): d_value(std::move(value))
+  explicit LockGuarded(const T& value): d_value(value)
+  {
+  }
+
+  explicit LockGuarded(T&& value): d_value(std::move(value))
   {
   }
 
@@ -347,7 +351,11 @@ template <typename T>
 class SharedLockGuarded
 {
 public:
-  explicit SharedLockGuarded(T value): d_value(std::move(value))
+  explicit SharedLockGuarded(const T& value): d_value(value)
+  {
+  }
+
+  explicit SharedLockGuarded(T&& value): d_value(std::move(value))
   {
   }
 
