@@ -381,8 +381,11 @@ try {
     mch.emplace("Accept", "application/dns-message");
     string question(packet.begin(), packet.end());
     // FIXME: how do we use proxyheader here?
-    reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
+    while(true) {
+      reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
     printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    usleep(1000000/6);
+    }
 #else
     throw PDNSException("please link sdig against libcurl for DoH support");
 #endif
@@ -425,6 +428,8 @@ try {
       throw PDNSException("tcp write failed");
     }
 
+    while(true) {
+      
     for (const auto& it : questions) {
       vector<uint8_t> packet;
       s_expectedIDs.insert(counter);
@@ -455,6 +460,8 @@ try {
       }
       printReply(reply, showflags, hidesoadetails, dumpluaraw);
     }
+    usleep(1000000/10);
+    }
   } else // udp
   {
     vector<uint8_t> packet;
@@ -464,6 +471,7 @@ try {
     string question(packet.begin(), packet.end());
     Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
     question = proxyheader + question;
+    while(true) {
     sock.sendTo(question, dest);
     int result = waitForData(sock.getHandle(), timeout.tv_sec, timeout.tv_usec);
     if (result < 0)
@@ -472,6 +480,8 @@ try {
       throw std::runtime_error("Timeout waiting for data");
     sock.recvFrom(reply, dest);
     printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    usleep(1000000/22);
+    }
   }
 
 } catch (std::exception& e) {
