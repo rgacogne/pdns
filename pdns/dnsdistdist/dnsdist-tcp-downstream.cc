@@ -597,40 +597,48 @@ bool TCPConnectionToBackend::matchesTLVs(const std::unique_ptr<std::vector<Proxy
 
 bool TCPConnectionToBackend::isXFRFinished(const TCPResponse& response, const shared_ptr<IncomingTCPConnectionState>& clientConn)
 {
+  cerr<<__PRETTY_FUNCTION__<<endl;
   bool done = false;
   try {
     MOADNSParser parser(true, reinterpret_cast<const char*>(response.d_buffer.data()), response.d_buffer.size());
     if (parser.d_header.rcode != 0U) {
       done = true;
+      cerr<<"code is non zero"<<endl;
     }
     else {
       for (const auto& record : parser.d_answers) {
         if (record.first.d_class != QClass::IN || record.first.d_type != QType::SOA) {
+          cerr<<"not a SOA"<<endl;
           continue;
         }
 
         auto unknownContent = getRR<UnknownRecordContent>(record.first);
         if (!unknownContent) {
+          cerr<<"unable to get content"<<endl;          
           continue;
         }
         auto raw = unknownContent->getRawContent();
         auto serial = getSerialFromRawSOAContent(raw);
+        cerr<<"got serial"<<serial<<endl;
 
         ++clientConn->d_xfrSerialCount;
         if (clientConn->d_xfrMasterSerial == 0) {
           // store the first SOA in our client's connection metadata
           ++clientConn->d_xfrMasterSerialCount;
           clientConn->d_xfrMasterSerial = serial;
+          cerr<<"got master serial"<<endl;
         }
         else if (clientConn->d_xfrMasterSerial == serial) {
           ++clientConn->d_xfrMasterSerialCount;
           // figure out if it's end when receiving master's SOA again
           if (clientConn->d_xfrSerialCount == 2) {
+            cerr<<"finished A"<<endl;
             // if there are only two SOA records marks a finished AXFR
             done = true;
           }
           if (clientConn->d_xfrMasterSerialCount == 3) {
             // receiving master's SOA 3 times marks a finished IXFR
+            cerr<<"finished I"<<endl;
             done = true;
           }
         }
