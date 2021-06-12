@@ -27,67 +27,166 @@
 #include <sodium.h>
 #endif
 
+#ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
+#include <openssl/evp.h>
+#include <openssl/kdf.h>
+#include <openssl/rand.h>
+#endif
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "base64.hh"
 #include "credentials.hh"
 #include "misc.hh"
 
+static size_t const pwhash_max_size = 128U; /* maximum size of the output */
+static size_t const pwhash_output_size = 32U;
+static unsigned int const pwhash_salt_size = 16U;
+static uint64_t const pwhash_work_factor = 1024U; /* N */
+static uint64_t const pwhash_parallel_factor = 1U; /* p */
+static uint64_t const pwhash_block_size_paramter = 8U; /* r */
+
+/* for now we only support one algo, with fixed parameters, but we might have to change that later */
+static std::string const pwhash_prefix = "$scrypt$n=1024$p=1$r=8$";
+static size_t const pwhash_prefix_size = pwhash_prefix.size();
+
+#ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
+static std::string hashPasswordInternal(const std::string& password, const std::string& salt)
+{
+  std::string out;
+  auto pctx = std::unique_ptr<EVP_PKEY_CTX, void(*)(EVP_PKEY_CTX*)>(EVP_PKEY_CTX_new_id(EVP_PKEY_SCRYPT, nullptr), EVP_PKEY_CTX_free);
+  if (!pctx) {
+    throw std::runtime_error("Error getting a scrypt context to hash the supplied password");
+  }
+
+  if (EVP_PKEY_derive_init(pctx.get()) <= 0) {
+    throw std::runtime_error("Error intializing the scrypt context to hash the supplied password");
+  }
+
+  if (EVP_PKEY_CTX_set1_pbe_pass(pctx.get(), reinterpret_cast<const unsigned char*>(password.data()), password.size()) <= 0) {
+    throw std::runtime_error("Error adding the password to the scrypt context to hash the supplied password");
+ }
+
+  if (EVP_PKEY_CTX_set1_scrypt_salt(pctx.get(), salt.data(), salt.size()) <= 0) {
+    throw std::runtime_error("Error adding the salt to the scrypt context to hash the supplied password");
+  }
+
+  if (EVP_PKEY_CTX_set_scrypt_N(pctx.get(), pwhash_work_factor) <= 0) {
+    throw std::runtime_error("Error setting the work factor to the scrypt context to hash the supplied password");
+  }
+
+  if (EVP_PKEY_CTX_set_scrypt_r(pctx.get(), pwhash_block_size_paramter) <= 0) {
+    throw std::runtime_error("Error setting the block size to the scrypt context to hash the supplied password");
+  }
+
+  if (EVP_PKEY_CTX_set_scrypt_p(pctx.get(), pwhash_parallel_factor) <= 0) {
+    throw std::runtime_error("Error setting the parallel factor to the scrypt context to hash the supplied password");
+  }
+
+  out.resize(pwhash_output_size);
+#ifdef HAVE_LIBSODIUM
+  sodium_mlock(out.data(), out.size());
+#endif
+  size_t outlen = out.size();
+
+  if (EVP_PKEY_derive(pctx.get(), reinterpret_cast<unsigned char*>(out.data()), &outlen) <= 0 || outlen != pwhash_output_size) {
+    throw std::runtime_error("Error deriving the output from the scrypt context to hash the supplied password");
+  }
+
+  return out;
+}
+#endif
+
 std::string hashPassword(const std::string& password)
 {
-#ifdef HAVE_CRYPTO_PWHASH_STR
+#ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
   std::string result;
-  result.resize(crypto_pwhash_STRBYTES);
-  sodium_mlock(result.data(), result.size());
+  result.reserve(pwhash_max_size);
 
-  int res = crypto_pwhash_str(const_cast<char*>(result.c_str()),
-                              password.c_str(),
-                              password.size(),
-                              crypto_pwhash_OPSLIMIT_INTERACTIVE,
-                              crypto_pwhash_MEMLIMIT_INTERACTIVE);
-  if (res != 0) {
-    throw std::runtime_error("Error while hashing the supplied password");
+#ifdef HAVE_LIBSODIUM
+  sodium_mlock(result.data(), result.size());
+#endif
+
+  result.append(pwhash_prefix);
+  /* generate a random salt */
+  std::string salt;
+  salt.resize(pwhash_salt_size);
+
+  if (RAND_bytes(reinterpret_cast<unsigned char*>(salt.data()), salt.size()) != 1) {
+    throw std::runtime_error("Error while generating a salt to hash the supplied password");
   }
+
+  result.append(Base64Encode(salt));
+  result.append("$");
+
+  auto out = hashPasswordInternal(password, salt);
+
+  // XXX: the current b64 API does not allow us to lock the memory
+  result.append(Base64Encode(out));
 
   return result;
 #else
-  throw std::runtime_error("Hashing a password requires libsodium support, and it is not available");
+  throw std::runtime_error("Hashing a password requires scrypt support in OpenSSL, and it is not available");
 #endif
 }
 
 bool verifyPassword(const std::string& hash, const std::string& password)
 {
-#ifdef HAVE_CRYPTO_PWHASH_STR
-  if (hash.size() > crypto_pwhash_STRBYTES) {
-    throw std::runtime_error("Invalid password hash supplied for verification, size is " + std::to_string(hash.size()) + ", expected at most " + std::to_string(crypto_pwhash_STRBYTES));
+  if (!isPasswordHashed(hash)) {
+    return false;
   }
 
-  return crypto_pwhash_str_verify(hash.c_str(),
-                                  password.c_str(),
-                                  password.size())
-    == 0;
+#ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
+  auto saltPos = pwhash_prefix.size();
+
+  auto saltEnd = hash.find('$', saltPos + 1);
+  if (saltEnd == std::string::npos) {
+    return false;
+  }
+
+  auto b64Salt = hash.substr(saltPos, saltEnd - saltPos);
+  std::string salt;
+  salt.reserve(pwhash_salt_size);
+  B64Decode(b64Salt, salt);
+
+  if (salt.size() != pwhash_salt_size) {
+    return false;
+  }
+
+  std::string tentative;
+  tentative.reserve(pwhash_output_size);
+  B64Decode(hash.substr(saltEnd + 1), tentative);
+
+  if (tentative.size() != pwhash_output_size) {
+    return false;
+  }
+
+  auto expected = hashPasswordInternal(password, salt);
+
+  return constantTimeStringEquals(expected, tentative);
 #else
-  throw std::runtime_error("Verifying a hashed password requires libsodium support, and it is not available");
+  throw std::runtime_error("Verifying a hashed password requires scrypt support in OpenSSL, and it is not available");
 #endif
 }
 
 bool isPasswordHashed(const std::string& password)
 {
-#ifdef HAVE_CRYPTO_PWHASH_STR
-  if (password.size() > crypto_pwhash_STRBYTES) {
+#ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
+  if (password.size() < pwhash_prefix_size || password.size() > pwhash_max_size) {
     return false;
   }
 
-  int res = crypto_pwhash_str_needs_rehash(password.c_str(),
-                                           crypto_pwhash_OPSLIMIT_INTERACTIVE,
-                                           crypto_pwhash_MEMLIMIT_INTERACTIVE);
-
-  if (res == -1) {
+  if (!boost::starts_with(password, pwhash_prefix)) {
     return false;
   }
-  /* 1 means a rehashing is needed (different parameters), 0 is fine.
-     Either way this is a valid hash */
+
+  auto saltEnd = password.find('$', pwhash_prefix.size() + 1);
+  if (saltEnd == std::string::npos) {
+    return false;
+  }
+
   return true;
 #else
   return false;
@@ -154,7 +253,7 @@ bool CredentialsHolder::matches(const std::string& password) const
 
 bool CredentialsHolder::isHashingAvailable()
 {
-#ifdef HAVE_CRYPTO_PWHASH_STR
+#ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
   return true;
 #else
   return false;
