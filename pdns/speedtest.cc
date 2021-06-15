@@ -755,7 +755,7 @@ struct Base64EncodeTest
 {
   string getName() const
   {
-    return "Bas64Encode test";
+    return "Base64Encode test";
   }
 
   void operator()() const
