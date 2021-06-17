@@ -24,6 +24,25 @@
 #include <memory>
 #include <string>
 
+class SensitiveData
+{
+  SensitiveData(size_t bytes);
+  SensitiveData(std::string&& data);
+  ~SensitiveData();
+  void clear();
+  const std::string& getString() const
+  {
+    return d_data;
+  }
+  std::string& getString()
+  {
+    return d_data;
+  }
+
+private:
+  std::string d_data;
+};
+
 std::string hashPassword(const std::string& password);
 bool verifyPassword(const std::string& hash, const std::string& password);
 bool isPasswordHashed(const std::string& password);
@@ -57,17 +76,18 @@ public:
   static bool isHashingAvailable();
   static std::string readFromTerminal();
 
-private:
   static uint64_t const s_defaultWorkFactor;
   static uint64_t const s_defaultParallelFactor;
-  static uint64_t const s_defaultBlockSizeParamter;
+  static uint64_t const s_defaultBlockSize;
+
+private:
   /* if the password is hashed, we only extract
      the salt and parameters once */
   std::string d_salt;
   std::string d_credentials;
   uint64_t d_workFactor{0};
   uint64_t d_parallelFactor{0};
-  uint64_t d_blockSizeParameter{0};
+  uint64_t d_blockSize{0};
   /* seed our hash so it's not predictable */
   uint32_t d_fallbackHashPerturb;
   uint32_t d_fallbackHash{0};

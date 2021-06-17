@@ -14,7 +14,7 @@ BOOST_AUTO_TEST_CASE(test_CredentialsUtils)
 {
   const std::string plaintext("test");
   /* generated with hashPassword("test") */
-  const std::string sampleHash("$scrypt$n=1024$p=1$r=8$1GZ10YdmSGtTmKK9jTH85Q==$JHeICW1mUCnTC+nnULDr7QFQ3kRrZ7u12djruJdrPhI=");
+  const std::string sampleHash("$scrypt$ln=10,p=1,r=8$1GZ10YdmSGtTmKK9jTH85Q==$JHeICW1mUCnTC+nnULDr7QFQ3kRrZ7u12djruJdrPhI=");
 
   auto hashed = hashPassword(plaintext);
   BOOST_CHECK(!hashed.empty());
@@ -44,7 +44,7 @@ BOOST_AUTO_TEST_CASE(test_CredentialsHolder)
 
 #ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
   BOOST_CHECK(CredentialsHolder::isHashingAvailable());
-  const std::string sampleHash("$scrypt$n=1024$p=1$r=8$1GZ10YdmSGtTmKK9jTH85Q==$JHeICW1mUCnTC+nnULDr7QFQ3kRrZ7u12djruJdrPhI=");
+  const std::string sampleHash("$scrypt$ln=10,p=1,r=8$1GZ10YdmSGtTmKK9jTH85Q==$JHeICW1mUCnTC+nnULDr7QFQ3kRrZ7u12djruJdrPhI=");
 
   auto fromHashedHolder = CredentialsHolder(std::string(sampleHash), true);
   BOOST_CHECK(fromHashedHolder.wasHashed());
