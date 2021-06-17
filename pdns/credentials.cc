@@ -21,6 +21,7 @@
  */
 #include "config.h"
 
+#include <cmath>
 #include <stdexcept>
 
 #ifdef HAVE_LIBSODIUM
@@ -60,7 +61,7 @@ uint64_t const CredentialsHolder::s_defaultBlockSize{8U}; /* r */
 SensitiveData::SensitiveData(std::string&& data): d_data(std::move(data))
 {
 #ifdef HAVE_LIBSODIUM
-  sodium_mlock(d_data().data(), d_data.size());
+  sodium_mlock(d_data.data(), d_data.size());
 #endif
 }
 
@@ -68,7 +69,7 @@ SensitiveData::SensitiveData(size_t bytes)
 {
   d_data.resize(bytes);
 #ifdef HAVE_LIBSODIUM
-  sodium_mlock(d_data().data(), d_data.size());
+  sodium_mlock(d_data.data(), d_data.size());
 #endif
 }
 
@@ -86,7 +87,7 @@ void SensitiveData::clear()
 }
 
 #ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
-static SensitiveData hashPasswordInternal(const SensitiveData& password, const std::string& salt, uint64_t workFactor, uint64_t parallelFactor, uint64_t blockSize)
+static std::string hashPasswordInternal(const std::string& password, const std::string& salt, uint64_t workFactor, uint64_t parallelFactor, uint64_t blockSize)
 {
   auto pctx = std::unique_ptr<EVP_PKEY_CTX, void(*)(EVP_PKEY_CTX*)>(EVP_PKEY_CTX_new_id(EVP_PKEY_SCRYPT, nullptr), EVP_PKEY_CTX_free);
   if (!pctx) {
@@ -97,7 +98,7 @@ static SensitiveData hashPasswordInternal(const SensitiveData& password, const s
     throw std::runtime_error("Error intializing the scrypt context to hash the supplied password");
   }
 
-  if (EVP_PKEY_CTX_set1_pbe_pass(pctx.get(), reinterpret_cast<const unsigned char*>(password.getString().data()), password.getString().size()) <= 0) {
+  if (EVP_PKEY_CTX_set1_pbe_pass(pctx.get(), reinterpret_cast<const unsigned char*>(password.data()), password.size()) <= 0) {
     throw std::runtime_error("Error adding the password to the scrypt context to hash the supplied password");
  }
 
@@ -117,10 +118,11 @@ static SensitiveData hashPasswordInternal(const SensitiveData& password, const s
     throw std::runtime_error("Error setting the parallel factor to the scrypt context to hash the supplied password");
   }
 
-  SensitiveData out(pwhash_output_size);
-  size_t outlen = pwhash_output_size;
+  std::string out;
+  out.resize(pwhash_output_size);
+  size_t outlen = out.size();
 
-  if (EVP_PKEY_derive(pctx.get(), reinterpret_cast<unsigned char*>(out.getString().data()), &outlen) <= 0 || outlen != pwhash_output_size) {
+  if (EVP_PKEY_derive(pctx.get(), reinterpret_cast<unsigned char*>(out.data()), &outlen) <= 0 || outlen != pwhash_output_size) {
     throw std::runtime_error("Error deriving the output from the scrypt context to hash the supplied password");
   }
 
@@ -145,19 +147,15 @@ static std::string generateRandomSalt()
 #endif
 }
 
-std::string hashPassword(const SensitiveData& password)
+std::string hashPassword(const std::string& password)
 {
 #ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
   std::string result;
   result.reserve(pwhash_max_size);
 
-#ifdef HAVE_LIBSODIUM
-  sodium_mlock(result.data(), result.size());
-#endif
-
   result.append(pwhash_prefix);
   result.append("ln=");
-  result.append(std::to_string(std::log2(CredentialsHolder::s_defaultWorkFactor)));
+  result.append(std::to_string(static_cast<uint64_t>(std::log2(CredentialsHolder::s_defaultWorkFactor))));
   result.append(",p=");
   result.append(std::to_string(CredentialsHolder::s_defaultParallelFactor));
   result.append(",r=");
@@ -169,7 +167,6 @@ std::string hashPassword(const SensitiveData& password)
 
   auto out = hashPasswordInternal(password, salt, CredentialsHolder::s_defaultWorkFactor, CredentialsHolder::s_defaultParallelFactor, CredentialsHolder::s_defaultBlockSize);
 
-  // XXX: the current b64 API does not allow us to lock the memory
   result.append(Base64Encode(out));
 
   return result;
@@ -194,6 +191,7 @@ static void parseHashed(const std::string& hash, std::string& salt, std::string&
 #ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
   auto parametersEnd = hash.find('$', pwhash_prefix.size());
   if (parametersEnd == std::string::npos || parametersEnd == hash.size()) {
+    cerr<<hash<<endl;
     throw std::runtime_error("Invalid hashed password format, no parameters");
   }
 
@@ -315,47 +313,36 @@ bool isPasswordHashed(const std::string& password)
 
 /* if the password is in cleartext and hashing is available,
    the hashed form will be kept in memory */
-CredentialsHolder::CredentialsHolder(std::string&& password, bool hashPlaintext)
+CredentialsHolder::CredentialsHolder(std::string&& password, bool hashPlaintext): d_credentials(std::move(password))
 {
-  bool locked = false;
-
   if (isHashingAvailable()) {
-    if (!isPasswordHashed(password)) {
+    if (!isPasswordHashed(d_credentials.getString())) {
       if (hashPlaintext) {
         d_salt = generateRandomSalt();
         d_workFactor = s_defaultWorkFactor;
         d_parallelFactor = s_defaultParallelFactor;
         d_blockSize = s_defaultBlockSize;
-        d_credentials = hashPasswordInternal(password, d_salt, d_workFactor, d_parallelFactor, d_blockSize);
-        locked = true;
+        d_credentials = SensitiveData(hashPasswordInternal(d_credentials.getString(), d_salt, d_workFactor, d_parallelFactor, d_blockSize));
         d_isHashed = true;
       }
     }
     else {
       d_wasHashed = true;
       d_isHashed = true;
-      parseHashed(password, d_salt, d_credentials, d_workFactor, d_parallelFactor, d_blockSize);
+      std::string hashedPassword;
+      parseHashed(d_credentials.getString(), d_salt, hashedPassword, d_workFactor, d_parallelFactor, d_blockSize);
+      d_credentials = SensitiveData(std::move(hashedPassword));
     }
   }
 
   if (!d_isHashed) {
     d_fallbackHashPerturb = random();
-    d_fallbackHash = burtle(reinterpret_cast<const unsigned char*>(password.data()), password.size(), d_fallbackHashPerturb);
-    d_credentials = std::move(password);
-  }
-
-  if (!locked) {
-#ifdef HAVE_LIBSODIUM
-    sodium_mlock(d_credentials.data(), d_credentials.size());
-#endif
+    d_fallbackHash = burtle(reinterpret_cast<const unsigned char*>(d_credentials.getString().data()), d_credentials.getString().size(), d_fallbackHashPerturb);
   }
 }
 
 CredentialsHolder::~CredentialsHolder()
 {
-#ifdef HAVE_LIBSODIUM
-  sodium_munlock(d_credentials.data(), d_credentials.size());
-#endif
   d_fallbackHashPerturb = 0;
   d_fallbackHash = 0;
 }
@@ -363,7 +350,7 @@ CredentialsHolder::~CredentialsHolder()
 bool CredentialsHolder::matches(const std::string& password) const
 {
   if (d_isHashed) {
-    return verifyPassword(d_credentials, d_salt, d_workFactor, d_parallelFactor, d_blockSize, password);
+    return verifyPassword(d_credentials.getString(), d_salt, d_workFactor, d_parallelFactor, d_blockSize, password);
   }
   else {
     uint32_t fallback = burtle(reinterpret_cast<const unsigned char*>(password.data()), password.size(), d_fallbackHashPerturb);
@@ -371,7 +358,7 @@ bool CredentialsHolder::matches(const std::string& password) const
       return false;
     }
 
-    return constantTimeStringEquals(password, d_credentials);
+    return constantTimeStringEquals(password, d_credentials.getString());
   }
 }
 
@@ -387,7 +374,7 @@ bool CredentialsHolder::isHashingAvailable()
 #include <signal.h>
 #include <termios.h>
 
-std::string CredentialsHolder::readFromTerminal()
+SensitiveData CredentialsHolder::readFromTerminal()
 {
   struct termios term;
   struct termios oterm;
@@ -463,9 +450,5 @@ std::string CredentialsHolder::readFromTerminal()
     sigaction(sig.first, &sig.second, nullptr);
   }
 
-#ifdef HAVE_LIBSODIUM
-  sodium_mlock(buffer.data(), buffer.size());
-#endif
-
-  return buffer;
+  return SensitiveData(std::move(buffer));
 }

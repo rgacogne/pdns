@@ -26,6 +26,7 @@
 
 class SensitiveData
 {
+public:
   SensitiveData(size_t bytes);
   SensitiveData(std::string&& data);
   ~SensitiveData();
@@ -45,6 +46,7 @@ private:
 
 std::string hashPassword(const std::string& password);
 bool verifyPassword(const std::string& hash, const std::string& password);
+bool verifyPassword(const std::string& binaryHash, const std::string& salt, uint64_t workFactor, uint64_t parallelFactor, uint64_t blockSize, const std::string& binaryPassword);
 bool isPasswordHashed(const std::string& password);
 
 class CredentialsHolder
@@ -74,17 +76,17 @@ public:
   }
 
   static bool isHashingAvailable();
-  static std::string readFromTerminal();
+  static SensitiveData readFromTerminal();
 
   static uint64_t const s_defaultWorkFactor;
   static uint64_t const s_defaultParallelFactor;
   static uint64_t const s_defaultBlockSize;
 
 private:
+  SensitiveData d_credentials;
   /* if the password is hashed, we only extract
      the salt and parameters once */
   std::string d_salt;
-  std::string d_credentials;
   uint64_t d_workFactor{0};
   uint64_t d_parallelFactor{0};
   uint64_t d_blockSize{0};
