@@ -53,7 +53,7 @@ static std::string const pwhash_prefix = "$scrypt$n=1024$p=1$r=8$";
 static size_t const pwhash_prefix_size = pwhash_prefix.size();
 
 #ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
-static std::string hashPasswordInternal(const std::string& password, const std::string& salt)
+static std::string hashPasswordInternal(const std::string& password, const std::string& salt, uint64_t workFactor, uint64_t parallelFactor, uint64_t blockSize)
 {
   std::string out;
   auto pctx = std::unique_ptr<EVP_PKEY_CTX, void(*)(EVP_PKEY_CTX*)>(EVP_PKEY_CTX_new_id(EVP_PKEY_SCRYPT, nullptr), EVP_PKEY_CTX_free);
@@ -73,15 +73,15 @@ static std::string hashPasswordInternal(const std::string& password, const std::
     throw std::runtime_error("Error adding the salt to the scrypt context to hash the supplied password");
   }
 
-  if (EVP_PKEY_CTX_set_scrypt_N(pctx.get(), pwhash_work_factor) <= 0) {
+  if (EVP_PKEY_CTX_set_scrypt_N(pctx.get(), workFactor) <= 0) {
     throw std::runtime_error("Error setting the work factor to the scrypt context to hash the supplied password");
   }
 
-  if (EVP_PKEY_CTX_set_scrypt_r(pctx.get(), pwhash_block_size_paramter) <= 0) {
+  if (EVP_PKEY_CTX_set_scrypt_r(pctx.get(), blockSize) <= 0) {
     throw std::runtime_error("Error setting the block size to the scrypt context to hash the supplied password");
   }
 
-  if (EVP_PKEY_CTX_set_scrypt_p(pctx.get(), pwhash_parallel_factor) <= 0) {
+  if (EVP_PKEY_CTX_set_scrypt_p(pctx.get(), parallelFactor) <= 0) {
     throw std::runtime_error("Error setting the parallel factor to the scrypt context to hash the supplied password");
   }
 
@@ -99,6 +99,19 @@ static std::string hashPasswordInternal(const std::string& password, const std::
 }
 #endif
 
+std::string generateRandomSalt()
+{
+  /* generate a random salt */
+  std::string salt;
+  salt.resize(pwhash_salt_size);
+
+  if (RAND_bytes(reinterpret_cast<unsigned char*>(salt.data()), salt.size()) != 1) {
+    throw std::runtime_error("Error while generating a salt to hash the supplied password");
+  }
+
+  return salt;
+}
+
 std::string hashPassword(const std::string& password)
 {
 #ifdef HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT
@@ -110,18 +123,11 @@ std::string hashPassword(const std::string& password)
 #endif
 
   result.append(pwhash_prefix);
-  /* generate a random salt */
-  std::string salt;
-  salt.resize(pwhash_salt_size);
-
-  if (RAND_bytes(reinterpret_cast<unsigned char*>(salt.data()), salt.size()) != 1) {
-    throw std::runtime_error("Error while generating a salt to hash the supplied password");
-  }
-
+  auto salt = generateRandomSalt();
   result.append(Base64Encode(salt));
   result.append("$");
 
-  auto out = hashPasswordInternal(password, salt);
+  auto out = hashPasswordInternal(password, salt, pwhash_work_factor, pwhash_parallel_factor, pwhash_block_size_paramter);
 
   // XXX: the current b64 API does not allow us to lock the memory
   result.append(Base64Encode(out));
@@ -130,6 +136,13 @@ std::string hashPassword(const std::string& password)
 #else
   throw std::runtime_error("Hashing a password requires scrypt support in OpenSSL, and it is not available");
 #endif
+}
+
+bool verifyPassword(const std::string& binaryHash, const std::string& salt, uint64_t workFactor, uint64_t parallelFactor, uint64_t blockSize, const std::string& binaryPassword)
+{
+  auto expected = hashPasswordInternal(binaryPassword, salt, workFactor, parallelFactor, blockSize);
+
+  return constantTimeStringEquals(expected, binaryHash);
 }
 
 bool verifyPassword(const std::string& hash, const std::string& password)
@@ -193,6 +206,9 @@ bool isPasswordHashed(const std::string& password)
 #endif
 }
 
+/* parse a hashed password in 
+CredentialsHolder::parseHashed(std::string& hashed)
+
 /* if the password is in cleartext and hashing is available,
    the hashed form will be kept in memory */
 CredentialsHolder::CredentialsHolder(std::string&& password, bool hashPlaintext)
@@ -202,7 +218,11 @@ CredentialsHolder::CredentialsHolder(std::string&& password, bool hashPlaintext)
   if (isHashingAvailable()) {
     if (!isPasswordHashed(password)) {
       if (hashPlaintext) {
-        d_credentials = hashPassword(password);
+        d_salt = generateRandomSalt();
+        d_workFactor = s_defaultWorkFactor;
+        d_parallelFactor = s_defaultParallelFactor;
+        d_blockSizeParameter = s_defaultBlockSizeParameter;
+        d_credentials = hashPassword(password, d_salt, d_workFactor, d_parallelFactor, d_blockSizeParameter);
         locked = true;
         d_isHashed = true;
       }
@@ -210,7 +230,7 @@ CredentialsHolder::CredentialsHolder(std::string&& password, bool hashPlaintext)
     else {
       d_wasHashed = true;
       d_isHashed = true;
-      d_credentials = std::move(password);
+      parseHashed(std::move(password));
     }
   }
 
@@ -239,7 +259,7 @@ CredentialsHolder::~CredentialsHolder()
 bool CredentialsHolder::matches(const std::string& password) const
 {
   if (d_isHashed) {
-    return verifyPassword(d_credentials, password);
+    return verifyPassword(d_credentials, d_salt, d_workFactor, d_parallelFactor, d_blockSizeParameter, password);
   }
   else {
     uint32_t fallback = burtle(reinterpret_cast<const unsigned char*>(password.data()), password.size(), d_fallbackHashPerturb);

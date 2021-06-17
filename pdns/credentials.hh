@@ -31,8 +31,11 @@ bool isPasswordHashed(const std::string& password);
 class CredentialsHolder
 {
 public:
-  /* if the password is in cleartext and hashing is available,
-     the hashed form will be kept in memory */
+  /* if hashPlaintext is true, the password is in cleartext and hashing is available,
+     the hashed form will be kept in memory.
+     Note that accepting hashed password from an untrusted source might open
+     us to a denial of service, since we currently don't cap the the parameters,
+     including the work factor */
   CredentialsHolder(std::string&& password, bool hashPlaintext);
   ~CredentialsHolder();
 
@@ -55,7 +58,17 @@ public:
   static std::string readFromTerminal();
 
 private:
+  static uint64_t const s_defaultWorkFactor;
+  static uint64_t const s_defaultParallelFactor;
+  static uint64_t const s_defaultBlockSizeParamter;
+  /* if the password is hashed, we only extract
+     the salt and parameters once */
+  std::string d_salt;
   std::string d_credentials;
+  uint64_t d_workFactor{0};
+  uint64_t d_parallelFactor{0};
+  uint64_t d_blockSizeParameter{0};
+  /* seed our hash so it's not predictable */
   uint32_t d_fallbackHashPerturb;
   uint32_t d_fallbackHash{0};
   /* whether it was constructed from a hashed and salted string */
