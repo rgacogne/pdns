@@ -26,6 +26,8 @@
 #include "logger.hh"
 #include "statbag.hh"
 #include "cachecleaner.hh"
+#include "dns_random.hh"
+
 extern StatBag S;
 
 const unsigned int AuthPacketCache::s_mincleaninterval, AuthPacketCache::s_maxcleaninterval;
@@ -41,6 +43,8 @@ AuthPacketCache::AuthPacketCache(size_t mapsCount): d_maps(mapsCount), d_lastcle
   d_statnumhit=S.getPointer("packetcache-hit");
   d_statnummiss=S.getPointer("packetcache-miss");
   d_statnumentries=S.getPointer("packetcache-size");
+
+  d_hashseed = dns_random(0xffffffff);
 }
 
 AuthPacketCache::~AuthPacketCache()
@@ -72,7 +76,7 @@ bool AuthPacketCache::get(DNSPacket& p, DNSPacket& cached)
 
   cleanupIfNeeded();
 
-  uint32_t hash = canHashPacket(p.getString(), /* don't skip ECS */ false);
+  uint32_t hash = canHashPacket(p.getString(), /* don't skip ECS */ false, d_hashseed);
   p.setHash(hash);
 
   string value;

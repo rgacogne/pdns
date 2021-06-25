@@ -140,6 +140,7 @@ private:
   unsigned long d_nextclean{4096};
   unsigned int d_cleaninterval{4096};
   uint32_t d_ttl{0};
+  uint32_t d_hashseed{0};
   bool d_cleanskipped{false};
 
   static const unsigned int s_mincleaninterval=1000, s_maxcleaninterval=300000;

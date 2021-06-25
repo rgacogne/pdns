@@ -38,6 +38,7 @@ BOOST_AUTO_TEST_CASE(test_recPacketCacheSimple) {
   pw.startRecord(qname, QType::A, ttd);
 
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag, qpacket, time(nullptr), &fpacket, &age, &qhash), false);
+  qhash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &qhash), false);
 
   ARecordContent ar("127.0.0.1");
@@ -61,6 +62,7 @@ BOOST_AUTO_TEST_CASE(test_recPacketCacheSimple) {
   BOOST_CHECK_EQUAL(found, true);
   BOOST_CHECK_EQUAL(qhash, qhash2);
   BOOST_CHECK_EQUAL(fpacket, rpacket);
+  qhash2 = 0;
   found = rpc.getResponsePacket(tag, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &qhash2);
   BOOST_CHECK_EQUAL(found, true);
   BOOST_CHECK_EQUAL(qhash, qhash2);
@@ -77,6 +79,7 @@ BOOST_AUTO_TEST_CASE(test_recPacketCacheSimple) {
 
   found = rpc.getResponsePacket(tag, qpacket, time(nullptr), &fpacket, &age, &qhash);
   BOOST_CHECK_EQUAL(found, false);
+  qhash = 0;
   found = rpc.getResponsePacket(tag, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &qhash);
   BOOST_CHECK_EQUAL(found, false);
 
@@ -108,6 +111,7 @@ BOOST_AUTO_TEST_CASE(test_recPacketCacheSimplePost2038) {
   time_t future = INT_MAX - 1800; // with ttd of 3600, we pass the cliff
 
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag, qpacket, future, &fpacket, &age, &qhash), false);
+  qhash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag, qpacket, qname, QType::A, QClass::IN, future, &fpacket, &age, &qhash), false);
 
   ARecordContent ar("127.0.0.1");
@@ -132,13 +136,16 @@ BOOST_AUTO_TEST_CASE(test_recPacketCacheSimplePost2038) {
   BOOST_CHECK_EQUAL(found, true);
   BOOST_CHECK_EQUAL(qhash, qhash2);
   BOOST_CHECK_EQUAL(fpacket, rpacket);
+  qhash2 = 0;
   found = rpc.getResponsePacket(tag, qpacket, qname, QType::A, QClass::IN, future, &fpacket, &age, &qhash2);
   BOOST_CHECK_EQUAL(found, true);
   BOOST_CHECK_EQUAL(qhash, qhash2);
   BOOST_CHECK_EQUAL(fpacket, rpacket);
 
+  qhash2 = 0;
   found = rpc.getResponsePacket(tag, qpacket, future + 3601, &fpacket, &age, &qhash2);
   BOOST_CHECK_EQUAL(found, false);
+  qhash2 = 0;
   found = rpc.getResponsePacket(tag, qpacket, qname, QType::A, QClass::IN, future + 3601, &fpacket, &age, &qhash2);
   BOOST_CHECK_EQUAL(found, false);
 
@@ -152,8 +159,10 @@ BOOST_AUTO_TEST_CASE(test_recPacketCacheSimplePost2038) {
   pw2.getHeader()->id=dns_random_uint16();
   qpacket.assign((const char*)&packet[0], packet.size());
 
+  qhash = 0;
   found = rpc.getResponsePacket(tag, qpacket, future, &fpacket, &age, &qhash);
   BOOST_CHECK_EQUAL(found, false);
+  qhash = 0;
   found = rpc.getResponsePacket(tag, qpacket, qname, QType::A, QClass::IN, future, &fpacket, &age, &qhash);
   BOOST_CHECK_EQUAL(found, false);
 
@@ -195,8 +204,10 @@ BOOST_AUTO_TEST_CASE(test_recPacketCache_Tags) {
   BOOST_CHECK_EQUAL(qhash, temphash);
 
   /* Different tag, should still get get the same hash, for both interfaces */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag2, qpacket, time(nullptr), &fpacket, &age, &temphash), false);
   BOOST_CHECK_EQUAL(qhash, temphash);
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag2, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &temphash), false);
   BOOST_CHECK_EQUAL(qhash, temphash);
 
@@ -244,16 +255,19 @@ BOOST_AUTO_TEST_CASE(test_recPacketCache_Tags) {
   BOOST_CHECK_EQUAL(rpc.size(), 1U);
 
   /* we can retrieve it */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag1, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r1packet);
 
   /* with both interfaces */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag1, qpacket, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r1packet);
 
   /* but not with the second tag */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag2, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &temphash), false);
   /* we should still get the same hash */
   BOOST_CHECK_EQUAL(temphash, qhash);
@@ -263,19 +277,23 @@ BOOST_AUTO_TEST_CASE(test_recPacketCache_Tags) {
   BOOST_CHECK_EQUAL(rpc.size(), 2U);
 
   /* We still get the correct response for the first tag */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag1, qpacket, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r1packet);
 
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag1, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r1packet);
 
   /* and the correct response for the second tag */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag2, qpacket, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r2packet);
 
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(tag2, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r2packet);
@@ -283,7 +301,7 @@ BOOST_AUTO_TEST_CASE(test_recPacketCache_Tags) {
 
 BOOST_AUTO_TEST_CASE(test_recPacketCache_TCP) {
   /* Insert a response with UDP, the exact same query with a TCP flag
-     should lead to a miss. 
+     should lead to a miss.
   */
   RecursorPacketCache rpc;
   string fpacket;
@@ -311,7 +329,9 @@ BOOST_AUTO_TEST_CASE(test_recPacketCache_TCP) {
   BOOST_CHECK_EQUAL(qhash, temphash);
 
   /* Different tcp/udp, should still get get the same hash, for both interfaces */
+  qhash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, time(nullptr), &fpacket, &age, &qhash), false);
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, nullptr, &temphash, nullptr, true), false);
   BOOST_CHECK_EQUAL(qhash, temphash);
 
@@ -360,16 +380,19 @@ BOOST_AUTO_TEST_CASE(test_recPacketCache_TCP) {
 
   vState vState;
   /* we can retrieve it */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &vState, &temphash, nullptr, true), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r1packet);
 
   /* first interface assumes udp */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, time(nullptr), &fpacket, &age, &temphash), false);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r1packet);
 
   /* and not with explicit udp */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &vState, &temphash, nullptr, false), false);
   /* we should still get the same hash */
   BOOST_CHECK_EQUAL(temphash, qhash);
@@ -379,15 +402,18 @@ BOOST_AUTO_TEST_CASE(test_recPacketCache_TCP) {
   BOOST_CHECK_EQUAL(rpc.size(), 2U);
 
   /* We get the correct response for udp now */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r2packet);
 
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &temphash), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r2packet);
 
   /* and the correct response for tcp */
+  temphash = 0;
   BOOST_CHECK_EQUAL(rpc.getResponsePacket(0, qpacket, qname, QType::A, QClass::IN, time(nullptr), &fpacket, &age, &vState, &temphash, nullptr, true), true);
   BOOST_CHECK_EQUAL(qhash, temphash);
   BOOST_CHECK_EQUAL(fpacket, r1packet);

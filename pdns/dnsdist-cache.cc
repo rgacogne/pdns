@@ -422,7 +422,7 @@ uint32_t DNSDistPacketCache::getMinTTL(const char* packet, uint16_t length, bool
 
 uint32_t DNSDistPacketCache::getKey(const DNSName::string_t& qname, size_t qnameWireLength, const PacketBuffer& packet, bool tcp)
 {
-  uint32_t result = 0;
+  uint32_t result = g_hashperturb;
   /* skip the query ID */
   if (packet.size() < sizeof(dnsheader)) {
     throw std::range_error("Computing packet cache key for an invalid packet size (" + std::to_string(packet.size()) +")");

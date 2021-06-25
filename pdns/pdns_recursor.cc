@@ -2492,7 +2492,8 @@ static bool checkForCacheHit(bool qnameParsed, unsigned int tag, const string& d
   bool cacheHit = false;
   uint32_t age;
   vState valState;
-  
+
+  qhash = g_disthashseed;
   if (qnameParsed) {
     cacheHit = !SyncRes::s_nopacketcache && t_packetCache->getResponsePacket(tag, data, qname, qtype, qclass, now.tv_sec, &response, &age, &valState, &qhash, &pbData, tcp);
   } else {

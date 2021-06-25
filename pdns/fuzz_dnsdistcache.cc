@@ -22,6 +22,8 @@
 
 #include "dnsdist-cache.hh"
 
+uint32_t g_hashperturb = 0;
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size);
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {

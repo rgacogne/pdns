@@ -112,9 +112,9 @@ public:
     return currentHash;
   }
 
-  static uint32_t hashHeaderAndQName(const std::string& packet, size_t& pos)
+  static uint32_t hashHeaderAndQName(const std::string& packet, size_t& pos, uint32_t hashPerturb)
   {
-    uint32_t currentHash = 0;
+    uint32_t currentHash = hashPerturb;
     const size_t packetSize = packet.size();
     assert(packetSize >= sizeof(dnsheader));
     currentHash = burtle(reinterpret_cast<const unsigned char*>(&packet.at(2)), sizeof(dnsheader) - 2, currentHash); // rest of dnsheader, skip id
@@ -142,10 +142,10 @@ public:
      - EDNS Cookie options, if any ;
      - EDNS Client Subnet options, if any and skipECS is true.
   */
-  static uint32_t canHashPacket(const std::string& packet, bool skipECS)
+  static uint32_t canHashPacket(const std::string& packet, bool skipECS, uint32_t hashPerturb)
   {
     size_t pos = 0;
-    uint32_t currentHash = hashHeaderAndQName(packet, pos);
+    uint32_t currentHash = hashHeaderAndQName(packet, pos, hashPerturb);
     size_t packetSize = packet.size();
 
     if (pos >= packetSize) {
