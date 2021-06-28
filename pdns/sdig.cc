@@ -354,6 +354,7 @@ try {
   string name = string(argv[3]);
   string type = string(argv[4]);
 
+  uint64_t questionIdx = 0;
   vector<pair<string, string>> questions;
   if (name == "-" && type == "-") {
     if (!tcp) {
@@ -366,25 +367,43 @@ try {
       questions.emplace_back(fields.first, fields.second);
     }
   } else {
-    questions.emplace_back(name, type);
+    for (size_t count = 0; count < 1000; count++) {
+      const size_t chr = 8;
+      for (size_t idx = 0; idx < chr; idx++) {
+        questions.emplace_back(name, type);
+      }
+      for (size_t idx = 0; idx < (10 - chr); idx++) {
+        questions.emplace_back(std::to_string(rand()) + "." + name, type);
+      }
+    }
   }
 
   if (doh) {
 #ifdef HAVE_LIBCURL
+    DTime dt;
     vector<uint8_t> packet;
-    s_expectedIDs.insert(0);
-    fillPacket(packet, name, type, dnssec, ednsnm, recurse, xpfcode, xpfversion,
-               xpfproto, xpfsrc, xpfdst, qclass, opcode, 0);
     MiniCurl mc;
     MiniCurl::MiniCurlHeaders mch;
     mch.emplace("Content-Type", "application/dns-message");
     mch.emplace("Accept", "application/dns-message");
-    string question(packet.begin(), packet.end());
     // FIXME: how do we use proxyheader here?
     while(true) {
+      dt.set();
+      packet.clear();
+      s_expectedIDs.insert(0);
+      cerr<<"preparing to send "<<questions.at(questionIdx % questions.size()).first<<endl;
+      fillPacket(packet, questions.at(questionIdx % questions.size()).first, questions.at(questionIdx % questions.size()).second, dnssec, ednsnm, recurse, xpfcode, xpfversion,
+                 xpfproto, xpfsrc, xpfdst, qclass, opcode, 0);
+      ++questionIdx;
+      string question(packet.begin(), packet.end());
       reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
-    printReply(reply, showflags, hidesoadetails, dumpluaraw);
-    usleep(1000000/6);
+      printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      auto elapsed = dt.udiffNoReset();
+      //cerr<<std::to_string(elapsed)<<endl;
+      auto wait = 1000000/20;
+      if (elapsed < wait) {
+        usleep(wait-elapsed);
+      }
     }
 #else
     throw PDNSException("please link sdig against libcurl for DoH support");
