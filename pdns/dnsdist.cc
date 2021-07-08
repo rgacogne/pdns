@@ -259,9 +259,9 @@ bool responseContentMatches(const PacketBuffer& response, const DNSName& qname, 
   }
 
   uint16_t rqtype, rqclass;
-  DNSName rqname;
+  static thread_local DNSName rqname;
   try {
-    rqname = DNSName(reinterpret_cast<const char*>(response.data()), response.size(), sizeof(dnsheader), false, &rqtype, &rqclass, &qnameWireLength);
+    rqname.fromPacket(reinterpret_cast<const char*>(response.data()), response.size(), sizeof(dnsheader), &rqtype, &rqclass, &qnameWireLength);
   }
   catch (const std::exception& e) {
     if(response.size() > 0 && static_cast<size_t>(response.size()) > sizeof(dnsheader)) {
@@ -1332,7 +1332,8 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
 
     uint16_t qtype, qclass;
     unsigned int qnameWireLength = 0;
-    DNSName qname(reinterpret_cast<const char*>(query.data()), query.size(), sizeof(dnsheader), false, &qtype, &qclass, &qnameWireLength);
+    static thread_local DNSName qname;
+    qname.fromPacket(reinterpret_cast<const char*>(query.data()), query.size(), sizeof(dnsheader), &qtype, &qclass, &qnameWireLength);
     DNSQuestion dq(&qname, qtype, qclass, proxiedDestination.sin4.sin_family != 0 ? &proxiedDestination : &cs.local, &proxiedRemote, query, dnsCryptQuery ? DNSQuestion::Protocol::DNSCryptUDP : DNSQuestion::Protocol::DoUDP, &queryRealTime);
     dq.dnsCryptQuery = std::move(dnsCryptQuery);
     if (!proxyProtocolValues.empty()) {

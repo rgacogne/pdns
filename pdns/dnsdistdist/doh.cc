@@ -464,7 +464,8 @@ static int processDOHQuery(DOHUnit* du)
 
     uint16_t qtype, qclass;
     unsigned int qnameWireLength = 0;
-    DNSName qname(reinterpret_cast<const char*>(du->query.data()), du->query.size(), sizeof(dnsheader), false, &qtype, &qclass, &qnameWireLength);
+    static thread_local DNSName qname;
+    qname.fromPacket(reinterpret_cast<const char*>(du->query.data()), du->query.size(), sizeof(dnsheader), &qtype, &qclass, &qnameWireLength);
     DNSQuestion dq(&qname, qtype, qclass, &du->dest, &du->remote, du->query, DNSQuestion::Protocol::DoH, &queryRealTime);
     dq.ednsAdded = du->ednsAdded;
     dq.du = du;
@@ -659,7 +660,8 @@ static void doh_dispatch_query(DOHServerConfig* dsc, h2o_handler_t* self, h2o_re
   try {
     /* we only parse it there as a sanity check, we will parse it again later */
     uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(query.data()), query.size(), sizeof(dnsheader), false, &qtype);
+    static thread_local DNSName qname;
+    qname.fromPacket(reinterpret_cast<const char*>(query.data()), query.size(), sizeof(dnsheader), &qtype);
 
     auto du = std::unique_ptr<DOHUnit>(new DOHUnit);
     du->dsc = dsc;

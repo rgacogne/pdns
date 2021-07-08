@@ -168,6 +168,12 @@ public:
 
   bool has8bitBytes() const; /* returns true if at least one byte of the labels forming the name is not included in [A-Za-z0-9_*./@ \\:-] */
 
+  void fromPacket(const char* p, unsigned int len, unsigned int offset, uint16_t* qtype=nullptr, uint16_t* qclass=nullptr, unsigned int* consumed=nullptr)
+  {
+    clear();
+    packetParser(p, len, offset, false, qtype, qclass, consumed, 0, 0);
+  }
+
 private:
   string_t d_storage;
 
