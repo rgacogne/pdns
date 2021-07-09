@@ -2169,6 +2169,8 @@ static void sighandler(int sig)
 }
 #endif
 
+#include "dnsdist-nghttp2.hh"
+
 int main(int argc, char** argv)
 {
   try {
@@ -2635,6 +2637,8 @@ int main(int argc, char** argv)
       thread secpollthread(secPollThread);
       secpollthread.detach();
     }
+
+    sendHTTP2Query();
 
     if(g_cmdLine.beSupervised) {
 #ifdef HAVE_SYSTEMD
