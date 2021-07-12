@@ -292,7 +292,7 @@ public:
     return IOState::Done;
   }
 
-  IOState tryRead(PacketBuffer& buffer, size_t& pos, size_t toRead) override
+  IOState tryRead(PacketBuffer& buffer, size_t& pos, size_t toRead, bool allowIncomplete) override
   {
     do {
       int res = SSL_read(d_conn.get(), reinterpret_cast<char *>(&buffer.at(pos)), static_cast<int>(toRead - pos));
@@ -301,13 +301,16 @@ public:
       }
       else {
         pos += static_cast<size_t>(res);
+        if (allowIncomplete) {
+          break;
+        }
       }
     }
     while (pos < toRead);
     return IOState::Done;
   }
 
-  size_t read(void* buffer, size_t bufferSize, const struct timeval& readTimeout, const struct timeval& totalTimeout) override
+  size_t read(void* buffer, size_t bufferSize, const struct timeval& readTimeout, const struct timeval& totalTimeout, bool allowIncomplete) override
   {
     size_t got = 0;
     struct timeval start = {0, 0};
@@ -323,6 +326,9 @@ public:
       }
       else {
         got += static_cast<size_t>(res);
+        if (allowIncomplete) {
+          break;
+        }
       }
 
       if (totalTimeout.tv_sec != 0 || totalTimeout.tv_usec != 0) {
@@ -1058,7 +1064,7 @@ public:
     return IOState::Done;
   }
 
-  IOState tryRead(PacketBuffer& buffer, size_t& pos, size_t toRead) override
+  IOState tryRead(PacketBuffer& buffer, size_t& pos, size_t toRead, bool allowIncomplete) override
   {
     if (!d_handshakeDone) {
       auto state = tryHandshake();
@@ -1074,6 +1080,9 @@ public:
       }
       else if (res > 0) {
         pos += static_cast<size_t>(res);
+        if (allowIncomplete) {
+          break;
+        }
       }
       else if (res < 0) {
         if (gnutls_error_is_fatal(res)) {
@@ -1089,7 +1098,7 @@ public:
     return IOState::Done;
   }
 
-  size_t read(void* buffer, size_t bufferSize, const struct timeval& readTimeout, const struct timeval& totalTimeout) override
+  size_t read(void* buffer, size_t bufferSize, const struct timeval& readTimeout, const struct timeval& totalTimeout, bool allowIncomplete) override
   {
     size_t got = 0;
     struct timeval start{0,0};
@@ -1105,6 +1114,9 @@ public:
       }
       else if (res > 0) {
         got += static_cast<size_t>(res);
+        if (allowIncomplete) {
+          break;
+        }
       }
       else if (res < 0) {
         if (gnutls_error_is_fatal(res)) {
