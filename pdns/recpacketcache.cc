@@ -124,7 +124,7 @@ bool RecursorPacketCache::getResponsePacket(unsigned int tag, const std::string&
 bool RecursorPacketCache::getResponsePacket(unsigned int tag, const std::string& queryPacket, const DNSName& qname, uint16_t qtype, uint16_t qclass, time_t now,
                                             std::string* responsePacket, uint32_t* age, vState* valState, uint32_t* qhash, OptPBData* pbdata, bool tcp)
 {
-  *qhash = canHashPacket(queryPacket, true);
+  *qhash = canHashPacket(queryPacket, {EDNSOptionCode::COOKIE, EDNSOptionCode::ECS});
   const auto& idx = d_packetCache.get<HashTag>();
   auto range = idx.equal_range(tie(tag, *qhash, tcp));
 
@@ -139,7 +139,7 @@ bool RecursorPacketCache::getResponsePacket(unsigned int tag, const std::string&
 bool RecursorPacketCache::getResponsePacket(unsigned int tag, const std::string& queryPacket, DNSName& qname, uint16_t* qtype, uint16_t* qclass, time_t now,
                                             std::string* responsePacket, uint32_t* age, vState* valState, uint32_t* qhash, OptPBData *pbdata, bool tcp)
 {
-  *qhash = canHashPacket(queryPacket, true);
+  *qhash = canHashPacket(queryPacket, {EDNSOptionCode::COOKIE, EDNSOptionCode::ECS});
   const auto& idx = d_packetCache.get<HashTag>();
   auto range = idx.equal_range(tie(tag, *qhash, tcp));
 

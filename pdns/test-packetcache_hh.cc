@@ -14,6 +14,33 @@
 
 BOOST_AUTO_TEST_SUITE(packetcache_hh)
 
+BOOST_AUTO_TEST_CASE(perf) {
+  const DNSName qname("www.powerdns.com.");
+  uint16_t qtype = QType::AAAA;
+  EDNSSubnetOpts opt;
+  DNSPacketWriter::optvect_t ednsOptions;
+  std::unordered_set<uint16_t> optionsToSkip{ EDNSOptionCode::COOKIE };
+  vector<uint8_t> packet;
+  DNSPacketWriter pw1(packet, qname, qtype);
+  pw1.getHeader()->rd = true;
+  pw1.getHeader()->qr = false;
+  pw1.getHeader()->id = 0x42;
+  string spacket1((const char*)&packet[0], packet.size());
+
+  DTime dt;
+  const size_t count = 10000000;
+  dt.set();
+  for (size_t idx = 0; idx < count; idx++) {
+    //auto hash1 = PacketCache::canHashPacket(spacket1, optionsToSkip);
+    auto hash1 = PacketCache::canHashPacket(spacket1, false);
+    if (hash1 == 42U) {
+      cerr<<"42!"<<endl;
+    }
+  }
+  auto diff = dt.udiff(false);
+  cerr<<"Took "<<std::to_string(diff)<<" us to do "<<count<<" queries, so "<<std::to_string((diff/count))<<" us per query"<<endl;
+}
+#if 0
 BOOST_AUTO_TEST_CASE(test_PacketCacheAuthCollision) {
 
   /* auth version (ECS is not processed, we just hash the whole query except for the ID, while lowercasing the qname) */
@@ -396,5 +423,5 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheRecCollision) {
     BOOST_CHECK(PacketCache::queryMatches(spacket1, spacket2, qname, optionsToSkip));
   }
 }
-
+#endif
 BOOST_AUTO_TEST_SUITE_END()

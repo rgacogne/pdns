@@ -33,7 +33,7 @@ public:
      - EDNS Cookie options, if any ;
      - EDNS Client Subnet options, if any and skipECS is true.
   */
-  static uint32_t hashAfterQname(const pdns_string_view& packet, uint32_t currentHash, size_t pos, bool skipECS)
+  static uint32_t hashAfterQname(const pdns_string_view& packet, uint32_t currentHash, size_t pos, const std::unordered_set<uint16_t>& optionsToSkip)
   {
     const size_t packetSize = packet.size();
     assert(packetSize >= sizeof(dnsheader));
@@ -82,17 +82,7 @@ public:
         return currentHash;
       }
 
-      bool skip = false;
-      if (optionCode == EDNSOptionCode::COOKIE) {
-        skip = true;
-      }
-      else if (optionCode == EDNSOptionCode::ECS) {
-        if (skipECS) {
-          skip = true;
-        }
-      }
-
-      if (!skip) {
+      if (optionsToSkip.count(optionCode) == 0) {
         /* hash the option code, length and content */
         currentHash = burtle(reinterpret_cast<const unsigned char*>(&packet.at(pos)), 4 + optionLen, currentHash);
       }
@@ -142,7 +132,7 @@ public:
      - EDNS Cookie options, if any ;
      - EDNS Client Subnet options, if any and skipECS is true.
   */
-  static uint32_t canHashPacket(const std::string& packet, bool skipECS)
+  static uint32_t canHashPacket(const std::string& packet, const std::unordered_set<uint16_t>& optionsToSkip)
   {
     size_t pos = 0;
     uint32_t currentHash = hashHeaderAndQName(packet, pos);
@@ -152,7 +142,7 @@ public:
       return currentHash;
     }
 
-    return hashAfterQname(packet, currentHash, pos, skipECS);
+    return hashAfterQname(packet, currentHash, pos, optionsToSkip);
   }
 
   static bool queryHeaderMatches(const std::string& cachedQuery, const std::string& query)
