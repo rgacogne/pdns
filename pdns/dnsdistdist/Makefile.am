@@ -165,6 +165,7 @@ dnsdist_SOURCES = \
 	dnsdist-rules.hh \
 	dnsdist-secpoll.cc dnsdist-secpoll.hh \
 	dnsdist-snmp.cc dnsdist-snmp.hh \
+	dnsdist-svc.cc dnsdist-svc.hh \
 	dnsdist-systemd.cc dnsdist-systemd.hh \
 	dnsdist-tcp-downstream.cc dnsdist-tcp-downstream.hh \
 	dnsdist-tcp-upstream.hh \
@@ -240,6 +241,7 @@ testrunner_SOURCES = \
 	dnsdist-lua-vars.cc \
 	dnsdist-proxy-protocol.cc dnsdist-proxy-protocol.hh \
 	dnsdist-rings.cc dnsdist-rings.hh \
+	dnsdist-svc.cc dnsdist-svc.hh \
 	dnsdist-tcp-downstream.cc \
 	dnsdist-tcp.cc \
 	dnsdist-xpf.cc dnsdist-xpf.hh \
@@ -279,6 +281,7 @@ testrunner_SOURCES = \
 	test-dnsdistpacketcache_cc.cc \
 	test-dnsdistrings_cc.cc \
 	test-dnsdistrules_cc.cc \
+	test-dnsdistsvc_cc.cc \
 	test-dnsdisttcp_cc.cc \
 	test-dnsparser_cc.cc \
 	test-iputils_hh.cc \
