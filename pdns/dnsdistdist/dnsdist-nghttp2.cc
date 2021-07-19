@@ -1,3 +1,24 @@
+/*
+ * This file is part of PowerDNS or dnsdist.
+ * Copyright -- PowerDNS.COM B.V. and its contributors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of version 2 of the GNU General Public License as
+ * published by the Free Software Foundation.
+ *
+ * In addition, for the avoidance of any doubt, permission is granted to
+ * link this program with OpenSSL and to (re)distribute the binaries
+ * produced as the result of such linking.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
 #include <nghttp2/nghttp2.h>
 
@@ -10,7 +31,9 @@
 #warning remove me
 #include "dnswriter.hh"
 
-struct MyUserData
+std::atomic<uint64_t> g_dohStatesDumpRequested{0};
+
+struct DoHConnectionToBackend
 {
   std::unique_ptr<nghttp2_session, void(*)(nghttp2_session*)> session{nullptr, nghttp2_session_del};
   std::unique_ptr<TCPIOHandler> handler;
@@ -23,7 +46,7 @@ struct MyUserData
 static ssize_t send_callback(nghttp2_session* session, const uint8_t* data, size_t length, int flags, void* user_data) {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
   cerr<<"asked to send "<<length<<" bytes"<<endl;
-  MyUserData* userData = reinterpret_cast<MyUserData*>(user_data);
+  DoHConnectionToBackend* userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
   userData->out.insert(userData->out.end(), data, data + length);
   userData->handler->write(userData->out.data() + userData->outPos, userData->out.size() - userData->outPos, timeval{2, 0});
   userData->out.clear();
@@ -32,7 +55,7 @@ static ssize_t send_callback(nghttp2_session* session, const uint8_t* data, size
 
 static int on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data) {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
-  MyUserData* userData = reinterpret_cast<MyUserData*>(user_data);
+  DoHConnectionToBackend* userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS:
     if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
@@ -56,7 +79,7 @@ static int on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame*
 
 static int on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, int32_t stream_id, const uint8_t* data, size_t len, void* user_data) {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
-  MyUserData* userData = reinterpret_cast<MyUserData*>(user_data);
+  DoHConnectionToBackend* userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
   cerr<<"Got data of size "<<len<<endl;
   cerr<<std::string(reinterpret_cast<const char*>(data), len)<<endl;
   return 0;
@@ -64,7 +87,7 @@ static int on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, 
 
 static int on_stream_close_callback(nghttp2_session* session, int32_t stream_id, uint32_t error_code, void* user_data) {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
-  MyUserData* userData = reinterpret_cast<MyUserData*>(user_data);
+  DoHConnectionToBackend* userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
 
   cerr<<"Stream "<<stream_id<<" closed with error_code="<<error_code<<endl;
   auto rv = nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR);
@@ -77,7 +100,7 @@ static int on_stream_close_callback(nghttp2_session* session, int32_t stream_id,
 
 static int on_header_callback(nghttp2_session* session, const nghttp2_frame* frame, const uint8_t* name, size_t namelen, const uint8_t* value, size_t valuelen, uint8_t flags, void* user_data) {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
-  MyUserData* userData = reinterpret_cast<MyUserData*>(user_data);
+  DoHConnectionToBackend* userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
 
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS:
@@ -94,7 +117,7 @@ static int on_header_callback(nghttp2_session* session, const nghttp2_frame* fra
 
 static int on_begin_headers_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data) {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
-  MyUserData* userData = reinterpret_cast<MyUserData*>(user_data);
+  DoHConnectionToBackend* userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
 
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS:
@@ -106,7 +129,7 @@ static int on_begin_headers_callback(nghttp2_session* session, const nghttp2_fra
   return 0;
 }
 
-static void doReadData(MyUserData& userData)
+static void doReadData(DoHConnectionToBackend& userData)
 {
   do {
     size_t pos = 0;
@@ -163,7 +186,7 @@ void sendHTTP2Query()
   // FIXME
   auto fd = sock.getHandle();
   setTCPNoDelay(fd);
-  MyUserData userData;
+  DoHConnectionToBackend userData;
   userData.handler = std::make_unique<TCPIOHandler>(host, sock.releaseHandle(), timeval{2, 0}, tlsCtx, time(nullptr));
   userData.handler->connect(true, remote, timeval{2, 0});
 
@@ -250,7 +273,7 @@ SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
   data_provider.read_callback = [](nghttp2_session* session, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* user_data) -> ssize_t
   {
     cerr<<"in data provider"<<endl;
-    auto userData = reinterpret_cast<MyUserData*>(user_data);
+    auto userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
     if (userData->inPos >= userData->in.size()) {
        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
        cerr<<"EOF"<<endl;
@@ -279,4 +302,220 @@ SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
   cerr<<"our own is "<<nghttp2_session_get_local_settings(userData.session.get(), NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS)<<endl;
   // min(nghttp2_session_get_stream_remote_window_size(), nghttp2_session_get_remote_window_size())
 #warning for later: how do we know how many streams are left? the window size?
+}
+
+struct DoHWorkerThread
+{
+  DoHWorkerThread(int crossProtocolPipe): d_crossProtocolQueryPipe(crossProtocolPipe)
+  {
+  }
+
+  DoHWorkerThread(DoHWorkerThread&& rhs): d_crossProtocolQueryPipe(rhs.d_crossProtocolQueryPipe)
+  {
+    rhs.d_crossProtocolQueryPipe = -1;
+  }
+
+  DoHWorkerThread& operator=(DoHWorkerThread&& rhs)
+  {
+    if (d_crossProtocolQueryPipe != -1) {
+      close(d_crossProtocolQueryPipe);
+    }
+
+    d_crossProtocolQueryPipe = rhs.d_crossProtocolQueryPipe;
+    rhs.d_crossProtocolQueryPipe = -1;
+
+    return *this;
+  }
+
+  DoHWorkerThread(const DoHWorkerThread& rhs) = delete;
+  DoHWorkerThread& operator=(const DoHWorkerThread&) = delete;
+
+  ~DoHWorkerThread()
+  {
+    if (d_crossProtocolQueryPipe != -1) {
+      close(d_crossProtocolQueryPipe);
+    }
+  }
+
+  int d_crossProtocolQueryPipe{-1};
+};
+
+DoHClientCollection::DoHClientCollection(size_t maxThreads): d_clientThreads(maxThreads), d_maxThreads(maxThreads)
+{
+}
+
+static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& param)
+{
+  auto threadData = boost::any_cast<DoHClientThreadData*>(param);
+  CrossProtocolQuery* tmp{nullptr};
+
+  ssize_t got = read(pipefd, &tmp, sizeof(tmp));
+  if (got == 0) {
+    throw std::runtime_error("EOF while reading from the DoH cross-protocol pipe (" + std::to_string(pipefd) + ") in " + std::string(isNonBlocking(pipefd) ? "non-blocking" : "blocking") + " mode");
+  }
+  else if (got == -1) {
+    if (errno == EAGAIN || errno == EINTR) {
+      return;
+    }
+    throw std::runtime_error("Error while reading from the DoH cross-protocol pipe (" + std::to_string(pipefd) + ") in " + std::string(isNonBlocking(pipefd) ? "non-blocking" : "blocking") + " mode:" + stringerror());
+  }
+  else if (got != sizeof(tmp)) {
+    throw std::runtime_error("Partial read while reading from the DoH cross-protocol pipe (" + std::to_string(pipefd) + ") in " + std::string(isNonBlocking(pipefd) ? "non-blocking" : "blocking") + " mode");
+  }
+
+  try {
+    struct timeval now;
+    gettimeofday(&now, nullptr);
+
+    std::shared_ptr<TCPQuerySender> tqs = tmp->getTCPQuerySender();
+    auto query = std::move(tmp->query);
+    auto downstreamServer = std::move(tmp->downstream);
+    delete tmp;
+    tmp = nullptr;
+
+    //auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, downstreamServer, now);
+#warning what about the proxy protocol payload, here, do we need to remove it? we likely need to handle forward-for headers?
+
+    downstream->queueQuery(tqs, std::move(query));
+  }
+  catch (...) {
+    delete tmp;
+    tmp = nullptr;
+    throw;
+  }
+}
+
+static void dohClientThread(int crossProtocolPipeFD)
+{
+  setThreadName("dnsdist/dohClie");
+
+  DoHClientThreadData data;
+
+  data.mplexer->addReadFD(crossProtocolPipeFD, handleCrossProtocolQuery, &data);
+
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+  time_t lastTimeoutScan = now.tv_sec;
+
+  for (;;) {
+    data.mplexer->run(&now);
+
+    if (now.tv_sec > lastTimeoutScan) {
+      lastTimeoutScan = now.tv_sec;
+      auto expiredReadConns = data.mplexer->getTimeouts(now, false);
+      for (const auto& cbData : expiredReadConns) {
+        if (cbData.second.type() == typeid(std::shared_ptr<DoHConnectionToBackend>)) {
+          auto conn = boost::any_cast<std::shared_ptr<DoHConnectionToBackend>>(cbData.second);
+          vinfolog("Timeout (read) from remote DoH backend %s", conn->getBackendName());
+          conn->handleTimeout(now, false);
+        }
+      }
+
+      auto expiredWriteConns = data.mplexer->getTimeouts(now, true);
+      for (const auto& cbData : expiredWriteConns) {
+        if (cbData.second.type() == typeid(std::shared_ptr<DoHConnectionToBackend>)) {
+          auto conn = boost::any_cast<std::shared_ptr<DoHConnectionToBackend>>(cbData.second);
+          vinfolog("Timeout (write) from remote DoH backend %s", conn->getBackendName());
+          conn->handleTimeout(now, true);
+        }
+      }
+
+      if (g_dohStatesDumpRequested > 0) {
+        /* just to keep things clean in the output, debug only */
+        static std::mutex s_lock;
+        std::lock_guard<decltype(s_lock)> lck(s_lock);
+        if (g_dohStatesDumpRequested > 0) {
+          /* no race here, we took the lock so it can only be increased in the meantime */
+          --g_dohStatesDumpRequested;
+          errlog("Dumping the DoH client states, as requested:");
+          data.mplexer->runForAllWatchedFDs([](bool isRead, int fd, const FDMultiplexer::funcparam_t& param, struct timeval ttd)
+          {
+            struct timeval lnow;
+            gettimeofday(&lnow, nullptr);
+            if (ttd.tv_sec > 0) {
+            errlog("- Descriptor %d is in %s state, TTD in %d", fd, (isRead ? "read" : "write"), (ttd.tv_sec-lnow.tv_sec));
+            }
+            else {
+              errlog("- Descriptor %d is in %s state, no TTD set", fd, (isRead ? "read" : "write"));
+            }
+
+            if (param.type() == typeid(std::shared_ptr<DoHConnectionToBackend>)) {
+              auto conn = boost::any_cast<std::shared_ptr<DoHConnectionToBackend>>(param);
+              errlog(" - %s", conn->toString());
+            }
+            else if (param.type() == typeid(TCPClientThreadData*)) {
+              errlog(" - Worker thread pipe");
+            }
+          });
+        }
+      }
+    }
+  }
+}
+
+void DoHClientCollection::addClientThread()
+{
+  auto preparePipe = [](int fds[2], const std::string& type) -> bool {
+    if (pipe(fds) < 0) {
+      errlog("Error creating the DoH thread %s pipe: %s", type, stringerror());
+      return false;
+    }
+
+    if (!setNonBlocking(fds[0])) {
+      int err = errno;
+      close(fds[0]);
+      close(fds[1]);
+      errlog("Error setting the DoH thread %s pipe non-blocking: %s", type, stringerror(err));
+      return false;
+    }
+
+    if (!setNonBlocking(fds[1])) {
+      int err = errno;
+      close(fds[0]);
+      close(fds[1]);
+      errlog("Error setting the DoH thread %s pipe non-blocking: %s", type, stringerror(err));
+      return false;
+    }
+
+    if (g_tcpInternalPipeBufferSize > 0 && getPipeBufferSize(fds[0]) < g_tcpInternalPipeBufferSize) {
+      setPipeBufferSize(fds[0], g_tcpInternalPipeBufferSize);
+    }
+
+    return true;
+  };
+
+  int crossProtocolFDs[2] = { -1, -1};
+  if (!preparePipe(crossProtocolFDs, "cross-protocol")) {
+    return;
+  }
+
+  vinfolog("Adding DoH Client thread");
+
+  {
+    std::lock_guard<std::mutex> lock(d_mutex);
+
+    if (d_numthreads >= d_clientThreads.size()) {
+      vinfolog("Adding a new DoH client thread would exceed the vector size (%d/%d), skipping. Consider increasing the maximum amount of DoH client threads with setMaxDoHClientThreads() in the configuration.", d_numthreads.load(), d_clientThreads.size());
+      close(crossProtocolFDs[0]);
+      close(crossProtocolFDs[1]);
+      return;
+    }
+
+    /* from now on this side of the pipe will be managed by that object,
+       no need to worry about it */
+    DoHWorkerThread worker(crossProtocolFDs[1]);
+    try {
+      std::thread t1(dohClientThread, crossProtocolFDs[0]);
+      t1.detach();
+    }
+    catch (const std::runtime_error& e) {
+      /* the thread creation failed, don't leak */
+      errlog("Error creating a DoH thread: %s", e.what());
+      close(pipefds[0]);
+      return;
+    }
+
+    d_clientThreads.at(d_numthreads) = std::move(worker);
+    ++d_numthreads;
+  }
 }
