@@ -21,33 +21,22 @@
  */
 #pragma once
 
+#include <memory>
+#include <mutex>
+#include <vector>
+
+#include "stat_t.hh"
+
+struct CrossProtocolQuery;
+
 class DoHClientCollection
 {
 public:
   DoHClientCollection(size_t maxThreads);
 
-  bool passCrossProtocolQueryToThread(std::unique_ptr<CrossProtocolQuery>&& cpq)
-  {
-    if (d_numberOfThreads == 0) {
-      throw std::runtime_error("No DoH worker thread yet");
-    }
-
-    uint64_t pos = d_pos++;
-    auto pipe = d_clientThreads.at(pos % d_numberOfThreads).d_crossProtocolQueryPipe;
-    auto tmp = cpq.release();
-
-    if (write(pipe, &tmp, sizeof(tmp)) != sizeof(tmp)) {
-      delete tmp;
-      tmp = nullptr;
-      return false;
-    }
-
-    return true;
-  }
-
   bool hasReachedMaxThreads() const
   {
-    return d_numberOfThreads >= d_maxthreads;
+    return d_numberOfThreads >= d_maxThreads;
   }
 
   uint64_t getThreadsCount() const
@@ -55,6 +44,7 @@ public:
     return d_numberOfThreads;
   }
 
+  bool passCrossProtocolQueryToThread(std::unique_ptr<CrossProtocolQuery>&& cpq);
   void addThread();
 
 private:
@@ -62,12 +52,12 @@ private:
 
   std::mutex d_mutex;
   std::vector<DoHWorkerThread> d_clientThreads;
-  stat_t d_numberOfThreads{0};
-  stat_t d_pos{0};
+  pdns::stat_t d_numberOfThreads{0};
+  pdns::stat_t d_pos{0};
   const uint64_t d_maxThreads{0};
 };
 
 extern std::unique_ptr<DoHClientCollection> g_dohClientThreads;
-extern std::atomic<uint64_t> g_dohStatesDumpRequested{0};
+extern std::atomic<uint64_t> g_dohStatesDumpRequested;
 
-void sendHTTP2Query();
+bool initDoHWorkers();
