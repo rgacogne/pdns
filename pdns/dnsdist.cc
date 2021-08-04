@@ -51,6 +51,7 @@
 #include "dnsdist-ecs.hh"
 #include "dnsdist-healthchecks.hh"
 #include "dnsdist-lua.hh"
+#include "dnsdist-nghttp2.hh"
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsdist-rings.hh"
 #include "dnsdist-secpoll.hh"
@@ -1503,12 +1504,7 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
       }
       auto cpq = std::make_unique<UDPCrossProtocolQuery>(std::move(query), std::move(ids), ss);
 
-      if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
-        return ;
-      }
-      else {
-        return;
-      }
+      ss->passCrossProtocolQuery(std::move(cpq));
     }
 
     unsigned int idOffset = (ss->idOffset++) % ss->idStates.size();
@@ -2169,8 +2165,6 @@ static void sighandler(int sig)
 }
 #endif
 
-#include "dnsdist-nghttp2.hh"
-
 int main(int argc, char** argv)
 {
   try {
@@ -2551,6 +2545,8 @@ int main(int argc, char** argv)
 
     g_tcpclientthreads = std::make_unique<TCPClientCollection>(*g_maxTCPClientThreads);
 
+    initDoHWorkers();
+
     for (auto& t : todo) {
       t();
     }
@@ -2637,8 +2633,6 @@ int main(int argc, char** argv)
       thread secpollthread(secPollThread);
       secpollthread.detach();
     }
-
-    sendHTTP2Query();
 
     if(g_cmdLine.beSupervised) {
 #ifdef HAVE_SYSTEMD
