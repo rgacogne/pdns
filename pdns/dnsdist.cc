@@ -1505,6 +1505,7 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
       auto cpq = std::make_unique<UDPCrossProtocolQuery>(std::move(query), std::move(ids), ss);
 
       ss->passCrossProtocolQuery(std::move(cpq));
+      return;
     }
 
     unsigned int idOffset = (ss->idOffset++) % ss->idStates.size();
