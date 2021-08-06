@@ -653,9 +653,38 @@ public:
     return d_feContext->d_ticketKeys.getKeysCount();
   }
 
+  bool setALPNProtos(const std::vector<std::vector<uint8_t>>& protos) override
+  {
+    return libssl_set_alpn_protos(d_tlsCtx, protos);
+  }
+
+  bool setNextProtocolSelectCallback(bool(*cb)(unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen)) override
+  {
+    d_nextProtocolSelectCallback = cb;
+    libssl_set_npn_select_callback(d_tlsCtx, npnSelectCallback, this);
+    return true;
+  }
+
 private:
+  static int npnSelectCallback(SSL* s, unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen, void* arg)
+  {
+    cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
+    if (!arg) {
+      cerr<<"no arg"<<endl;
+      return SSL_TLSEXT_ERR_ALERT_WARNING;
+    }
+    OpenSSLTLSIOCtx* obj = reinterpret_cast<OpenSSLTLSIOCtx*>(arg);
+    if (obj->d_nextProtocolSelectCallback) {
+      cerr<<"calling callback"<<endl;
+      return (*obj->d_nextProtocolSelectCallback)(out, outlen, in, inlen) ? SSL_TLSEXT_ERR_OK : SSL_TLSEXT_ERR_ALERT_WARNING;
+    }
+    cerr<<"no callback, everything is fine"<<endl;
+    return SSL_TLSEXT_ERR_OK;
+  }
+
   std::shared_ptr<OpenSSLFrontendContext> d_feContext;
   std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)> d_tlsCtx; // client context
+  bool (*d_nextProtocolSelectCallback)(unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen){nullptr};
 };
 
 #endif /* HAVE_LIBSSL */
@@ -1266,6 +1295,19 @@ public:
     }
   }
 
+  bool setALPNProtos(const std::vector<std::vector<uint8_t>>& protos)
+  {
+    std::vector<gnutls_datum_t> values;
+    values.reserve(protos.size());
+    for (const auto& proto : protos) {
+      gnutls_datum_t value;
+      value.data = const_cast<uint8_t*>(proto.data());
+      value.size = proto.size();
+      values.push_back(value);
+    }
+    return gnutls_alpn_set_protocols(d_conn.get(), values.data(), values.size(), GNUTLS_ALPN_MANDATORY);
+  }
+
 private:
   std::shared_ptr<GnuTLSTicketsKey> d_ticketsKey;
   std::unique_ptr<gnutls_session_int, void(*)(gnutls_session_t)> d_conn;
@@ -1388,12 +1430,20 @@ public:
       ticketsKey = d_ticketsKey;
     }
 
-    return std::make_unique<GnuTLSConnection>(socket, timeout, d_creds.get(), d_priorityCache, ticketsKey, d_enableTickets);
+    auto connection = std::make_unique<GnuTLSConnection>(socket, timeout, d_creds.get(), d_priorityCache, ticketsKey, d_enableTickets);
+    if (!d_protos.empty()) {
+      connection->setALPNProtos(d_protos);
+    }
+    return connection;
   }
 
   std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, int socket, const struct timeval& timeout) override
   {
-    return std::make_unique<GnuTLSConnection>(host, socket, timeout, d_creds.get(), d_priorityCache, d_validateCerts);
+    auto connection = std::make_unique<GnuTLSConnection>(host, socket, timeout, d_creds.get(), d_priorityCache, d_validateCerts);
+    if (!d_protos.empty()) {
+      connection->setALPNProtos(d_protos);
+    }
+    return connection;
   }
 
   void rotateTicketsKey(time_t now) override
@@ -1437,8 +1487,19 @@ public:
     return d_ticketsKey != nullptr ? 1 : 0;
   }
 
+  bool setALPNProtos(const std::vector<std::vector<uint8_t>>& protos) override
+  {
+#ifdef HAVE_GNUTLS_ALPN_SET_PROTOCOLS
+    d_protos = protos;
+    return true;
+#else
+    return false;
+#endif
+  }
+
 private:
   std::unique_ptr<gnutls_certificate_credentials_st, void(*)(gnutls_certificate_credentials_t)> d_creds;
+  std::vector<std::vector<uint8_t>> d_protos;
   gnutls_priority_t d_priorityCache{nullptr};
   std::shared_ptr<GnuTLSTicketsKey> d_ticketsKey{nullptr};
   ReadWriteLock d_lock;

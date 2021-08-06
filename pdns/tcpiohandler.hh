@@ -110,6 +110,16 @@ public:
 
   virtual size_t getTicketsKeysCount() = 0;
 
+  virtual bool setALPNProtos(const std::vector<std::vector<uint8_t>>& protos)
+  {
+    return false;
+  }
+
+  virtual bool setNextProtocolSelectCallback(bool(*)(unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen))
+  {
+    return false;
+  }
+
 protected:
   std::atomic_flag d_rotatingTicketsKey;
   std::atomic<time_t> d_ticketsKeyNextRotation{0};
