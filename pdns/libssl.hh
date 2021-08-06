@@ -126,6 +126,9 @@ std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)> libssl_init_server_context(const TLS
 
 std::unique_ptr<FILE, int(*)(FILE*)> libssl_set_key_log_file(std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>& ctx, const std::string& logFile);
 
+void libssl_set_npn_select_callback(std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>& ctx, int (*cb)(SSL* s, unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen, void* arg), void* arg);
+bool libssl_set_alpn_protos(std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)>& ctx, const std::vector<std::vector<uint8_t>>& protos);
+
 std::string libssl_get_error_string();
 
 #endif /* HAVE_LIBSSL */
