@@ -784,7 +784,15 @@ void IncomingTCPConnectionState::handleIO(std::shared_ptr<IncomingTCPConnectionS
           /* the state might have been updated in the meantime, we don't want to override it
              in that case */
           if (state->active() && state->d_state != IncomingTCPConnectionState::State::idle) {
-            iostate = state->d_ioState->getState();
+            if (state->d_ioState->isWaitingForRead()) {
+              iostate = IOState::NeedRead;
+            }
+            else if (state->d_ioState->isWaitingForWrite()) {
+              iostate = IOState::NeedWrite;
+            }
+            else {
+              iostate = IOState::Done;
+            }
           }
         }
         else {
@@ -860,9 +868,9 @@ void IncomingTCPConnectionState::handleIO(std::shared_ptr<IncomingTCPConnectionS
         ++state->d_ci.cs->tcpDiedSendingResponse;
       }
 
-      if (state->d_ioState->getState() == IOState::NeedWrite || state->d_queriesCount == 0) {
+      if (state->d_ioState->isWaitingForWrite() || state->d_queriesCount == 0) {
         DEBUGLOG("Got an exception while handling TCP query: "<<e.what());
-        vinfolog("Got an exception while handling (%s) TCP query from %s: %s", (state->d_ioState->getState() == IOState::NeedRead ? "reading" : "writing"), state->d_ci.remote.toStringWithPort(), e.what());
+        vinfolog("Got an exception while handling (%s) TCP query from %s: %s", (state->d_ioState->isWaitingForRead() ? "reading" : "writing"), state->d_ci.remote.toStringWithPort(), e.what());
       }
       else {
         vinfolog("Closing TCP client connection with %s: %s", state->d_ci.remote.toStringWithPort(), e.what());
