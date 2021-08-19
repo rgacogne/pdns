@@ -34,9 +34,6 @@
 #include "threadname.hh"
 #include "sstuff.hh"
 
-#warning remove me
-#include "dnswriter.hh"
-
 std::atomic<uint64_t> g_dohStatesDumpRequested{0};
 std::unique_ptr<DoHClientCollection> g_dohClientThreads{nullptr};
 
@@ -45,18 +42,13 @@ class DoHConnectionToBackend: public TCPConnectionToBackend
 public:
   DoHConnectionToBackend(std::shared_ptr<DownstreamState> ds, std::unique_ptr<FDMultiplexer>& mplexer, const struct timeval& now);
 
-  void handleTimeout(const struct timeval& now, bool write) override
-  {
-#warning FIXME: we should notify the owners of pending queries / responses
-  }
-
+  void handleTimeout(const struct timeval& now, bool write) override;
   void queueQuery(std::shared_ptr<TCPQuerySender>& sender, TCPQuery&& query) override;
 
   std::string toString() const override
   {
     ostringstream o;
-    //o << "DoH connection to backend "<<(d_ds ? d_ds->getName() : "empty")<<" over FD "<<(d_handler ? std::to_string(d_handler->getDescriptor()) : "no socket")<<", state is "<<(int)d_state<<", io state is "<<(d_ioState ? std::to_string((int)d_ioState->getState()) : "empty")<<", queries count is "<<d_queries<<", pending queries count is "<<d_pendingQueries.size()<<", "<<d_pendingResponses.size()<<" pending responses";
-    o << "DoH connection to backend "<<(d_ds ? d_ds->getName() : "empty")<<" over FD "<<(d_handler ? std::to_string(d_handler->getDescriptor()) : "no socket");
+    o << "DoH connection to backend "<<(d_ds ? d_ds->getName() : "empty")<<" over FD "<<(d_handler ? std::to_string(d_handler->getDescriptor()) : "no socket")<<", "<<getConcurrentStreamsCount()<<" streams";
     return o.str();
   }
 
@@ -86,19 +78,50 @@ private:
   void updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback);
   void stopIO();
   void handleResponse(PendingRequest&& request);
-  void handleResponseError(PendingRequest&& request);
+  void handleResponseError(PendingRequest&& request, const struct timeval& now);
   uint32_t getConcurrentStreamsCount() const;
 
-  //std::deque<TCPQuery> d_pendingQueries;
+  size_t getUsageCount() const
+  {
+    auto ref = shared_from_this();
+    return ref.use_count();
+  }
+
   static const std::unordered_map<std::string, std::string> s_constants;
 
   std::unique_ptr<nghttp2_session, void(*)(nghttp2_session*)> d_session{nullptr, nghttp2_session_del};
   std::unordered_map<int32_t, PendingRequest> d_currentStreams;
   PacketBuffer d_out;
   PacketBuffer d_in;
+  size_t d_queryPos{0};
   size_t d_outPos{0};
   size_t d_inPos{0};
   uint32_t d_highestStreamID{0};
+};
+
+class DownstreamDoHConnectionsManager
+{
+public:
+  static std::shared_ptr<DoHConnectionToBackend> getConnectionToDownstream(std::unique_ptr<FDMultiplexer>& mplexer, std::shared_ptr<DownstreamState>& ds, const struct timeval& now);
+  static void releaseDownstreamConnection(std::shared_ptr<DoHConnectionToBackend>&& conn);
+  static void cleanupClosedConnections(struct timeval now);
+  static size_t clear();
+
+  static void setMaxCachedConnectionsPerDownstream(size_t max)
+  {
+    s_maxCachedConnectionsPerDownstream = max;
+  }
+
+  static void setCleanupInterval(uint16_t interval)
+  {
+    s_cleanupInterval = interval;
+  }
+
+private:
+  static thread_local map<boost::uuids::uuid, std::deque<std::shared_ptr<DoHConnectionToBackend>>> t_downstreamConnections;
+  static size_t s_maxCachedConnectionsPerDownstream;
+  static time_t s_nextCleanup;
+  static uint16_t s_cleanupInterval;
 };
 
 uint32_t DoHConnectionToBackend::getConcurrentStreamsCount() const
@@ -108,18 +131,23 @@ uint32_t DoHConnectionToBackend::getConcurrentStreamsCount() const
 
 void DoHConnectionToBackend::handleResponse(PendingRequest&& request)
 {
-  cerr<<"handle response!"<<endl;
   struct timeval now;
   gettimeofday(&now, nullptr);
   request.d_sender->handleResponse(now, TCPResponse(std::move(request.d_buffer), std::move(request.d_query.d_idstate), shared_from_this()));
 }
 
-void DoHConnectionToBackend::handleResponseError(PendingRequest&& request)
+void DoHConnectionToBackend::handleResponseError(PendingRequest&& request, const struct timeval& now)
 {
-  cerr<<"handle response error!"<<endl;
-  struct timeval now;
-  gettimeofday(&now, nullptr);
   request.d_sender->notifyIOError(std::move(request.d_query.d_idstate), now);
+}
+
+void DoHConnectionToBackend::handleTimeout(const struct timeval& now, bool write)
+{
+  d_connectionDied = true;
+  for (auto& request : d_currentStreams) {
+    handleResponseError(std::move(request.second), now);
+  }
+  d_currentStreams.clear();
 }
 
 bool DoHConnectionToBackend::canBeReused() const
@@ -132,7 +160,7 @@ bool DoHConnectionToBackend::canBeReused() const
     return false;
   }
 
-  cerr<<"Got "<<getConcurrentStreamsCount()<<" concurrent streams, max is "<<nghttp2_session_get_remote_settings(d_session.get(), NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS)<<endl;
+  //cerr<<"Got "<<getConcurrentStreamsCount()<<" concurrent streams, max is "<<nghttp2_session_get_remote_settings(d_session.get(), NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS)<<endl;
   if (nghttp2_session_get_remote_settings(d_session.get(), NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS) <= getConcurrentStreamsCount()) {
     return false;
   }
@@ -164,6 +192,7 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
      and that it is already lowercased. */
   auto payloadSize = std::to_string(query.d_buffer.size());
   d_currentQuery = std::move(query);
+  d_queryPos = 0;
   const nghttp2_nv hdrs[] = {
     { const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(s_constants.at("method-name").c_str())), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(s_constants.at("method-value").c_str())), s_constants.at("method-name").size(), s_constants.at("method-value").size(), NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE },
       MAKE_NV2(":scheme", "https"),
@@ -183,15 +212,17 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
   data_provider.read_callback = [](nghttp2_session* session, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* user_data) -> ssize_t
   {
     auto userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
-    if (userData->d_inPos >= userData->d_currentQuery.d_buffer.size()) {
-       *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-       return 0;
+    size_t toCopy = 0;
+    if (userData->d_queryPos < userData->d_currentQuery.d_buffer.size()) {
+      size_t remaining = userData->d_currentQuery.d_buffer.size()- userData->d_queryPos;
+      toCopy = length > remaining ? remaining : length;
+      memcpy(buf, &userData->d_currentQuery.d_buffer.at(userData->d_queryPos), toCopy);
+      userData->d_queryPos += toCopy;
     }
-    size_t remaining = userData->d_currentQuery.d_buffer.size()- userData->d_inPos;
-    size_t toCopy = length > remaining ? remaining : length;
-    memcpy(buf, &userData->d_currentQuery.d_buffer.at(userData->d_inPos), toCopy);
-    userData->d_inPos += toCopy;
-    //cerr<<toCopy<<" written"<<endl;
+
+    if (userData->d_queryPos >= userData->d_currentQuery.d_buffer.size()) {
+       *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    }
     return toCopy;
   };
 
@@ -200,10 +231,9 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
     d_connectionDied = true;
     throw std::runtime_error("Error submitting HTTP request:" + std::string(nghttp2_strerror(stream_id)));
   }
-  //cerr<<"stream ID is "<<stream_id<<endl;
+  //cerr<<"stream ID is "<<stream_id<<" for a query of size "<<payloadSize<<endl;
 
   auto rv = nghttp2_session_send(d_session.get());
-  //cerr<<"nghttp2_session_send returned "<<rv<<endl;
   if (rv != 0) {
     d_connectionDied = true;
     throw std::runtime_error("Error in nghttp2_session_send:" + std::to_string(rv));
@@ -238,7 +268,6 @@ void DoHConnectionToBackend::handleIO(std::shared_ptr<DoHConnectionToBackend>& c
 
 void DoHConnectionToBackend::handleReadableIOCallback(int fd, FDMultiplexer::funcparam_t& param)
 {
-  //cerr<<"in "<<__PRETTY_FUNCTION__<<", param is "<<param.type().name()<<endl;
   auto conn = boost::any_cast<std::shared_ptr<DoHConnectionToBackend>>(param);
   if (fd != conn->getHandle()) {
     throw std::runtime_error("Unexpected socket descriptor " + std::to_string(fd) + " received in " + std::string(__PRETTY_FUNCTION__) + ", expected " + std::to_string(conn->getHandle()));
@@ -263,8 +292,7 @@ void DoHConnectionToBackend::handleReadableIOCallback(int fd, FDMultiplexer::fun
           cerr<<"Fatal error: "<<nghttp2_strerror((int)readlen)<<endl;
           return;
         }
-        int rv = nghttp2_session_send(conn->d_session.get());
-        //cerr<<"nghttp2_session_send returned "<<rv<<endl;
+        nghttp2_session_send(conn->d_session.get());
       }
       else {
         if (newState == IOState::NeedWrite) {
@@ -275,35 +303,30 @@ void DoHConnectionToBackend::handleReadableIOCallback(int fd, FDMultiplexer::fun
       }
     }
     catch (const std::exception& e) {
-      cerr<<"got exception "<<e.what()<<endl;
+      cerr<<"Exception while trying to read from HTTP backend connection: "<<e.what()<<endl;
       break;
     }
   }
-  while (true);
-
-  //struct timeval now;
-  //gettimeofday(&now, nullptr);
-  //handleIO(conn, now);
+  while (conn->getConcurrentStreamsCount() > 0);
 }
 
 void DoHConnectionToBackend::handleWritableIOCallback(int fd, FDMultiplexer::funcparam_t& param)
 {
-  cerr<<"in "<<__PRETTY_FUNCTION__<<", param is "<<param.type().name()<<endl;
   auto conn = boost::any_cast<std::shared_ptr<DoHConnectionToBackend>>(param);
   if (fd != conn->getHandle()) {
     throw std::runtime_error("Unexpected socket descriptor " + std::to_string(fd) + " received in " + std::string(__PRETTY_FUNCTION__) + ", expected " + std::to_string(conn->getHandle()));
   }
   IOStateGuard ioGuard(conn->d_ioState);
 
-#warning TODO: once we have finished our handshake, check the ALPN/NPN that has been sent, with SSL_get0_next_proto_negotiated and/or SSL_get0_alpn_selected
-  cerr<<"trying to write "<<conn->d_out.size()-conn->d_outPos<<endl;
+  //cerr<<"trying to write "<<conn->d_out.size()-conn->d_outPos<<endl;
   try {
     IOState newState = conn->d_handler->tryWrite(conn->d_out, conn->d_outPos, conn->d_out.size());
-    cerr<<"got a "<<(int)newState<<" state, "<<conn->d_out.size()-conn->d_inPos<<" bytes remaining"<<endl;
+    //cerr<<"got a "<<(int)newState<<" state, "<<conn->d_out.size()-conn->d_outPos<<" bytes remaining"<<endl;
     if (newState == IOState::NeedRead) {
       conn->updateIO(IOState::NeedRead, handleWritableIOCallback);
     }
     else if (newState == IOState::Done) {
+      ++conn->d_queries;
       conn->d_out.clear();
       conn->d_outPos = 0;
       conn->stopIO();
@@ -312,12 +335,8 @@ void DoHConnectionToBackend::handleWritableIOCallback(int fd, FDMultiplexer::fun
     ioGuard.release();
   }
   catch (const std::exception& e) {
-    cerr<<"got exception "<<e.what()<<endl;
+    cerr<<"Exception while trying to write (ready) to HTTP backend connection: "<<e.what()<<endl;
   }
-
-  //struct timeval now;
-  //gettimeofday(&now, nullptr);
-  //handleIO(conn, now);
 }
 
 void DoHConnectionToBackend::stopIO()
@@ -380,25 +399,25 @@ void DoHConnectionToBackend::addToIOState(IOState state, FDMultiplexer::callback
 }
 
 ssize_t DoHConnectionToBackend::send_callback(nghttp2_session* session, const uint8_t* data, size_t length, int flags, void* user_data) {
-  cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
-  cerr<<"asked to send "<<length<<" bytes"<<endl;
   DoHConnectionToBackend* conn = reinterpret_cast<DoHConnectionToBackend*>(user_data);
   bool bufferWasEmpty = conn->d_out.empty();
   conn->d_out.insert(conn->d_out.end(), data, data + length);
 
   if (bufferWasEmpty) {
-    auto state = conn->d_handler->tryWrite(conn->d_out, conn->d_outPos, conn->d_out.size());
-    if (state == IOState::Done) {
-      conn->d_out.clear();
-      conn->d_outPos = 0;
-#warning FIXME from now on we need to read, as we might get an answer
-      cerr<<"FIXME now we need to read!"<<endl;
-      conn->addToIOState(IOState::NeedRead, handleReadableIOCallback);
+    try {
+      auto state = conn->d_handler->tryWrite(conn->d_out, conn->d_outPos, conn->d_out.size());
+      if (state == IOState::Done) {
+        ++conn->d_queries;
+        conn->d_out.clear();
+        conn->d_outPos = 0;
+        conn->addToIOState(IOState::NeedRead, handleReadableIOCallback);
+      }
+      else {
+        conn->updateIO(state, handleWritableIOCallback);
+      }
     }
-    else {
-#warning write me should be addIO() instead, perhaps?
-      cerr<<"now we need to wait for a writable (or readable) socket"<<endl;
-      conn->updateIO(state, handleWritableIOCallback);
+    catch (const std::exception& e) {
+      cerr<<"Exception while trying to write (send) to HTTP backend connection: "<<e.what()<<endl;
     }
   }
 
@@ -407,8 +426,8 @@ ssize_t DoHConnectionToBackend::send_callback(nghttp2_session* session, const ui
 
 int DoHConnectionToBackend::on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data) {
   DoHConnectionToBackend* conn = reinterpret_cast<DoHConnectionToBackend*>(user_data);
-  cerr<<"Frame type is "<<std::to_string(frame->hd.type)<<endl;
-  
+  //cerr<<"Frame type is "<<std::to_string(frame->hd.type)<<endl;
+#if 0
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS:
     cerr<<"got headers"<<endl;
@@ -429,13 +448,15 @@ int DoHConnectionToBackend::on_frame_recv_callback(nghttp2_session* session, con
   case NGHTTP2_DATA:
     cerr<<"got data"<<endl;
     break;
+  case NGHTTP2_GOAWAY;
   }
+#endif
 
   /* is this the last frame for this stream? */
   if ((frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA) && frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
     auto stream = conn->d_currentStreams.find(frame->hd.stream_id);
     if (stream != conn->d_currentStreams.end()) {
-      cerr<<"Stream "<<frame->hd.stream_id<<" is now finished"<<endl;
+      //cerr<<"Stream "<<frame->hd.stream_id<<" is now finished"<<endl;
       stream->second.d_finished = true;
 
       auto request = std::move(stream->second);
@@ -444,7 +465,10 @@ int DoHConnectionToBackend::on_frame_recv_callback(nghttp2_session* session, con
         conn->handleResponse(std::move(request));
       } else {
         vinfolog("HTTP response has a non-200 status code: %d", request.d_responseCode);
-        conn->handleResponseError(std::move(request));
+        struct timeval now;
+        gettimeofday(&now, nullptr);
+
+        conn->handleResponseError(std::move(request), now);
       }
       if (conn->getConcurrentStreamsCount() == 0) {
         conn->stopIO();
@@ -462,7 +486,7 @@ int DoHConnectionToBackend::on_frame_recv_callback(nghttp2_session* session, con
 
 int DoHConnectionToBackend::on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, int32_t stream_id, const uint8_t* data, size_t len, void* user_data) {
   DoHConnectionToBackend* conn = reinterpret_cast<DoHConnectionToBackend*>(user_data);
-  cerr<<"Got data of size "<<len<<" for stream "<<stream_id<<endl;
+  //cerr<<"Got data of size "<<len<<" for stream "<<stream_id<<endl;
   auto stream = conn->d_currentStreams.find(stream_id);
   if (stream == conn->d_currentStreams.end()) {
     vinfolog("Unable to match the stream ID %d to a known one!", stream_id);
@@ -477,7 +501,7 @@ int DoHConnectionToBackend::on_data_chunk_recv_callback(nghttp2_session* session
 
   stream->second.d_buffer.insert(stream->second.d_buffer.end(), data, data + len);
   if (stream->second.d_finished) {
-    cerr<<"we now have the full response!"<<endl;
+    //cerr<<"we now have the full response!"<<endl;
     //cerr<<std::string(reinterpret_cast<const char*>(data), len)<<endl;
 
     auto request = std::move(stream->second);
@@ -486,14 +510,17 @@ int DoHConnectionToBackend::on_data_chunk_recv_callback(nghttp2_session* session
       conn->handleResponse(std::move(request));
     } else {
       vinfolog("HTTP response has a non-200 status code: %d", request.d_responseCode);
-      conn->handleResponseError(std::move(request));
+      struct timeval now;
+      gettimeofday(&now, nullptr);
+
+      conn->handleResponseError(std::move(request), now);
     }
     if (conn->getConcurrentStreamsCount() == 0) {
       conn->stopIO();
     }
   }
   else {
-    cerr<<"but the stream is not finished yet"<<endl;
+    //cerr<<"but the stream is not finished yet"<<endl;
   }
 
   return 0;
@@ -502,15 +529,35 @@ int DoHConnectionToBackend::on_data_chunk_recv_callback(nghttp2_session* session
 int DoHConnectionToBackend::on_stream_close_callback(nghttp2_session* session, int32_t stream_id, uint32_t error_code, void* user_data) {
   DoHConnectionToBackend* conn = reinterpret_cast<DoHConnectionToBackend*>(user_data);
 
-  if (error_code != 0) {
-    cerr<<"Stream "<<stream_id<<" closed with error_code="<<error_code<<endl;
-    conn->d_connectionDied = true;
+  if (error_code == 0) {
+    return 0;
   }
 
-  //auto rv = nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR);
-  //if (rv != 0) {
-  //  return NGHTTP2_ERR_CALLBACK_FAILURE;
-  //}
+  cerr<<"Stream "<<stream_id<<" closed with error_code="<<error_code<<endl;
+  conn->d_connectionDied = true;
+
+  auto stream = conn->d_currentStreams.find(stream_id);
+  if (stream == conn->d_currentStreams.end()) {
+    /* we don't care, then */
+    cerr<<"we don't care"<<endl;
+    return 0;
+  }
+
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+  auto request = std::move(stream->second);
+  conn->d_currentStreams.erase(stream->first);
+
+  //cerr<<"in "<<__PRETTY_FUNCTION__<<", looking for a connection to send a query of size "<<request.d_query.d_buffer.size()<<endl;
+  auto downstream = DownstreamDoHConnectionsManager::getConnectionToDownstream(conn->d_mplexer, conn->d_ds, now);
+  downstream->queueQuery(request.d_sender, std::move(request.d_query));
+
+  //cerr<<"we now have "<<conn->getConcurrentStreamsCount()<<" concurrent connections"<<endl;
+  if (conn->getConcurrentStreamsCount() == 0) {
+    //cerr<<"stopping IO"<<endl;
+    conn->stopIO();
+    //cerr<<"our current refcnt is now "<<conn->getUsageCount()<<endl;
+  }
 
   return 0;
 }
@@ -522,9 +569,9 @@ int DoHConnectionToBackend::on_header_callback(nghttp2_session* session, const n
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS:
     if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
-      cerr<<"got header for "<<frame->hd.stream_id<<":"<<endl;
-      cerr<<"- "<<std::string(reinterpret_cast<const char*>(name), namelen)<<endl;
-      cerr<<"- "<<std::string(reinterpret_cast<const char*>(value), valuelen)<<endl;
+      //cerr<<"got header for "<<frame->hd.stream_id<<":"<<endl;
+      //cerr<<"- "<<std::string(reinterpret_cast<const char*>(name), namelen)<<endl;
+      //cerr<<"- "<<std::string(reinterpret_cast<const char*>(value), valuelen)<<endl;
       if (namelen == status.size() && memcmp(status.data(), name, status.size()) == 0) {
         auto stream = conn->d_currentStreams.find(frame->hd.stream_id);
         if (stream == conn->d_currentStreams.end()) {
@@ -560,21 +607,6 @@ int DoHConnectionToBackend::on_error_callback(nghttp2_session* session, int lib_
 DoHConnectionToBackend::DoHConnectionToBackend(std::shared_ptr<DownstreamState> ds, std::unique_ptr<FDMultiplexer>& mplexer, const struct timeval& now): TCPConnectionToBackend(ds, mplexer, now)
 {
   // inherit most of the stuff from the TCPConnectionToBackend()
-
-  /* check ALPN:
-SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
-    if (alpn == NULL) {
-      SSL_get0_alpn_selected(ssl, &alpn, &alpnlen);
-    }
-#endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
-
-    if (alpn == NULL || alpnlen != 2 || memcmp("h2", alpn, 2) != 0) {
-      fprintf(stderr, "h2 is not negotiated\n");
-      delete_http2_session_data(session_data);
-      return;
-    }
-  */
   d_ioState = make_unique<IOStateHandler>(*d_mplexer, d_handler->getDescriptor());
 
   nghttp2_session_callbacks* cbs = nullptr;
@@ -624,31 +656,6 @@ SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
     return;
   }
 }
-
-class DownstreamDoHConnectionsManager
-{
-public:
-  static std::shared_ptr<DoHConnectionToBackend> getConnectionToDownstream(std::unique_ptr<FDMultiplexer>& mplexer, std::shared_ptr<DownstreamState>& ds, const struct timeval& now);
-  static void releaseDownstreamConnection(std::shared_ptr<DoHConnectionToBackend>&& conn);
-  static void cleanupClosedConnections(struct timeval now);
-  static size_t clear();
-
-  static void setMaxCachedConnectionsPerDownstream(size_t max)
-  {
-    s_maxCachedConnectionsPerDownstream = max;
-  }
-
-  static void setCleanupInterval(uint16_t interval)
-  {
-    s_cleanupInterval = interval;
-  }
-
-private:
-  static thread_local map<boost::uuids::uuid, std::deque<std::shared_ptr<DoHConnectionToBackend>>> t_downstreamConnections;
-  static size_t s_maxCachedConnectionsPerDownstream;
-  static time_t s_nextCleanup;
-  static uint16_t s_cleanupInterval;
-};
 
 struct DoHClientCollection::DoHWorkerThread
 {
@@ -763,17 +770,19 @@ std::shared_ptr<DoHConnectionToBackend> DownstreamDoHConnectionsManager::getConn
 
   if (s_cleanupInterval > 0 && (s_nextCleanup == 0 || s_nextCleanup <= now.tv_sec)) {
     s_nextCleanup = now.tv_sec + s_cleanupInterval;
+    //cerr<<"cleaning up"<<endl;
     cleanupClosedConnections(now);
   }
 
   {
+    //cerr<<"looking for existing connection"<<endl;
     const auto& it = t_downstreamConnections.find(backendId);
     if (it != t_downstreamConnections.end()) {
       auto& list = it->second;
-      auto listIt = list.begin();
-      while (listIt != list.end()) {
+      for (auto listIt = list.begin(); listIt != list.end(); ) {
         auto& entry = *listIt;
         if (!entry->canBeReused()) {
+          listIt = list.erase(listIt);
           continue;
         }
         entry->setReused();
@@ -830,15 +839,19 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
     delete tmp;
     tmp = nullptr;
 
-    auto downstream = DownstreamDoHConnectionsManager::getConnectionToDownstream(threadData->mplexer, downstreamServer, now);
+    try {
+      auto downstream = DownstreamDoHConnectionsManager::getConnectionToDownstream(threadData->mplexer, downstreamServer, now);
 
 #warning what about the proxy protocol payload, here, do we need to remove it? we likely need to handle forward-for headers?
-    downstream->queueQuery(tqs, std::move(query));
+      downstream->queueQuery(tqs, std::move(query));
+    }
+    catch (...) {
+      tqs->notifyIOError(std::move(query.d_idstate), now);
+    }
   }
   catch (...) {
     delete tmp;
     tmp = nullptr;
-    throw;
   }
 }
 
@@ -980,13 +993,12 @@ void DoHClientCollection::addThread()
 bool initDoHWorkers()
 {
 #warning FIXME: number of DoH threads
-  g_dohClientThreads = std::make_unique<DoHClientCollection>(1);
+  g_dohClientThreads = std::make_unique<DoHClientCollection>(4);
   g_dohClientThreads->addThread();
   return true;
 }
 
 static bool select_next_proto_callback(unsigned char** out, unsigned char* outlen, const unsigned char* in, unsigned int inlen) {
-  cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
   if (nghttp2_select_next_protocol(out, outlen, in, inlen) <= 0) {
     vinfolog("The remote DoH backend did not advertise " NGHTTP2_PROTO_VERSION_ID);
     return false;
@@ -999,6 +1011,7 @@ bool setupDoHClientProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx)
   if (ctx == nullptr) {
     return false;
   }
+  /* we want to set the ALPN to h2, if only to mitigate the ALPACA attack */
   const std::vector<std::vector<uint8_t>> h2Alpns = {{'h', '2'}};
   ctx->setALPNProtos(h2Alpns);
   ctx->setNextProtocolSelectCallback(select_next_proto_callback);
