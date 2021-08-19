@@ -593,6 +593,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
 
   prependSizeToTCPQuery(state->d_buffer, 0);
 
+#warning FIXME: handle DoH backends here
   auto downstreamConnection = state->getDownstreamConnection(ds, dq.proxyProtocolValues, now);
 
   bool proxyProtocolPayloadAdded = false;
@@ -1027,15 +1028,19 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
     delete tmp;
     tmp = nullptr;
 
-    auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, downstreamServer, now);
+    try {
+      auto downstream = DownstreamConnectionsManager::getConnectionToDownstream(threadData->mplexer, downstreamServer, now);
 
-    prependSizeToTCPQuery(query.d_buffer, proxyProtocolPayloadSize);
-    downstream->queueQuery(tqs, std::move(query));
+      prependSizeToTCPQuery(query.d_buffer, proxyProtocolPayloadSize);
+      downstream->queueQuery(tqs, std::move(query));
+    }
+    catch (...) {
+      tqs->notifyIOError(std::move(query.d_idstate), now);
+    }
   }
   catch (...) {
     delete tmp;
     tmp = nullptr;
-    throw;
   }
 }
 

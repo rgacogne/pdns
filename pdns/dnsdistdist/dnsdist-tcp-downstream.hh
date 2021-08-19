@@ -46,11 +46,6 @@ public:
     return d_fresh;
   }
 
-  void incQueries()
-  {
-    ++d_queries;
-  }
-
   void setReused()
   {
     d_fresh = false;

@@ -529,12 +529,15 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         }
 
         ret->d_tlsCtx = getTLSContext(tlsParams);
-      }
 
-      if (vars.count("dohPath")) {
-        ret->d_dohPath = boost::get<string>(vars.at("dohPath"));
-        if (ret->d_tlsCtx) {
-          setupDoHClientProtocolNegotiation(ret->d_tlsCtx);
+        if (vars.count("dohPath")) {
+          ret->d_dohPath = boost::get<string>(vars.at("dohPath"));
+          if (ret->d_tlsCtx) {
+            setupDoHClientProtocolNegotiation(ret->d_tlsCtx);
+          }
+        }
+        else {
+          setupDoTProtocolNegotiation(ret->d_tlsCtx);
         }
       }
 
