@@ -57,6 +57,7 @@ dnsdist_build_deps = [
     'libgnutls28-dev',
     'libh2o-evloop-dev',
     'liblmdb-dev',
+    'libnghttp2-dev',
     'libre2-dev',
     'libsnmp-dev',
 ]
@@ -175,6 +176,7 @@ def install_dnsdist_test_deps(c): # FIXME: rename this, we do way more than apt-
               libgnutls30 \
               libh2o-evloop0.13 \
               liblmdb0 \
+              libnghttp2 \
               libre2-5 \
               libssl-dev \
               libsystemd0 \
@@ -266,6 +268,7 @@ def ci_dnsdist_configure(c):
                      --with-libsodium \
                      --with-lua=luajit \
                      --with-libcap \
+                     --with-nghttp2 \
                      --with-re2 \
                      --enable-asan \
                      --enable-ubsan''', warn=True)
