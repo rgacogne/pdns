@@ -2,7 +2,7 @@ AC_DEFUN([PDNS_WITH_NGHTTP2], [
   AC_MSG_CHECKING([whether we will be linking in nghttp2])
   HAVE_NGHTTP2=0
   AC_ARG_WITH([nghttp2],
-    AS_HELP_STRING([--with-nghttp2],[use Nghttp2 @<:@default=auto@:>@]),
+    AS_HELP_STRING([--with-nghttp2],[use nghttp2 @<:@default=auto@:>@]),
     [with_nghttp2=$withval],
     [with_nghttp2=auto],
   )
