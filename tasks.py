@@ -176,7 +176,7 @@ def install_dnsdist_test_deps(c): # FIXME: rename this, we do way more than apt-
               libgnutls30 \
               libh2o-evloop0.13 \
               liblmdb0 \
-              libnghttp2 \
+              libnghttp2-14 \
               libre2-5 \
               libssl-dev \
               libsystemd0 \
