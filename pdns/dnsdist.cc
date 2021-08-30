@@ -1310,7 +1310,7 @@ public:
     return true;
   }
 
-  const ClientState* getClientState() override
+  const ClientState* getClientState() const override
   {
     return &d_cs;
   }
@@ -2547,6 +2547,9 @@ int main(int argc, char** argv)
       g_maxTCPClientThreads = 1;
     }
 
+    /* we need to create the TCP worker threads before the
+       acceptor ones, otherwise we might crash when processing
+       the first TCP query */
     g_tcpclientthreads = std::make_unique<TCPClientCollection>(*g_maxTCPClientThreads);
 
     initDoHWorkers();
@@ -2587,13 +2590,6 @@ int main(int argc, char** argv)
       }
     }
     handleQueuedHealthChecks(*mplexer, true);
-
-    /* we need to create the TCP worker threads before the
-       acceptor ones, otherwise we might crash when processing
-       the first TCP query */
-    while (!g_tcpclientthreads->hasReachedMaxThreads()) {
-      g_tcpclientthreads->addTCPClientThread();
-    }
 
     for(auto& cs : g_frontends) {
       if (cs->dohFrontend != nullptr) {
