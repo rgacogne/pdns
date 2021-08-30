@@ -156,7 +156,7 @@ class OutgoingDOHBrokenResponsesTests(object):
         self.assertEqual(receivedResponse, None)
 
 class TestOutgoingDOHOpenSSL(DNSDistTest, OutgoingDOHTests):
-    _tlsBackendPort = 10443
+    _tlsBackendPort = 10543
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
@@ -177,7 +177,7 @@ class TestOutgoingDOHOpenSSL(DNSDistTest, OutgoingDOHTests):
         cls._DOHResponder.start()
 
 class TestOutgoingDOHGnuTLS(DNSDistTest, OutgoingDOHTests):
-    _tlsBackendPort = 10444
+    _tlsBackendPort = 10544
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
@@ -198,7 +198,7 @@ class TestOutgoingDOHGnuTLS(DNSDistTest, OutgoingDOHTests):
         cls._DOHResponder.start()
 
 class TestOutgoingDOHOpenSSLWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
-    _tlsBackendPort = 10445
+    _tlsBackendPort = 10545
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
@@ -218,7 +218,7 @@ class TestOutgoingDOHOpenSSLWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
         cls._DOHResponder.start()
 
 class TestOutgoingDOHGnuTLSWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
-    _tlsBackendPort = 10446
+    _tlsBackendPort = 10546
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
@@ -238,7 +238,7 @@ class TestOutgoingDOHGnuTLSWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
         cls._DOHResponder.start()
 
 class TestOutgoingDOHOpenSSLWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests):
-    _tlsBackendPort = 10447
+    _tlsBackendPort = 10547
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
@@ -258,7 +258,7 @@ class TestOutgoingDOHOpenSSLWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTest
         cls._DOHResponder.start()
 
 class TestOutgoingDOHGnuTLSWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests):
-    _tlsBackendPort = 10448
+    _tlsBackendPort = 10548
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
@@ -278,7 +278,7 @@ class TestOutgoingDOHGnuTLSWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests
         cls._DOHResponder.start()
 
 class TestOutgoingDOHBrokenResponsesOpenSSL(DNSDistTest, OutgoingDOHBrokenResponsesTests):
-    _tlsBackendPort = 10449
+    _tlsBackendPort = 10549
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
@@ -314,7 +314,7 @@ class TestOutgoingDOHBrokenResponsesOpenSSL(DNSDistTest, OutgoingDOHBrokenRespon
         cls._DOHResponder.start()
 
 class TestOutgoingDOHBrokenResponsesGnuTLS(DNSDistTest, OutgoingDOHBrokenResponsesTests):
-    _tlsBackendPort = 10450
+    _tlsBackendPort = 10550
     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
     _config_template = """
     setMaxTCPClientThreads(1)
