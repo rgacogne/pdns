@@ -182,18 +182,6 @@ bool DoHConnectionToBackend::canBeReused() const
   return true;
 }
 
-#define MAKE_NV(NAME, VALUE, VALUELEN)                           \
-  {                                                              \
-    (uint8_t*)NAME, (uint8_t*)VALUE, sizeof(NAME) - 1, VALUELEN, \
-      NGHTTP2_NV_FLAG_NONE                                       \
-  }
-
-#define MAKE_NV2(NAME, VALUE)                                             \
-  {                                                                       \
-    (uint8_t*)NAME, (uint8_t*)VALUE, sizeof(NAME) - 1, sizeof(VALUE) - 1, \
-      NGHTTP2_NV_FLAG_NONE                                                \
-  }
-
 const std::unordered_map<std::string, std::string> DoHConnectionToBackend::s_constants = {
   {"method-name", ":method"},
   {"method-value", "POST"},
@@ -288,6 +276,7 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
   /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
    */
   nghttp2_data_provider data_provider;
+  /* we don't use this pointer, we use the user data associated with the session instead */
   data_provider.source.ptr = this;
   data_provider.read_callback = [](nghttp2_session* session, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* user_data) -> ssize_t {
     auto userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
@@ -388,6 +377,8 @@ void DoHConnectionToBackend::handleReadableIOCallback(int fd, FDMultiplexer::fun
     }
     catch (const std::exception& e) {
       cerr << "Exception while trying to read from HTTP backend connection: " << e.what() << endl;
+      conn->d_connectionDied = true;
+#warning need to cancel ALL streams, notify IO error
       break;
     }
   } while (conn->getConcurrentStreamsCount() > 0);
@@ -419,6 +410,8 @@ void DoHConnectionToBackend::handleWritableIOCallback(int fd, FDMultiplexer::fun
   }
   catch (const std::exception& e) {
     cerr << "Exception while trying to write (ready) to HTTP backend connection: " << e.what() << endl;
+    conn->d_connectionDied = true;
+#warning need to cancel ALL streams, notify IO error
   }
 }
 
@@ -505,6 +498,8 @@ ssize_t DoHConnectionToBackend::send_callback(nghttp2_session* session, const ui
     }
     catch (const std::exception& e) {
       cerr << "Exception while trying to write (send) to HTTP backend connection: " << e.what() << endl;
+      conn->d_connectionDied = true;
+#warning need to cancel ALL streams, notify IO error
     }
   }
 
@@ -514,8 +509,8 @@ ssize_t DoHConnectionToBackend::send_callback(nghttp2_session* session, const ui
 int DoHConnectionToBackend::on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data)
 {
   DoHConnectionToBackend* conn = reinterpret_cast<DoHConnectionToBackend*>(user_data);
-  //cerr<<"Frame type is "<<std::to_string(frame->hd.type)<<endl;
-#if 0
+  cerr<<"Frame type is "<<std::to_string(frame->hd.type)<<endl;
+#if 1
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS:
     cerr<<"got headers"<<endl;
@@ -543,7 +538,7 @@ int DoHConnectionToBackend::on_frame_recv_callback(nghttp2_session* session, con
   if ((frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA) && frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
     auto stream = conn->d_currentStreams.find(frame->hd.stream_id);
     if (stream != conn->d_currentStreams.end()) {
-      //cerr<<"Stream "<<frame->hd.stream_id<<" is now finished"<<endl;
+      cerr<<"Stream "<<frame->hd.stream_id<<" is now finished"<<endl;
       stream->second.d_finished = true;
 
       auto request = std::move(stream->second);
