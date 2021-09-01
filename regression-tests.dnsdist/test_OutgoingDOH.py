@@ -196,163 +196,163 @@ class OutgoingDOHBrokenResponsesTests(object):
         #self.assertEqual(query, receivedQuery)
         self.assertEqual(response, receivedResponse)
 
-# class TestOutgoingDOHOpenSSL(DNSDistTest, OutgoingDOHTests):
-#     _tlsBackendPort = 10543
-#     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
-#     _config_template = """
-#     setMaxTCPClientThreads(1)
-#     newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=true, caStore='ca.pem', subjectName='powerdns.com', dohPath='/dns-query'}:setUp()
-#     webserver("127.0.0.1:%s")
-#     setWebserverConfig({password="%s", apiKey="%s"})
-#     """
+class TestOutgoingDOHOpenSSL(DNSDistTest, OutgoingDOHTests):
+    _tlsBackendPort = 10543
+    _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
+    _config_template = """
+    setMaxTCPClientThreads(1)
+    newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=true, caStore='ca.pem', subjectName='powerdns.com', dohPath='/dns-query'}:setUp()
+    webserver("127.0.0.1:%s")
+    setWebserverConfig({password="%s", apiKey="%s"})
+    """
 
-#     @classmethod
-#     def startResponders(cls):
-#         tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-#         tlsContext.set_alpn_protocols(["h2"])
-#         tlsContext.load_cert_chain('server.chain', 'server.key')
+    @classmethod
+    def startResponders(cls):
+        tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tlsContext.set_alpn_protocols(["h2"])
+        tlsContext.load_cert_chain('server.chain', 'server.key')
 
-#         print("Launching DOH responder..")
-#         cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
-#         cls._DOHResponder.setDaemon(True)
-#         cls._DOHResponder.start()
+        print("Launching DOH responder..")
+        cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
+        cls._DOHResponder.setDaemon(True)
+        cls._DOHResponder.start()
 
-# class TestOutgoingDOHGnuTLS(DNSDistTest, OutgoingDOHTests):
-#     _tlsBackendPort = 10544
-#     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
-#     _config_template = """
-#     setMaxTCPClientThreads(1)
-#     newServer{address="127.0.0.1:%s", tls='gnutls', validateCertificates=true, caStore='ca.pem', subjectName='powerdns.com', dohPath='/dns-query'}:setUp()
-#     webserver("127.0.0.1:%s")
-#     setWebserverConfig({password="%s", apiKey="%s"})
-#     """
+class TestOutgoingDOHGnuTLS(DNSDistTest, OutgoingDOHTests):
+    _tlsBackendPort = 10544
+    _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
+    _config_template = """
+    setMaxTCPClientThreads(1)
+    newServer{address="127.0.0.1:%s", tls='gnutls', validateCertificates=true, caStore='ca.pem', subjectName='powerdns.com', dohPath='/dns-query'}:setUp()
+    webserver("127.0.0.1:%s")
+    setWebserverConfig({password="%s", apiKey="%s"})
+    """
 
-#     @classmethod
-#     def startResponders(cls):
-#         tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-#         tlsContext.load_cert_chain('server.chain', 'server.key')
-#         tlsContext.keylog_filename = "/tmp/keys"
+    @classmethod
+    def startResponders(cls):
+        tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tlsContext.load_cert_chain('server.chain', 'server.key')
+        tlsContext.keylog_filename = "/tmp/keys"
 
-#         print("Launching DOH responder..")
-#         cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
-#         cls._DOHResponder.setDaemon(True)
-#         cls._DOHResponder.start()
+        print("Launching DOH responder..")
+        cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
+        cls._DOHResponder.setDaemon(True)
+        cls._DOHResponder.start()
 
-# class TestOutgoingDOHOpenSSLWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
-#     _tlsBackendPort = 10545
-#     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
-#     _config_template = """
-#     setMaxTCPClientThreads(1)
-#     newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=true, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
-#     webserver("127.0.0.1:%s")
-#     setWebserverConfig({password="%s", apiKey="%s"})
-#     """
+class TestOutgoingDOHOpenSSLWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
+    _tlsBackendPort = 10545
+    _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
+    _config_template = """
+    setMaxTCPClientThreads(1)
+    newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=true, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
+    webserver("127.0.0.1:%s")
+    setWebserverConfig({password="%s", apiKey="%s"})
+    """
 
-#     @classmethod
-#     def startResponders(cls):
-#         tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-#         tlsContext.load_cert_chain('server.chain', 'server.key')
+    @classmethod
+    def startResponders(cls):
+        tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tlsContext.load_cert_chain('server.chain', 'server.key')
 
-#         print("Launching DOH responder..")
-#         cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
-#         cls._DOHResponder.setDaemon(True)
-#         cls._DOHResponder.start()
+        print("Launching DOH responder..")
+        cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
+        cls._DOHResponder.setDaemon(True)
+        cls._DOHResponder.start()
 
-# class TestOutgoingDOHGnuTLSWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
-#     _tlsBackendPort = 10546
-#     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
-#     _config_template = """
-#     setMaxTCPClientThreads(1)
-#     newServer{address="127.0.0.1:%s", tls='gnutls', validateCertificates=true, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
-#     webserver("127.0.0.1:%s")
-#     setWebserverConfig({password="%s", apiKey="%s"})
-#     """
+class TestOutgoingDOHGnuTLSWrongCertName(DNSDistTest, BrokenOutgoingDOHTests):
+    _tlsBackendPort = 10546
+    _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
+    _config_template = """
+    setMaxTCPClientThreads(1)
+    newServer{address="127.0.0.1:%s", tls='gnutls', validateCertificates=true, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
+    webserver("127.0.0.1:%s")
+    setWebserverConfig({password="%s", apiKey="%s"})
+    """
 
-#     @classmethod
-#     def startResponders(cls):
-#         tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-#         tlsContext.load_cert_chain('server.chain', 'server.key')
+    @classmethod
+    def startResponders(cls):
+        tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tlsContext.load_cert_chain('server.chain', 'server.key')
 
-#         print("Launching DOH responder..")
-#         cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
-#         cls._DOHResponder.setDaemon(True)
-#         cls._DOHResponder.start()
+        print("Launching DOH responder..")
+        cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
+        cls._DOHResponder.setDaemon(True)
+        cls._DOHResponder.start()
 
-# class TestOutgoingDOHOpenSSLWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests):
-#     _tlsBackendPort = 10547
-#     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
-#     _config_template = """
-#     setMaxTCPClientThreads(1)
-#     newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=false, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
-#     webserver("127.0.0.1:%s")
-#     setWebserverConfig({password="%s", apiKey="%s"})
-#     """
+class TestOutgoingDOHOpenSSLWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests):
+    _tlsBackendPort = 10547
+    _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
+    _config_template = """
+    setMaxTCPClientThreads(1)
+    newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=false, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
+    webserver("127.0.0.1:%s")
+    setWebserverConfig({password="%s", apiKey="%s"})
+    """
 
-#     @classmethod
-#     def startResponders(cls):
-#         tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-#         tlsContext.load_cert_chain('server.chain', 'server.key')
+    @classmethod
+    def startResponders(cls):
+        tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tlsContext.load_cert_chain('server.chain', 'server.key')
 
-#         print("Launching DOH responder..")
-#         cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
-#         cls._DOHResponder.setDaemon(True)
-#         cls._DOHResponder.start()
+        print("Launching DOH responder..")
+        cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
+        cls._DOHResponder.setDaemon(True)
+        cls._DOHResponder.start()
 
-# class TestOutgoingDOHGnuTLSWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests):
-#     _tlsBackendPort = 10548
-#     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
-#     _config_template = """
-#     setMaxTCPClientThreads(1)
-#     newServer{address="127.0.0.1:%s", tls='gnutls', validateCertificates=false, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
-#     webserver("127.0.0.1:%s")
-#     setWebserverConfig({password="%s", apiKey="%s"})
-#     """
+class TestOutgoingDOHGnuTLSWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests):
+    _tlsBackendPort = 10548
+    _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
+    _config_template = """
+    setMaxTCPClientThreads(1)
+    newServer{address="127.0.0.1:%s", tls='gnutls', validateCertificates=false, caStore='ca.pem', subjectName='not-powerdns.com', dohPath='/dns-query'}:setUp()
+    webserver("127.0.0.1:%s")
+    setWebserverConfig({password="%s", apiKey="%s"})
+    """
 
-#     @classmethod
-#     def startResponders(cls):
-#         tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-#         tlsContext.load_cert_chain('server.chain', 'server.key')
+    @classmethod
+    def startResponders(cls):
+        tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tlsContext.load_cert_chain('server.chain', 'server.key')
 
-#         print("Launching DOH responder..")
-#         cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
-#         cls._DOHResponder.setDaemon(True)
-#         cls._DOHResponder.start()
+        print("Launching DOH responder..")
+        cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, None, tlsContext])
+        cls._DOHResponder.setDaemon(True)
+        cls._DOHResponder.start()
 
-# class TestOutgoingDOHBrokenResponsesOpenSSL(DNSDistTest, OutgoingDOHBrokenResponsesTests):
-#     _tlsBackendPort = 10549
-#     _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
-#     _config_template = """
-#     setMaxTCPClientThreads(1)
-#     newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=true, caStore='ca.pem', subjectName='powerdns.com', dohPath='/dns-query'}:setUp()
-#     webserver("127.0.0.1:%s")
-#     setWebserverConfig({password="%s", apiKey="%s"})
-#     """
+class TestOutgoingDOHBrokenResponsesOpenSSL(DNSDistTest, OutgoingDOHBrokenResponsesTests):
+    _tlsBackendPort = 10549
+    _config_params = ['_tlsBackendPort', '_webServerPort', '_webServerBasicAuthPassword', '_webServerAPIKey']
+    _config_template = """
+    setMaxTCPClientThreads(1)
+    newServer{address="127.0.0.1:%s", tls='openssl', validateCertificates=true, caStore='ca.pem', subjectName='powerdns.com', dohPath='/dns-query'}:setUp()
+    webserver("127.0.0.1:%s")
+    setWebserverConfig({password="%s", apiKey="%s"})
+    """
 
-#     def callback(request):
+    def callback(request):
 
-#         if str(request.question[0].name) == '500-status.broken-responses.outgoing-doh.test.powerdns.com.':
-#             print("returning 500")
-#             return 500, b'Server error'
+        if str(request.question[0].name) == '500-status.broken-responses.outgoing-doh.test.powerdns.com.':
+            print("returning 500")
+            return 500, b'Server error'
 
-#         if str(request.question[0].name) == 'invalid-dns-payload.broken-responses.outgoing-doh.test.powerdns.com.':
-#             return 200, b'not DNS'
+        if str(request.question[0].name) == 'invalid-dns-payload.broken-responses.outgoing-doh.test.powerdns.com.':
+            return 200, b'not DNS'
 
-#         if str(request.question[0].name) == 'closing-connection-id.broken-responses.outgoing-doh.test.powerdns.com.':
-#             return 200, None
+        if str(request.question[0].name) == 'closing-connection-id.broken-responses.outgoing-doh.test.powerdns.com.':
+            return 200, None
 
-#         print("Returning default for %s" % (request.question[0].name))
-#         return 200, dns.message.make_response(request).to_wire()
+        print("Returning default for %s" % (request.question[0].name))
+        return 200, dns.message.make_response(request).to_wire()
 
-#     @classmethod
-#     def startResponders(cls):
-#         tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-#         tlsContext.set_alpn_protocols(["h2"])
-#         tlsContext.load_cert_chain('server.chain', 'server.key')
+    @classmethod
+    def startResponders(cls):
+        tlsContext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tlsContext.set_alpn_protocols(["h2"])
+        tlsContext.load_cert_chain('server.chain', 'server.key')
 
-#         print("Launching DOH responder..")
-#         cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, cls.callback, tlsContext])
-#         cls._DOHResponder.setDaemon(True)
-#         cls._DOHResponder.start()
+        print("Launching DOH responder..")
+        cls._DOHResponder = threading.Thread(name='DOH Responder', target=cls.DOHResponder, args=[cls._tlsBackendPort, cls._toResponderQueue, cls._fromResponderQueue, False, False, cls.callback, tlsContext])
+        cls._DOHResponder.setDaemon(True)
+        cls._DOHResponder.start()
 
 class TestOutgoingDOHBrokenResponsesGnuTLS(DNSDistTest, OutgoingDOHBrokenResponsesTests):
     _tlsBackendPort = 10550

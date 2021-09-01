@@ -84,6 +84,7 @@ private:
     std::shared_ptr<TCPQuerySender> d_sender{nullptr};
     TCPQuery d_query;
     PacketBuffer d_buffer;
+    size_t d_queryPos{0};
     uint16_t d_responseCode{0};
     bool d_finished{false};
   };
@@ -106,7 +107,7 @@ private:
   std::unordered_map<int32_t, PendingRequest> d_currentStreams;
   PacketBuffer d_out;
   PacketBuffer d_in;
-  size_t d_queryPos{0};
+
   size_t d_outPos{0};
   size_t d_inPos{0};
   uint32_t d_highestStreamID{0};
@@ -116,7 +117,7 @@ private:
 class DownstreamDoHConnectionsManager
 {
 public:
-  static std::shared_ptr<DoHConnectionToBackend> getConnectionToDownstream(std::unique_ptr<FDMultiplexer>& mplexer, std::shared_ptr<DownstreamState>& ds, const struct timeval& now);
+  static std::shared_ptr<DoHConnectionToBackend> getConnectionToDownstream(std::unique_ptr<FDMultiplexer>& mplexer, const std::shared_ptr<DownstreamState>& ds, const struct timeval& now);
   static void releaseDownstreamConnection(std::shared_ptr<DoHConnectionToBackend>&& conn);
   static void cleanupClosedConnections(struct timeval now);
   static size_t clear();
@@ -147,12 +148,22 @@ void DoHConnectionToBackend::handleResponse(PendingRequest&& request)
 {
   struct timeval now;
   gettimeofday(&now, nullptr);
-  request.d_sender->handleResponse(now, TCPResponse(std::move(request.d_buffer), std::move(request.d_query.d_idstate), shared_from_this()));
+  try {
+    request.d_sender->handleResponse(now, TCPResponse(std::move(request.d_buffer), std::move(request.d_query.d_idstate), shared_from_this()));
+  }
+  catch (const std::exception& e) {
+    vinfolog("Got exception while handling response for cross-protocol DoH: %s", e.what());
+  }
 }
 
 void DoHConnectionToBackend::handleResponseError(PendingRequest&& request, const struct timeval& now)
 {
-  request.d_sender->notifyIOError(std::move(request.d_query.d_idstate), now);
+  try {
+    request.d_sender->notifyIOError(std::move(request.d_query.d_idstate), now);
+  }
+  catch (const std::exception& e) {
+    vinfolog("Got exception while handling response for cross-protocol DoH: %s", e.what());
+  }  
 }
 
 void DoHConnectionToBackend::handleTimeout(const struct timeval& now, bool write)
@@ -223,9 +234,9 @@ void DoHConnectionToBackend::addDynamicHeader(std::vector<nghttp2_nv>& headers, 
 
 void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender, TCPQuery&& query)
 {
+  auto dh = reinterpret_cast<const dnsheader*>(query.d_buffer.data());
+  cerr<<"in "<<__PRETTY_FUNCTION__<<" with query ID "<<ntohs(dh->id)<<endl;
   auto payloadSize = std::to_string(query.d_buffer.size());
-  d_currentQuery = std::move(query);
-  d_queryPos = 0;
 
   bool addXForwarded = d_ds->d_addXForwardedHeaders;
 
@@ -247,24 +258,24 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
   addStaticHeader(headers, "user-agent-name", "user-agent-value");
   addDynamicHeader(headers, "content-length-name", payloadSize);
   /* no need to add these headers for health-check queries */
-  if (addXForwarded && d_currentQuery.d_idstate.origRemote.getPort() != 0) {
-    remote = d_currentQuery.d_idstate.origRemote.toString();
-    remotePort = std::to_string(d_currentQuery.d_idstate.origRemote.getPort());
+  if (addXForwarded && query.d_idstate.origRemote.getPort() != 0) {
+    remote = query.d_idstate.origRemote.toString();
+    remotePort = std::to_string(query.d_idstate.origRemote.getPort());
     addDynamicHeader(headers, "x-forwarded-for-name", remote);
     addDynamicHeader(headers, "x-forwarded-port-name", remotePort);
-    if (d_currentQuery.d_idstate.cs != nullptr) {
-      if (d_currentQuery.d_idstate.cs->isUDP()) {
+    if (query.d_idstate.cs != nullptr) {
+      if (query.d_idstate.cs->isUDP()) {
         addStaticHeader(headers, "x-forwarded-proto-name", "x-forwarded-proto-value-dns-over-udp");
       }
-      else if (d_currentQuery.d_idstate.cs->isDoH()) {
-        if (d_currentQuery.d_idstate.cs->hasTLS()) {
+      else if (query.d_idstate.cs->isDoH()) {
+        if (query.d_idstate.cs->hasTLS()) {
           addStaticHeader(headers, "x-forwarded-proto-name", "x-forwarded-proto-value-dns-over-https");
         }
         else {
           addStaticHeader(headers, "x-forwarded-proto-name", "x-forwarded-proto-value-dns-over-http");
         }
       }
-      else if (d_currentQuery.d_idstate.cs->hasTLS()) {
+      else if (query.d_idstate.cs->hasTLS()) {
         addStaticHeader(headers, "x-forwarded-proto-name", "x-forwarded-proto-value-dns-over-tls");
       }
       else {
@@ -273,43 +284,12 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
     }
   }
 
-  /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
-   */
-  nghttp2_data_provider data_provider;
-  /* we don't use this pointer, we use the user data associated with the session instead */
-  data_provider.source.ptr = this;
-  data_provider.read_callback = [](nghttp2_session* session, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* user_data) -> ssize_t {
-    auto userData = reinterpret_cast<DoHConnectionToBackend*>(user_data);
-    size_t toCopy = 0;
-    if (userData->d_queryPos < userData->d_currentQuery.d_buffer.size()) {
-      size_t remaining = userData->d_currentQuery.d_buffer.size() - userData->d_queryPos;
-      toCopy = length > remaining ? remaining : length;
-      memcpy(buf, &userData->d_currentQuery.d_buffer.at(userData->d_queryPos), toCopy);
-      userData->d_queryPos += toCopy;
-    }
+  PendingRequest pending;
+  pending.d_query = std::move(query);
+  pending.d_sender = std::move(sender);
 
-    if (userData->d_queryPos >= userData->d_currentQuery.d_buffer.size()) {
-      *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-    }
-    return toCopy;
-  };
-
-  auto stream_id = nghttp2_submit_request(d_session.get(), nullptr, headers.data(), headers.size(), &data_provider, this);
-  if (stream_id < 0) {
-    d_connectionDied = true;
-    throw std::runtime_error("Error submitting HTTP request:" + std::string(nghttp2_strerror(stream_id)));
-  }
-  //cerr<<"stream ID is "<<stream_id<<" for a query of size "<<payloadSize<<endl;
-
-  auto rv = nghttp2_session_send(d_session.get());
-  if (rv != 0) {
-    d_connectionDied = true;
-    throw std::runtime_error("Error in nghttp2_session_send:" + std::to_string(rv));
-  }
-  PendingRequest request;
-  request.d_query = std::move(d_currentQuery);
-  request.d_sender = std::move(sender);
-  auto insertPair = d_currentStreams.insert({stream_id, std::move(request)});
+  uint32_t streamId = nghttp2_session_get_next_stream_id(d_session.get());
+  auto insertPair = d_currentStreams.insert({streamId, std::move(pending)});
   if (!insertPair.second) {
     /* there is a stream ID collision, something is very wrong! */
     d_connectionDied = true;
@@ -317,7 +297,50 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
     throw std::runtime_error("Stream ID collision");
   }
 
-  d_highestStreamID = stream_id;
+  /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
+   */
+  nghttp2_data_provider data_provider;
+
+  /* we will not use this pointer */
+  data_provider.source.ptr = this;
+  data_provider.read_callback = [](nghttp2_session* session, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* user_data) -> ssize_t {
+    auto conn = reinterpret_cast<DoHConnectionToBackend*>(user_data);
+    auto& request = conn->d_currentStreams.at(stream_id);
+    auto dh = reinterpret_cast<const dnsheader*>(request.d_query.d_buffer.data());
+    cerr<<"in "<<__PRETTY_FUNCTION__<<" with query ID "<<ntohs(dh->id)<<endl;
+
+    size_t toCopy = 0;
+    if (request.d_queryPos < request.d_query.d_buffer.size()) {
+      size_t remaining = request.d_query.d_buffer.size() - request.d_queryPos;
+      toCopy = length > remaining ? remaining : length;
+      memcpy(buf, &request.d_query.d_buffer.at(request.d_queryPos), toCopy);
+      request.d_queryPos += toCopy;
+    }
+
+    if (request.d_queryPos >= request.d_query.d_buffer.size()) {
+      *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    }
+    cerr<<"read callback returned "<<toCopy<<endl;
+    return toCopy;
+  };
+
+  auto newStreamId = nghttp2_submit_request(d_session.get(), nullptr, headers.data(), headers.size(), &data_provider, this);
+  if (newStreamId < 0) {
+    d_connectionDied = true;
+    d_currentStreams.erase(streamId);
+    throw std::runtime_error("Error submitting HTTP request:" + std::string(nghttp2_strerror(newStreamId)));
+  }
+  //cerr<<"stream ID is "<<stream_id<<" for a query of size "<<payloadSize<<endl;
+
+  cerr<<"initial request send"<<endl;
+  auto rv = nghttp2_session_send(d_session.get());
+  if (rv != 0) {
+    d_connectionDied = true;
+    d_currentStreams.erase(streamId);
+    throw std::runtime_error("Error in nghttp2_session_send:" + std::to_string(rv));
+  }
+
+  d_highestStreamID = newStreamId;
 }
 
 class DoHClientThreadData
@@ -360,6 +383,7 @@ void DoHConnectionToBackend::handleReadableIOCallback(int fd, FDMultiplexer::fun
           cerr << "Fatal error: " << nghttp2_strerror((int)readlen) << endl;
           return;
         }
+        cerr<<"after read send"<<endl;
         nghttp2_session_send(conn->d_session.get());
         if (conn->getConcurrentStreamsCount() == 0) {
           conn->stopIO();
@@ -785,7 +809,7 @@ void DownstreamDoHConnectionsManager::cleanupClosedConnections(struct timeval no
   }
 }
 
-std::shared_ptr<DoHConnectionToBackend> DownstreamDoHConnectionsManager::getConnectionToDownstream(std::unique_ptr<FDMultiplexer>& mplexer, std::shared_ptr<DownstreamState>& ds, const struct timeval& now)
+std::shared_ptr<DoHConnectionToBackend> DownstreamDoHConnectionsManager::getConnectionToDownstream(std::unique_ptr<FDMultiplexer>& mplexer, const std::shared_ptr<DownstreamState>& ds, const struct timeval& now)
 {
   std::shared_ptr<DoHConnectionToBackend> result;
   struct timeval freshCutOff = now;
@@ -1129,9 +1153,17 @@ bool sendH2Query(const std::shared_ptr<DownstreamState>& ds, std::unique_ptr<FDM
   struct timeval now;
   gettimeofday(&now, nullptr);
 
-  auto newConnection = std::make_shared<DoHConnectionToBackend>(ds, mplexer, now);
-  newConnection->setHealthCheck(healthCheck);
-  newConnection->queueQuery(sender, std::move(query));
+  if (healthCheck) {
+    /* always do health-checks over a new connection */
+    auto newConnection = std::make_shared<DoHConnectionToBackend>(ds, mplexer, now);
+    newConnection->setHealthCheck(healthCheck);
+    newConnection->queueQuery(sender, std::move(query));
+  }
+  else {
+    auto connection = DownstreamDoHConnectionsManager::getConnectionToDownstream(mplexer, ds, now);
+    connection->queueQuery(sender, std::move(query));
+  }
+
   return true;
 #else /* HAVE_NGHTTP2 */
   return false;
