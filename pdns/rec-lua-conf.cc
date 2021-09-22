@@ -36,8 +36,8 @@ LuaConfigItems::LuaConfigItems()
 {
   DNSName root("."); // don't use g_rootdnsname here, it might not exist yet
   for (const auto& dsRecord : rootDSs) {
-    auto ds = std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(dsRecord));
-    dsAnchors[root].insert(*ds);
+    auto ds = *dynamic_cast<DSRecordContent*>(DSRecordContent::make(dsRecord).get());
+    dsAnchors[root].insert(ds);
   }
 }
 
@@ -64,8 +64,8 @@ static void parseRPZParameters(rpzOptions_t& have, std::shared_ptr<DNSFilterEngi
     defpol->d_kind = (DNSFilterEngine::PolicyKind)boost::get<uint32_t>(have["defpol"]);
     defpol->setName(polName);
     if (defpol->d_kind == DNSFilterEngine::PolicyKind::Custom) {
-      defpol->d_custom.push_back(DNSRecordContent::mastermake(QType::CNAME, QClass::IN,
-                                                              boost::get<string>(have["defcontent"])));
+      defpol->d_custom.push_back(std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::CNAME, QClass::IN,
+                                                                                                boost::get<string>(have["defcontent"]))));
 
       if (have.count("defttl"))
         defpol->d_ttl = static_cast<int32_t>(boost::get<uint32_t>(have["defttl"]));
@@ -504,7 +504,6 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
                          if (auto str = boost::get<string>(&masks))
                            lci.sortlist.addEntry(formask, Netmask(*str), order);
                          else {
-
                            auto vec = boost::get<argvec_t>(&masks);
                            for (const auto& e : *vec) {
                              if (auto s = boost::get<string>(&e.second)) {
@@ -527,8 +526,8 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
   Lua->writeFunction("addTA", [&lci](const std::string& who, const std::string& what) {
     warnIfDNSSECDisabled("Warning: adding Trust Anchor for DNSSEC (addTA), but dnssec is set to 'off'!");
     DNSName zone(who);
-    auto ds = std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(what));
-    lci.dsAnchors[zone].insert(*ds);
+    auto ds = *dynamic_cast<DSRecordContent*>(DSRecordContent::make(what).get());
+    lci.dsAnchors[zone].insert(ds);
   });
 
   Lua->writeFunction("clearTA", [&lci](boost::optional<string> who) {
@@ -544,8 +543,8 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
     warnIfDNSSECDisabled("Warning: adding Trust Anchor for DNSSEC (addDS), but dnssec is set to 'off'!");
     g_log << Logger::Warning << "addDS is deprecated and will be removed in the future, switch to addTA" << endl;
     DNSName zone(who);
-    auto ds = std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(what));
-    lci.dsAnchors[zone].insert(*ds);
+    auto ds = *dynamic_cast<DSRecordContent*>(DSRecordContent::make(what).get());
+    lci.dsAnchors[zone].insert(ds);
   });
 
   /* Remove in 4.3 */

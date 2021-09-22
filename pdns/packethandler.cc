@@ -289,7 +289,7 @@ int PacketHandler::doChaosRequest(const DNSPacket& p, std::unique_ptr<DNSPacket>
       }
       else
         content=mode;
-      rr.dr.d_content = DNSRecordContent::mastermake(QType::TXT, 1, "\""+content+"\"");
+      rr.dr.d_content = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::TXT, 1, "\""+content+"\""));
     }
     else if (target==idserver) {
       // modes: disabled, hostname or custom
@@ -303,7 +303,7 @@ int PacketHandler::doChaosRequest(const DNSPacket& p, std::unique_ptr<DNSPacket>
       if(!tid.empty() && tid[0]!='"') { // see #6010 however
         tid = "\"" + tid + "\"";
       }
-      rr.dr.d_content=DNSRecordContent::mastermake(QType::TXT, 1, tid);
+      rr.dr.d_content = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::TXT, 1, tid));
     }
     else {
       r->setRcode(RCode::Refused);

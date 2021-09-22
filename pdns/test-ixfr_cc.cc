@@ -16,7 +16,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_rfc1995_axfr) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::NS, "NS.JAIN.AD.JP.");
@@ -38,7 +38,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_rfc1995_incremental) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");
@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_rfc1995_condensed_incremental) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");
@@ -116,7 +116,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_no_additions_in_first_sequence) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");
@@ -159,7 +159,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_no_removals_in_first_sequence) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");
@@ -204,7 +204,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_same_serial) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
@@ -225,7 +225,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_invalid_no_records) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
 
   auto ret = processIXFRRecords(master, zone, records, std::dynamic_pointer_cast<SOARecordContent>(masterSOA));
@@ -247,7 +247,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_invalid_no_trailing_soa) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");
@@ -263,7 +263,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_invalid_no_soa_after_removals) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");
@@ -276,7 +276,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_mismatching_serial_before_and_after_additions) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");
@@ -293,7 +293,7 @@ BOOST_AUTO_TEST_CASE(test_ixfr_trailing_record_after_end) {
   const ComboAddress master("[2001:DB8::1]:53");
   const DNSName zone("JAIN.AD.JP.");
 
-  auto masterSOA = DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800");
+  auto masterSOA = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::SOA, QClass::IN, "NS.JAIN.AD.JP. mohta.jain.ad.jp. 3 600 600 3600000 604800"));
   vector<DNSRecord> records;
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 3 600 600 3600000 604800");
   addRecordToList(records, DNSName("JAIN.AD.JP."), QType::SOA, "ns.jain.ad.jp. mohta.jain.ad.jp. 1 600 600 3600000 604800");

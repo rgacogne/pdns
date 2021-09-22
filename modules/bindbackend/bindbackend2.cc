@@ -298,7 +298,7 @@ bool Bind2Backend::feedRecord(const DNSResourceRecord& rr, const DNSName& ordern
     throw DBException("out-of-zone data '" + rr.qname.toLogString() + "' during AXFR of zone '" + d_transaction_qname.toLogString() + "'");
   }
 
-  shared_ptr<DNSRecordContent> drc(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content));
+  auto drc = DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content);
   string content = drc->getZoneRepresentation();
 
   // SOA needs stripping too! XXX FIXME - also, this should not be here I think
