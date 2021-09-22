@@ -1013,9 +1013,9 @@ std::vector<shared_ptr<DNSRecordContent>> luaSynth(const std::string& code, cons
 
     for(const auto& content_it: contents) {
       if(qtype==QType::TXT)
-        ret.push_back(DNSRecordContent::mastermake(qtype, QClass::IN, '"'+content_it+'"' ));
+        ret.push_back(std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(qtype, QClass::IN, '"'+content_it+'"' )));
       else
-        ret.push_back(DNSRecordContent::mastermake(qtype, QClass::IN, content_it ));
+        ret.push_back(std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(qtype, QClass::IN, content_it )));
     }
   } catch(std::exception &e) {
     g_log << Logger::Info << "Lua record ("<<query<<"|"<<QType(qtype).toString()<<") reported: " << e.what();

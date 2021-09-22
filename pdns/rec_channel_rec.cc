@@ -731,8 +731,8 @@ static string doAddTA(T begin, T end)
   try {
     g_log<<Logger::Warning<<"Adding Trust Anchor for "<<who<<" with data '"<<what<<"', requested via control channel";
     g_luaconfs.modify([who, what](LuaConfigItems& lci) {
-      auto ds=std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(what));
-      lci.dsAnchors[who].insert(*ds);
+      auto ds = *dynamic_cast<DSRecordContent*>(DSRecordContent::make(what).get());
+      lci.dsAnchors[who].insert(ds);
       });
     g_recCache->doWipeCache(who, true, 0xffff);
     broadcastAccFunction<uint64_t>([=]{return pleaseWipePacketCache(who, true, 0xffff);});

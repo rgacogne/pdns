@@ -382,7 +382,7 @@ static int checkZone(DNSSECKeeper &dk, UeberBackend &B, const DNSName& zone, con
       rr.content = "\""+rr.content+"\"";
 
     try {
-      shared_ptr<DNSRecordContent> drc(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content));
+      auto drc = DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content);
       string tmp=drc->serialize(rr.qname);
       tmp = drc->getZoneRepresentation(true);
       if (rr.qtype.getCode() != QType::AAAA) {
@@ -418,7 +418,7 @@ static int checkZone(DNSSECKeeper &dk, UeberBackend &B, const DNSName& zone, con
     }
 
     if (rr.qtype.getCode() == QType::SVCB || rr.qtype.getCode() == QType::HTTPS) {
-      shared_ptr<DNSRecordContent> drc(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content));
+      auto drc = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content));
       // I, too, like to live dangerously
       auto svcbrc = std::dynamic_pointer_cast<SVCBBaseRecordContent>(drc);
       if (svcbrc->getPriority() == 0 && svcbrc->hasParams()) {
@@ -748,16 +748,16 @@ static int checkZone(DNSSECKeeper &dk, UeberBackend &B, const DNSName& zone, con
 
   for (auto const &rr : checkCNAME) {
     DNSName target;
-    shared_ptr<DNSRecordContent> drc(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content));
+    auto drc = DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content);
     switch (rr.qtype) {
       case QType::MX:
-        target = std::dynamic_pointer_cast<MXRecordContent>(drc)->d_mxname;
+        target = dynamic_cast<MXRecordContent*>(drc.get())->d_mxname;
         break;
       case QType::SRV:
-        target = std::dynamic_pointer_cast<SRVRecordContent>(drc)->d_target;
+        target = dynamic_cast<SRVRecordContent*>(drc.get())->d_target;
         break;
       case QType::NS:
-        target = std::dynamic_pointer_cast<NSRecordContent>(drc)->getNS();
+        target = dynamic_cast<NSRecordContent*>(drc.get())->getNS();
         break;
       default:
         // programmer error, but let's not abort() :)
@@ -1727,19 +1727,19 @@ static void verifyCrypto(const string& zone)
     if(rr.qtype.getCode() == QType::DNSKEY) {
       cerr<<"got DNSKEY!"<<endl;
       apex=rr.qname;
-      drc = *std::dynamic_pointer_cast<DNSKEYRecordContent>(DNSRecordContent::mastermake(QType::DNSKEY, QClass::IN, rr.content));
+      drc = *dynamic_cast<DNSKEYRecordContent*>(DNSRecordContent::mastermake(QType::DNSKEY, QClass::IN, rr.content).get());
     }
     else if(rr.qtype.getCode() == QType::RRSIG) {
       cerr<<"got RRSIG"<<endl;
-      rrc = *std::dynamic_pointer_cast<RRSIGRecordContent>(DNSRecordContent::mastermake(QType::RRSIG, QClass::IN, rr.content));
+      rrc = *dynamic_cast<RRSIGRecordContent*>(DNSRecordContent::mastermake(QType::RRSIG, QClass::IN, rr.content).get());
     }
     else if(rr.qtype.getCode() == QType::DS) {
       cerr<<"got DS"<<endl;
-      dsrc = *std::dynamic_pointer_cast<DSRecordContent>(DNSRecordContent::mastermake(QType::DS, QClass::IN, rr.content));
+      dsrc = *dynamic_cast<DSRecordContent*>(DNSRecordContent::mastermake(QType::DS, QClass::IN, rr.content).get());
     }
     else {
       qname = rr.qname;
-      toSign.insert(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content));
+      toSign.insert(std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(rr.qtype.getCode(), QClass::IN, rr.content)));
     }
   }
 

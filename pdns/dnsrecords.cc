@@ -438,19 +438,19 @@ void EUI48RecordContent::report()
 {
   regist(1, QType::EUI48, &make, &make, "EUI48");
 }
-std::shared_ptr<DNSRecordContent> EUI48RecordContent::make(const DNSRecord &dr, PacketReader& pr)
+std::unique_ptr<DNSRecordContent> EUI48RecordContent::make(const DNSRecord &dr, PacketReader& pr)
 {
     if(dr.d_clen!=6)
       throw MOADNSException("Wrong size for EUI48 record");
 
-    auto ret=std::make_shared<EUI48RecordContent>();
+    auto ret=std::make_unique<EUI48RecordContent>();
     pr.copyRecord((uint8_t*) &ret->d_eui48, 6);
     return ret;
 }
-std::shared_ptr<DNSRecordContent> EUI48RecordContent::make(const string& zone)
+std::unique_ptr<DNSRecordContent> EUI48RecordContent::make(const string& zone)
 {
     // try to parse
-    auto ret=std::make_shared<EUI48RecordContent>();
+    auto ret=std::make_unique<EUI48RecordContent>();
     // format is 6 hex bytes and dashes    
     if (sscanf(zone.c_str(), "%2hhx-%2hhx-%2hhx-%2hhx-%2hhx-%2hhx", 
            ret->d_eui48, ret->d_eui48+1, ret->d_eui48+2, 
@@ -481,19 +481,19 @@ void EUI64RecordContent::report()
 {
   regist(1, QType::EUI64, &make, &make, "EUI64");
 }
-std::shared_ptr<DNSRecordContent> EUI64RecordContent::make(const DNSRecord &dr, PacketReader& pr)
+std::unique_ptr<DNSRecordContent> EUI64RecordContent::make(const DNSRecord &dr, PacketReader& pr)
 {
     if(dr.d_clen!=8)
       throw MOADNSException("Wrong size for EUI64 record");
 
-    auto ret=std::make_shared<EUI64RecordContent>();
+    auto ret=std::make_unique<EUI64RecordContent>();
     pr.copyRecord((uint8_t*) &ret->d_eui64, 8);
     return ret;
 }
-std::shared_ptr<DNSRecordContent> EUI64RecordContent::make(const string& zone)
+std::unique_ptr<DNSRecordContent> EUI64RecordContent::make(const string& zone)
 {
     // try to parse
-    auto ret=std::make_shared<EUI64RecordContent>();
+    auto ret=std::make_unique<EUI64RecordContent>();
     // format is 8 hex bytes and dashes
     if (sscanf(zone.c_str(), "%2hhx-%2hhx-%2hhx-%2hhx-%2hhx-%2hhx-%2hhx-%2hhx", 
            ret->d_eui64, ret->d_eui64+1, ret->d_eui64+2,
@@ -528,12 +528,12 @@ void APLRecordContent::report()
 }
 
 // Parse incoming packets (e.g. nsupdate)
-std::shared_ptr<DNSRecordContent> APLRecordContent::make(const DNSRecord &dr, PacketReader& pr) {
+std::unique_ptr<DNSRecordContent> APLRecordContent::make(const DNSRecord &dr, PacketReader& pr) {
   uint8_t temp;
   APLRDataElement ard;
   size_t processed = 0;
 
-  auto ret=std::make_shared<APLRecordContent>();
+  auto ret=std::make_unique<APLRecordContent>();
 
   while (processed<dr.d_clen) {
     pr.xfr16BitInt(ard.d_family);
@@ -655,11 +655,11 @@ APLRDataElement APLRecordContent::parseAPLElement(const string& element) {
 }
 
 // Parse backend record (0, 1 or more <apitem>)
-std::shared_ptr<DNSRecordContent> APLRecordContent::make(const string& zone) {
+std::unique_ptr<DNSRecordContent> APLRecordContent::make(const string& zone) {
   APLRDataElement ard;
   vector<string> elements;
 
-  auto ret=std::make_shared<APLRecordContent>();
+  auto ret=std::make_unique<APLRecordContent>();
 
   boost::split(elements, zone, boost::is_any_of(" "));
   for (auto & element : elements) {

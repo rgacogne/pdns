@@ -127,11 +127,11 @@ static void checkRR(const signerParams& signer)
     rrc.d_signer = DNSName("example.net.");
     inception = 946684800;
     expire = 1893456000;
-    rrs.insert(DNSRecordContent::mastermake(QType::A, QClass::IN, "192.0.2.1"));
+    rrs.insert(std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::A, QClass::IN, "192.0.2.1")));
   }
   else {
     rrc.d_signer = qname;
-    rrs.insert(DNSRecordContent::mastermake(QType::MX, QClass::IN, "10 mail.example.com."));
+    rrs.insert(std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::MX, QClass::IN, "10 mail.example.com.")));
   }
 
   rrc.d_originalttl = 3600;
@@ -232,7 +232,7 @@ BOOST_AUTO_TEST_CASE(test_ed448_signer) {
 
     reportBasicTypes();
 
-    rrs.insert(DNSRecordContent::mastermake(QType::MX, 1, "10 mail.example.com."));
+    rrs.insert(std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(QType::MX, 1, "10 mail.example.com.")));
 
     RRSIGRecordContent rrc;
     rrc.d_originalttl = 3600;
