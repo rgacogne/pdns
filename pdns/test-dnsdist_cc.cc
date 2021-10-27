@@ -1280,7 +1280,7 @@ BOOST_AUTO_TEST_CASE(rewritingWithoutECSWhenOnlyOption) {
   pw.commit();
 
   PacketBuffer newResponse;
-  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse);
+  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse, false);
   BOOST_CHECK_EQUAL(res, 0);
 
   BOOST_CHECK_EQUAL(newResponse.size(), response.size() - (origECSOptionStr.size() + 4));
@@ -1320,7 +1320,7 @@ BOOST_AUTO_TEST_CASE(rewritingWithoutECSWhenFirstOption) {
   pw.commit();
 
   PacketBuffer newResponse;
-  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse);
+  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse, false);
   BOOST_CHECK_EQUAL(res, 0);
 
   BOOST_CHECK_EQUAL(newResponse.size(), response.size() - (origECSOptionStr.size() + 4));
@@ -1362,7 +1362,7 @@ BOOST_AUTO_TEST_CASE(rewritingWithoutECSWhenIntermediaryOption) {
   pw.commit();
 
   PacketBuffer newResponse;
-  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse);
+  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse, false);
   BOOST_CHECK_EQUAL(res, 0);
 
   BOOST_CHECK_EQUAL(newResponse.size(), response.size() - (origECSOptionStr.size() + 4));
@@ -1402,7 +1402,7 @@ BOOST_AUTO_TEST_CASE(rewritingWithoutECSWhenLastOption) {
   pw.commit();
 
   PacketBuffer newResponse;
-  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse);
+  int res = rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, newResponse, false);
   BOOST_CHECK_EQUAL(res, 0);
 
   BOOST_CHECK_EQUAL(newResponse.size(), response.size() - (origECSOptionStr.size() + 4));

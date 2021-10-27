@@ -141,6 +141,7 @@ bool g_servFailOnNoPolicy{false};
 bool g_truncateTC{false};
 bool g_fixupCase{false};
 bool g_dropEmptyQueries{false};
+bool g_fixupPadding{true};
 
 std::set<std::string> g_capabilitiesToRetain;
 
@@ -365,17 +366,25 @@ static bool fixUpResponse(PacketBuffer& response, const DNSName& qname, uint16_t
       else {
         /* the OPT RR was already present, but without ECS,
            we need to remove the ECS option if any */
+        size_t initialSize = response.size();
+
         if (last) {
           /* nothing after the OPT RR, we can simply remove the
              ECS option */
           size_t existingOptLen = optLen;
-          removeEDNSOptionFromOPT(reinterpret_cast<char*>(&response.at(optStart)), &optLen, EDNSOptionCode::ECS);
+          bool removed = removeEDNSOptionFromOPT(reinterpret_cast<char*>(&response.at(optStart)), &optLen, EDNSOptionCode::ECS) == 0;
           response.resize(response.size() - (existingOptLen - optLen));
+
+          existingOptLen = optLen;
+          if (removed && g_fixupPadding && removeEDNSOptionFromOPT(reinterpret_cast<char*>(&response.at(optStart)), &optLen, EDNSOptionCode::PADDING) == 0) {
+            response.resize(response.size() - (existingOptLen - optLen));
+            addPaddingToPacket(response, optStart, optLen, initialSize);
+          }
         }
         else {
           PacketBuffer rewrittenResponse;
           /* Removing an intermediary RR could lead to compression error */
-          if (rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, rewrittenResponse) == 0) {
+          if (rewriteResponseWithoutEDNSOption(response, EDNSOptionCode::ECS, rewrittenResponse, g_fixupPadding) == 0) {
             response = std::move(rewrittenResponse);
           }
           else {

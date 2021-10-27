@@ -562,6 +562,38 @@ static bool addECSToExistingOPT(PacketBuffer& packet, size_t maximumSize, const 
   return true;
 }
 
+bool addPaddingToPacket(PacketBuffer& packet, size_t optStart, size_t& optLen, size_t targetSize)
+{
+  const size_t initialSize = packet.size();
+  if (targetSize >= std::numeric_limits<uint16_t>::max() || initialSize >= targetSize || (targetSize - initialSize) < 4 || (targetSize - initialSize) > std::numeric_limits<uint16_t>::max()) {
+    return false;
+  }
+
+  const uint16_t paddingCode = EDNSOptionCode::PADDING;
+  uint16_t paddingSize = targetSize - initialSize - 4;
+  packet.resize(targetSize);
+
+  /* set the option code */
+  packet.at(initialSize) = paddingCode / 256;
+  packet.at(initialSize + 1) = paddingCode % 256;
+  /* set the option size */
+  packet.at(initialSize + 2) = paddingSize / 256;
+  packet.at(initialSize + 3) = paddingSize % 256;
+  /* set the actual padding bytes to 0 */
+  memset(&packet.at(initialSize + 4), 0, paddingSize);
+
+  optLen += paddingSize + 4;
+
+  const size_t rdLenOffset = optStart + 1 /* root */ + sizeof(uint16_t) /* qtype */ + sizeof(uint16_t) /* qclass */ + sizeof(uint32_t) /* TTL */;
+  uint16_t rdLen = (256 * packet.at(rdLenOffset) + packet.at(rdLenOffset + 1));
+  rdLen += paddingSize + 4;
+
+  packet.at(rdLenOffset) = rdLen / 256;
+  packet.at(rdLenOffset + 1) = rdLen % 256;
+
+  return true;
+}
+
 static bool addEDNSWithECS(PacketBuffer& packet, size_t maximumSize, const string& newECSOption, bool& ednsAdded, bool& ecsAdded)
 {
   if (!generateOptRR(newECSOption, packet, maximumSize, g_EdnsUDPPayloadSize, 0, false)) {
@@ -749,7 +781,7 @@ bool isEDNSOptionInOpt(const PacketBuffer& packet, const size_t optStart, const 
   return false;
 }
 
-int rewriteResponseWithoutEDNSOption(const PacketBuffer& initialPacket, const uint16_t optionCodeToSkip, PacketBuffer& newContent)
+int rewriteResponseWithoutEDNSOption(const PacketBuffer& initialPacket, const uint16_t optionCodeToSkip, PacketBuffer& newContent, bool adjustPadding)
 {
   assert(initialPacket.size() >= sizeof(dnsheader));
   const struct dnsheader* dh = reinterpret_cast<const struct dnsheader*>(initialPacket.data());
@@ -830,11 +862,32 @@ int rewriteResponseWithoutEDNSOption(const PacketBuffer& initialPacket, const ui
     } else {
       pw.startRecord(rrname, ah.d_type, ah.d_ttl, ah.d_class, DNSResourceRecord::ADDITIONAL, false);
       pr.xfrBlob(blob);
+
       uint16_t rdLen = blob.length();
-      removeEDNSOptionFromOptions((unsigned char*)blob.c_str(), rdLen, optionCodeToSkip, &rdLen);
+      uint16_t initialBlobSize = blob.length();
+      removeEDNSOptionFromOptions(reinterpret_cast<unsigned char*>(blob.data()), rdLen, optionCodeToSkip, &rdLen);
       /* xfrBlob(string, size) completely ignores size.. */
-      if (rdLen > 0) {
-        blob.resize((size_t)rdLen);
+      blob.resize(static_cast<size_t>(rdLen));
+
+      if (adjustPadding && blob.size() != initialBlobSize) {
+        const uint16_t paddingCode = EDNSOptionCode::PADDING;
+        removeEDNSOptionFromOptions(reinterpret_cast<unsigned char*>(blob.data()), rdLen, EDNSOptionCode::PADDING, &rdLen);
+        blob.resize(rdLen);
+
+        size_t paddingSize = initialBlobSize - blob.size() - 4;
+        blob.resize(rdLen + 4 + paddingSize);
+        /* set the option code */
+        blob.at(rdLen) = paddingCode / 256;
+        blob.at(rdLen + 1) = paddingCode % 256;
+        /* set the option size */
+        blob.at(rdLen + 2) = paddingSize / 256;
+        blob.at(rdLen + 3) = paddingSize % 256;
+        /* set the actual padding bytes to 0 */
+        memset(&blob.at(rdLen + 4), 0, paddingSize);
+        rdLen += 4 + paddingSize;
+      }
+
+      if (blob.size() > 0) {
         pw.xfrBlob(blob);
       } else {
         pw.commit();
