@@ -46,6 +46,7 @@ struct dnsheader {
 struct QNameKey
 {
   uint8_t qname[255];
+  u16 qtype;
 };
 
 struct KeyV6
@@ -53,15 +54,21 @@ struct KeyV6
   uint8_t src[16];
 };
 
-struct QNameValue
-{
-  u64 counter;
-  u16 qtype;
+enum dns_action {
+  PASS,
+  DROP,
+  TC
 };
 
-BPF_TABLE("hash", u32, u64, v4filter, 1024);
-BPF_TABLE("hash", struct KeyV6, u64, v6filter, 1024);
-BPF_TABLE("hash", struct QNameKey, struct QNameValue, qnamefilter, 1024);
+struct map_value
+{
+  uint64_t counter;
+  enum dns_action action;
+};
+
+BPF_TABLE("hash", u32, struct map_value, v4filter, 1024);
+BPF_TABLE("hash", struct KeyV6, struct map_value, v6filter, 1024);
+BPF_TABLE("hash", struct QNameKey, struct map_value, qnamefilter, 1024);
 BPF_TABLE("prog", int, int, progsarray, 1);
 
 int bpf_qname_filter(struct __sk_buff *skb)
@@ -385,11 +392,16 @@ int bpf_qname_filter(struct __sk_buff *skb)
 
   {
     idx++;
-    u16 qtype = load_half(skb, (qname_off + idx));
+    qkey.qtype = load_half(skb, (qname_off + idx));
 
-    struct QNameValue* qvalue = qnamefilter.lookup(&qkey);
-    if (qvalue &&
-      (qvalue->qtype == 255 || qtype == qvalue->qtype)) {
+    struct map_value* qvalue = qnamefilter.lookup(&qkey);
+    if (qvalue) {
+      __sync_fetch_and_add(&qvalue->counter, 1);
+      return 0;
+    }
+    qkey.qtype = 255;
+    qvalue = qnamefilter.lookup(&qkey);
+    if (qvalue) {
       __sync_fetch_and_add(&qvalue->counter, 1);
       return 0;
     }
@@ -411,9 +423,9 @@ int bpf_dns_filter(struct __sk_buff *skb) {
     int off = nh_off + offsetof(struct iphdr, saddr);
     key = load_word(skb, off);
 
-    u64* counter = v4filter.lookup(&key);
-    if (counter) {
-      __sync_fetch_and_add(counter, 1);
+    struct map_value* value = v4filter.lookup(&key);
+    if (value) {
+      __sync_fetch_and_add(&value->counter, 1);
       return 0;
     }
 
@@ -440,9 +452,9 @@ int bpf_dns_filter(struct __sk_buff *skb) {
     key.src[14] = load_byte(skb, off++);
     key.src[15] = load_byte(skb, off++);
 
-    u64* counter = v6filter.lookup(&key);
-    if (counter) {
-      __sync_fetch_and_add(counter, 1);
+    struct map_value* value = v6filter.lookup(&key);
+    if (value) {
+      __sync_fetch_and_add(&value->counter, 1);
       return 0;
     }
 
@@ -475,14 +487,20 @@ int bpf_dns_filter(struct __sk_buff *skb) {
 
   if (temp == 0) {
     /* root, nothing else to see */
-    qtype = load_half(skb, (qname_off + 1));
+    qkey.qtype = load_half(skb, (qname_off + 1));
 
-    struct QNameValue* qvalue = qnamefilter.lookup(&qkey);
-    if (qvalue &&
-      (qvalue->qtype == 255 || qtype == qvalue->qtype)) {
+    struct map_value* qvalue = qnamefilter.lookup(&qkey);
+    if (qvalue) {
       __sync_fetch_and_add(&qvalue->counter, 1);
       return 0;
     }
+    qkey.qtype = 255;
+    qvalue = qnamefilter.lookup(&qkey);
+    if (qvalue) {
+      __sync_fetch_and_add(&qvalue->counter, 1);
+      return 0;
+    }
+
     return 2147483647;
   }
 
