@@ -32,7 +32,16 @@ public:
     IPv4,
     IPv6,
     QNames,
-    Filters
+    Filters,
+    IPv4WithActions,
+    IPv6WithActions,
+    QNamesWithActions
+  };
+
+  enum class MatchAction : uint32_t {
+    Pass = 0,
+    Drop = 1,
+    Truncate = 2
   };
 
   struct MapConfiguration
@@ -42,7 +51,7 @@ public:
     MapType d_type;
   };
 
-  BPFFilter(const BPFFilter::MapConfiguration& v4, const BPFFilter::MapConfiguration& v6, const BPFFilter::MapConfiguration& qnames);
+  BPFFilter(const BPFFilter::MapConfiguration& v4, const BPFFilter::MapConfiguration& v6, const BPFFilter::MapConfiguration& qnames, bool external);
   BPFFilter(const BPFFilter&) = delete;
   BPFFilter(BPFFilter&&) = delete;
   BPFFilter& operator=(const BPFFilter&) = delete;
@@ -50,8 +59,8 @@ public:
 
   void addSocket(int sock);
   void removeSocket(int sock);
-  void block(const ComboAddress& addr);
-  void block(const DNSName& qname, uint16_t qtype=255);
+  void block(const ComboAddress& addr, MatchAction action);
+  void block(const DNSName& qname, MatchAction action, uint16_t qtype=255);
   void unblock(const ComboAddress& addr);
   void unblock(const DNSName& qname, uint16_t qtype=255);
 
@@ -90,5 +99,10 @@ private:
   FDWrapper d_mainfilter;
   /* qname filtering program */
   FDWrapper d_qnamefilter;
+
+  /* whether the filter is internal, using our own eBPF programs,
+     or external where we only update the maps but the filtering is
+     done by an external program. */
+  bool d_external;
 #endif /* HAVE_EBPF */
 };

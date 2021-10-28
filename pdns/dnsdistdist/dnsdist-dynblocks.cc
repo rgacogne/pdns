@@ -225,7 +225,7 @@ void DynBlockRulesGroup::addOrRefreshBlock(boost::optional<NetmaskTree<DynBlock>
   if (!got || expired || wasWarning) {
     if (db.action == DNSAction::Action::Drop && g_defaultBPFFilter) {
       try {
-        g_defaultBPFFilter->block(requestor);
+        g_defaultBPFFilter->block(requestor, BPFFilter::MatchAction::Drop);
         bpf = true;
       }
       catch (const std::exception& e) {
