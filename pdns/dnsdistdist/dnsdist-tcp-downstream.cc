@@ -5,6 +5,8 @@
 
 #include "dnsparser.hh"
 
+thread_local DownstreamTCPConnectionsManager t_downstreamTCPConnectionsManager;
+
 ConnectionToBackend::~ConnectionToBackend()
 {
   if (d_ds && d_handler) {
@@ -625,6 +627,7 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
 
     it->second.d_query.d_xfrStarted = true;
     done = isXFRFinished(response, it->second.d_query);
+    cerr<<"XFR is "<<done<<endl;
 
     if (done) {
       d_pendingResponses.erase(it);
@@ -724,6 +727,7 @@ bool TCPConnectionToBackend::isXFRFinished(const TCPResponse& response, TCPQuery
   try {
     MOADNSParser parser(true, reinterpret_cast<const char*>(response.d_buffer.data()), response.d_buffer.size());
     if (parser.d_header.rcode != 0U) {
+      cerr<<"rcode is "<<parser.d_header.rcode<<endl;
       done = true;
     }
     else {
@@ -732,27 +736,32 @@ bool TCPConnectionToBackend::isXFRFinished(const TCPResponse& response, TCPQuery
           continue;
         }
 
+        cerr<<"found SOA"<<endl;
         auto unknownContent = getRR<UnknownRecordContent>(record.first);
         if (!unknownContent) {
+          cerr<<"but cannot parse"<<endl;
           continue;
         }
         auto raw = unknownContent->getRawContent();
         auto serial = getSerialFromRawSOAContent(raw);
-
         ++query.d_xfrSerialCount;
         if (query.d_xfrMasterSerial == 0) {
           // store the first SOA in our client's connection metadata
+          cerr<<"first SOA"<<endl;
           ++query.d_xfrMasterSerialCount;
           query.d_xfrMasterSerial = serial;
         }
         else if (query.d_xfrMasterSerial == serial) {
+          cerr<<"same SOA"<<endl;
           ++query.d_xfrMasterSerialCount;
           // figure out if it's end when receiving master's SOA again
           if (query.d_xfrSerialCount == 2) {
+            cerr<<"seen twice!"<<endl;
             // if there are only two SOA records marks a finished AXFR
             done = true;
           }
           if (query.d_xfrMasterSerialCount == 3) {
+            cerr<<"master thrice"<<endl;
             // receiving master's SOA 3 times marks a finished IXFR
             done = true;
           }
@@ -766,121 +775,3 @@ bool TCPConnectionToBackend::isXFRFinished(const TCPResponse& response, TCPQuery
   }
   return done;
 }
-
-std::shared_ptr<TCPConnectionToBackend> DownstreamConnectionsManager::getConnectionToDownstream(std::unique_ptr<FDMultiplexer>& mplexer, std::shared_ptr<DownstreamState>& ds, const struct timeval& now)
-{
-  struct timeval freshCutOff = now;
-  freshCutOff.tv_sec -= 1;
-
-  auto backendId = ds->getID();
-
-  cleanupClosedTCPConnections(now);
-
-  {
-    const auto& it = t_downstreamConnections.find(backendId);
-    if (it != t_downstreamConnections.end()) {
-      auto& list = it->second;
-      for (auto listIt = list.begin(); listIt != list.end(); ) {
-        auto& entry = *listIt;
-        if (!entry->canBeReused()) {
-          if (!entry->willBeReusable(false)) {
-            listIt = list.erase(listIt);
-          }
-          else {
-            ++listIt;
-          }
-          continue;
-        }
-
-        entry->setReused();
-        /* for connections that have not been used very recently,
-           check whether they have been closed in the meantime */
-        if (freshCutOff < entry->getLastDataReceivedTime()) {
-          /* used recently enough, skip the check */
-          ++ds->tcpReusedConnections;
-          return entry;
-        }
-
-        if (entry->isUsable()) {
-          ++ds->tcpReusedConnections;
-          return entry;
-        }
-
-        listIt = list.erase(listIt);
-      }
-    }
-  }
-
-  auto newConnection = std::make_shared<TCPConnectionToBackend>(ds, mplexer, now);
-  if (!ds->useProxyProtocol) {
-    t_downstreamConnections[backendId].push_front(newConnection);
-  }
-  return newConnection;
-}
-
-void DownstreamConnectionsManager::cleanupClosedTCPConnections(struct timeval now)
-{
-  if (s_cleanupInterval == 0 || (t_nextCleanup != 0 && t_nextCleanup > now.tv_sec)) {
-    return;
-  }
-
-  t_nextCleanup = now.tv_sec + s_cleanupInterval;
-
-  struct timeval freshCutOff = now;
-  freshCutOff.tv_sec -= 1;
-  struct timeval idleCutOff = now;
-  idleCutOff.tv_sec -= s_maxIdleTime;
-
-  for (auto dsIt = t_downstreamConnections.begin(); dsIt != t_downstreamConnections.end(); ) {
-    for (auto connIt = dsIt->second.begin(); connIt != dsIt->second.end(); ) {
-      if (!(*connIt)) {
-        ++connIt;
-        continue;
-      }
-
-      /* don't bother checking freshly used connections */
-      if (freshCutOff < (*connIt)->getLastDataReceivedTime()) {
-        ++connIt;
-        continue;
-      }
-
-      if ((*connIt)->isIdle() && (*connIt)->getLastDataReceivedTime() < idleCutOff) {
-        /* idle for too long */
-        connIt = dsIt->second.erase(connIt);
-        continue;
-      }
-
-      if ((*connIt)->isUsable()) {
-        ++connIt;
-        continue;
-      }
-
-      connIt = dsIt->second.erase(connIt);
-    }
-
-    if (!dsIt->second.empty()) {
-      ++dsIt;
-    }
-    else {
-      dsIt = t_downstreamConnections.erase(dsIt);
-    }
-  }
-}
-
-size_t DownstreamConnectionsManager::clear()
-{
-  size_t count = 0;
-  for (const auto& downstream : t_downstreamConnections) {
-    count += downstream.second.size();
-  }
-
-  t_downstreamConnections.clear();
-
-  return count;
-}
-
-thread_local map<boost::uuids::uuid, std::deque<std::shared_ptr<TCPConnectionToBackend>>> DownstreamConnectionsManager::t_downstreamConnections;
-thread_local time_t DownstreamConnectionsManager::t_nextCleanup{0};
-size_t DownstreamConnectionsManager::s_maxCachedConnectionsPerDownstream{10};
-uint16_t DownstreamConnectionsManager::s_cleanupInterval{60};
-uint16_t DownstreamConnectionsManager::s_maxIdleTime{300};
