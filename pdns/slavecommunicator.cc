@@ -88,7 +88,7 @@ struct ZoneStatus
 
 
 void CommunicatorClass::ixfrSuck(const DNSName &domain, const TSIGTriplet& tt, const ComboAddress& laddr, const ComboAddress& remote, unique_ptr<AuthLua4>& pdl,
-                                 ZoneStatus& zs, vector<DNSRecord>* axfr)
+                                 ZoneStatus& zs, const std::string& sni, std::shared_ptr<TLSCtx>& tlsCtx, vector<DNSRecord>* axfr)
 {
   string logPrefix="IXFR-in zone '"+domain.toLogString()+"', primary '"+remote.toString()+"', ";
 
@@ -116,7 +116,7 @@ void CommunicatorClass::ixfrSuck(const DNSName &domain, const TSIGTriplet& tt, c
 
     DNSRecord drsoa;
     drsoa.d_content = std::make_shared<SOARecordContent>(g_rootdnsname, g_rootdnsname, st);
-    auto deltas = getIXFRDeltas(remote, domain, drsoa, tt, laddr.sin4.sin_family ? &laddr : nullptr, ((size_t) ::arg().asNum("xfr-max-received-mbytes")) * 1024 * 1024);
+    auto deltas = getIXFRDeltas(remote, domain, drsoa, tt, laddr.sin4.sin_family ? &laddr : nullptr, sni, tlsCtx, ((size_t) ::arg().asNum("xfr-max-received-mbytes")) * 1024 * 1024);
     zs.numDeltas=deltas.size();
     //    cout<<"Got "<<deltas.size()<<" deltas from serial "<<di.serial<<", applying.."<<endl;
     
@@ -248,11 +248,11 @@ static bool processRecordForZS(const DNSName& domain, bool& firstNSEC3, DNSResou
    5) It updates the Empty Non Terminals
 */
 
-static vector<DNSResourceRecord> doAxfr(const ComboAddress& raddr, const DNSName& domain, const TSIGTriplet& tt, const ComboAddress& laddr,  unique_ptr<AuthLua4>& pdl, ZoneStatus& zs)
+static vector<DNSResourceRecord> doAxfr(const ComboAddress& raddr, const DNSName& domain, const TSIGTriplet& tt, const ComboAddress& laddr,  unique_ptr<AuthLua4>& pdl, ZoneStatus& zs, const std::string& sni, std::shared_ptr<TLSCtx>& tlsCtx)
 {
   uint16_t axfr_timeout=::arg().asNum("axfr-fetch-timeout");
   vector<DNSResourceRecord> rrs;
-  AXFRRetriever retriever(raddr, domain, tt, (laddr.sin4.sin_family == 0) ? nullptr : &laddr, ((size_t) ::arg().asNum("xfr-max-received-mbytes")) * 1024 * 1024, axfr_timeout);
+  AXFRRetriever retriever(raddr, domain, tt, (laddr.sin4.sin_family == 0) ? nullptr : &laddr, ((size_t) ::arg().asNum("xfr-max-received-mbytes")) * 1024 * 1024, axfr_timeout, sni, tlsCtx);
   Resolver::res_t recs;
   bool first=true;
   bool firstNSEC3{true};
@@ -402,6 +402,14 @@ void CommunicatorClass::suck(const DNSName &domain, const ComboAddress& remote, 
     NSEC3PARAMRecordContent hadNs3pr;
     bool hadNarrow=false;
 
+    std::shared_ptr<TLSCtx> tlsCtx;
+    std::vector<std::string> sni;
+    if (B.getDomainMetadata(domain, "XFR-SNI", sni)) {
+      TLSContextParameters tlsParams;
+      tlsParams.d_provider = "openssl";
+      tlsParams.d_validateCertificates = true;
+      tlsCtx = getTLSContext(tlsParams);
+    }
 
     vector<DNSResourceRecord> rrs;
     if(dk.isSecuredZone(domain)) {
@@ -420,7 +428,7 @@ void CommunicatorClass::suck(const DNSName &domain, const ComboAddress& remote, 
         logPrefix = "I" + logPrefix; // XFR -> IXFR
         vector<DNSRecord> axfr;
         g_log<<Logger::Notice<<logPrefix<<"starting IXFR"<<endl;
-        ixfrSuck(domain, tt, laddr, remote, pdl, zs, &axfr);
+        ixfrSuck(domain, tt, laddr, remote, pdl, zs, sni.empty() ? "" : sni.at(0), tlsCtx, &axfr);
         if(!axfr.empty()) {
           g_log<<Logger::Notice<<logPrefix<<"IXFR turned into an AXFR"<<endl;
           logPrefix[0]='A'; // IXFR -> AXFR
@@ -449,7 +457,7 @@ void CommunicatorClass::suck(const DNSName &domain, const ComboAddress& remote, 
 
     if(rrs.empty()) {
       g_log<<Logger::Notice<<logPrefix<<"starting AXFR"<<endl;
-      rrs = doAxfr(remote, domain, tt, laddr, pdl, zs);
+      rrs = doAxfr(remote, domain, tt, laddr, pdl, zs, sni.empty() ? "" : sni.at(0), tlsCtx);
       logPrefix = "A" + logPrefix; // XFR -> AXFR
       g_log<<Logger::Notice<<logPrefix<<"retrieval finished"<<endl;
     }

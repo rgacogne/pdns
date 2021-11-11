@@ -228,6 +228,7 @@ pdns_server_SOURCES = \
 	iputils.cc iputils.hh \
 	ixfr.cc ixfr.hh \
 	json.cc json.hh \
+	libssl.cc libssl.hh \
 	lock.hh \
 	logger.cc logger.hh \
 	lua-auth4.cc lua-auth4.hh \
@@ -262,6 +263,7 @@ pdns_server_SOURCES = \
 	statbag.cc statbag.hh \
 	stubresolver.cc stubresolver.hh \
 	svc-records.cc svc-records.hh \
+	tcpiohandler.cc tcpiohandler.hh \
 	tcpreceiver.cc tcpreceiver.hh \
 	threadname.hh threadname.cc \
 	tkey.cc \
@@ -279,6 +281,7 @@ pdns_server_SOURCES = \
 	ws-auth.cc ws-auth.hh \
 	zoneparser-tng.cc
 
+pdns_server_CPPFLAGS = $(AM_CPPFLAGS)
 pdns_server_LDFLAGS = \
 	$(AM_LDFLAGS) \
 	$(DYNLINKFLAGS) \
@@ -555,12 +558,14 @@ endif
 if HAVE_DNS_OVER_TLS
 
 if HAVE_GNUTLS
-sdig_CPPFLAGS += $(GNUTLS_CFLAGS)
+AM_CPPFLAGS += $(GNUTLS_CFLAGS)
+pdns_server_LDADD += -lgnutls
 sdig_LDADD += -lgnutls
 endif
 
 if HAVE_LIBSSL
-sdig_CPPFLAGS += $(LIBSSL_CFLAGS)
+AM_CPPFLAGS += $(LIBSSL_CFLAGS)
+pdns_server_LDADD += $(LIBSSL_LIBS)
 sdig_LDADD += $(LIBSSL_LIBS)
 endif
 
@@ -755,6 +760,7 @@ ixplore_SOURCES = \
 	ixfr.cc ixfr.hh \
 	ixfrutils.cc ixfrutils.hh \
 	ixplore.cc \
+	libssl.cc libssl.hh \
 	logger.cc \
 	misc.cc misc.hh \
 	nsecrecords.cc \
@@ -766,11 +772,24 @@ ixplore_SOURCES = \
 	sstuff.hh \
 	statbag.cc \
 	svc-records.cc svc-records.hh \
+	tcpiohandler.cc tcpiohandler.hh \
 	tsigverifier.cc tsigverifier.hh \
 	unix_utility.cc zoneparser-tng.cc
 
 ixplore_LDADD = $(LIBCRYPTO_LIBS)
 ixplore_LDFLAGS = $(AM_LDFLAGS) $(LIBCRYPTO_LDFLAGS)
+
+if HAVE_GNUTLS
+ixplore_LDADD += -lgnutls
+endif
+
+if HAVE_LIBSSL
+ixplore_LDADD += $(LIBSSL_LIBS)
+endif
+
+if LIBSODIUM
+ixplore_LDADD += $(LIBSODIUM_LIBS)
+endif
 
 if PKCS11
 ixplore_SOURCES += pkcs11signers.cc pkcs11signers.hh
@@ -1348,6 +1367,7 @@ testrunner_SOURCES = \
 	ipcipher.cc ipcipher.hh \
 	iputils.cc \
 	ixfr.cc ixfr.hh \
+	libssl.cc libssl.hh \
 	logger.cc \
 	lua-auth4.hh lua-auth4.cc \
 	lua-base4.hh lua-base4.cc \
@@ -1367,6 +1387,7 @@ testrunner_SOURCES = \
 	statbag.cc \
 	stubresolver.hh stubresolver.cc \
 	svc-records.cc svc-records.hh \
+	tcpiohandler.cc tcpiohandler.hh \
 	test-arguments_cc.cc \
 	test-auth-zonecache_cc.cc \
 	test-base32_cc.cc \
@@ -1426,6 +1447,14 @@ testrunner_LDADD = \
 	$(LUA_LIBS) \
 	$(LIBDL) \
 	$(IPCRYPT_LIBS)
+
+if HAVE_GNUTLS
+testrunner_LDADD += -lgnutls
+endif
+
+if HAVE_LIBSSL
+testrunner_LDADD += $(LIBSSL_LIBS)
+endif
 
 if PKCS11
 testrunner_SOURCES += pkcs11signers.cc pkcs11signers.hh

@@ -124,7 +124,8 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const Co
 
 // Returns pairs of "remove & add" vectors. If you get an empty remove, it means you got an AXFR!
 vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAddress& primary, const DNSName& zone, const DNSRecord& oursr, 
-                                                                   const TSIGTriplet& tt, const ComboAddress* laddr, size_t maxReceivedBytes)
+                                                                   const TSIGTriplet& tt, const ComboAddress* laddr, std::string sni,
+                                                                   std::shared_ptr<TLSCtx> tlsCtx, size_t maxReceivedBytes, uint32_t timeout)
 {
   vector<pair<vector<DNSRecord>, vector<DNSRecord> > >  ret;
   vector<uint8_t> packet;
@@ -160,9 +161,11 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
   //  cout<<"going to connect"<<endl;
   if(laddr)
     s.bind(*laddr);
-  s.connect(primary);
-  //  cout<<"Connected"<<endl;
-  s.writen(msg);
+
+  struct timeval tv = { timeout, 0 };
+  auto handler = TCPIOHandler(sni, s.releaseHandle(), tv, tlsCtx, time(nullptr));
+  handler.connect(false, primary, tv);
+  handler.write(msg.data(), msg.size(), tv);
 
   // CURRENT PRIMARY SOA
   // REPEAT:
@@ -182,7 +185,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
     if (ixfrInProgress >= 0)
       break;
 
-    if(s.read((char*)&len, sizeof(len)) != sizeof(len))
+    if(handler.read(&len, sizeof(len), tv) != sizeof(len))
       break;
 
     len=ntohs(len);
@@ -194,7 +197,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
       throw std::runtime_error("Reached the maximum number of received bytes in an IXFR delta for zone '"+zone.toLogString()+"' from primary "+primary.toStringWithPort());
 
     reply.resize(len);
-    readn2(s.getHandle(), &reply.at(0), len);
+    handler.read(&reply.at(0), len, tv);
     receivedBytes += len;
 
     MOADNSParser mdp(false, reply);

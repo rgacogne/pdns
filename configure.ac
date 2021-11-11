@@ -30,6 +30,10 @@ PDNS_CHECK_TIME_T
 PDNS_CHECK_BISON
 PDNS_CHECK_FLEX
 
+AC_DEFINE([AUTHORITATIVE], [1],
+  [This is the PowerDNS Authoritative Server]
+)
+
 # Warn when pkg.m4 is missing
 m4_pattern_forbid([^_?PKG_[A-Z_]+$], [*** pkg.m4 missing, please install pkg-config])
 

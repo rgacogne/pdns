@@ -26,6 +26,7 @@
 #include "iputils.hh"
 #include "dnsname.hh"
 #include "resolver.hh"
+#include "tcpiohandler.hh"
 
 class AXFRRetriever : public boost::noncopyable
 {
@@ -35,7 +36,9 @@ class AXFRRetriever : public boost::noncopyable
                   const TSIGTriplet& tt = TSIGTriplet(),
                   const ComboAddress* laddr = NULL,
                   size_t maxReceivedBytes=0,
-                  uint16_t timeout=10);
+                  uint16_t timeout=10,
+                  const std::string sni = "",
+                  std::shared_ptr<TLSCtx> tlsCtx = nullptr);
     ~AXFRRetriever();
     int getChunk(Resolver::res_t &res, vector<DNSRecord>* records=0, uint16_t timeout=10);
 
@@ -44,7 +47,8 @@ class AXFRRetriever : public boost::noncopyable
     int getLength(uint16_t timeout);
     void timeoutReadn(uint16_t bytes, uint16_t timeoutsec=10);
 
-    boost::shared_array<char> d_buf;
+    std::unique_ptr<TCPIOHandler> d_handler;
+    std::vector<uint8_t> d_packet;
     string d_domain;
     int d_sock;
     int d_soacount;

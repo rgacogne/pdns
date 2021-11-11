@@ -22,11 +22,11 @@
 #pragma once
 #include <iostream>
 #include <sstream>
-#if !defined(RECURSOR)
+#if !defined(RECURSOR) && !defined(AUTHORITATIVE)
 #include <syslog.h>
 #else
 #include "logger.hh"
-#endif // RECURSOR
+#endif // RECURSOR || AUTHORITATIVE
 
 
 /* This file is intended not to be metronome specific, and is simple example of C++2011
@@ -48,7 +48,7 @@
    This will happily print a string to %d! Doesn't do further format processing.
 */
 
-#if !defined(RECURSOR)
+#if !defined(RECURSOR) && !defined(AUTHORITATIVE)
 inline void dolog(std::ostream& os, const char*s)
 {
   os<<s;
@@ -115,7 +115,7 @@ void errlog(const char* s, Args... args)
 }
 
 
-#else // RECURSOR
+#else // RECURSOR || AUTHORITATIVE
 
 #define g_verbose 0
 

@@ -24,10 +24,13 @@
 #include "iputils.hh"
 #include "dnsparser.hh"
 #include "dnsrecords.hh"
+#include "tcpiohandler.hh"
 
 vector<pair<vector<DNSRecord>, vector<DNSRecord> > >   getIXFRDeltas(const ComboAddress& primary, const DNSName& zone, 
                                                                      const DNSRecord& sr, const TSIGTriplet& tt=TSIGTriplet(),
-                                                                     const ComboAddress* laddr=0, size_t maxReceivedBytes=0);
+                                                                     const ComboAddress* laddr=0, std::string sni="",
+                                                                     std::shared_ptr<TLSCtx> tlsCtx=nullptr, size_t maxReceivedBytes=0,
+                                                                     uint32_t timeout=30);
 
 vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const ComboAddress& primary, const DNSName& zone,
                                                                         const vector<DNSRecord>& records, const std::shared_ptr<SOARecordContent>& primarySOA);

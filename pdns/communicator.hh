@@ -40,6 +40,7 @@ using namespace boost::multi_index;
 
 #include "namespaces.hh"
 #include "dns_random.hh"
+#include "tcpiohandler.hh"
 
 struct SuckRequest
 {
@@ -183,7 +184,7 @@ private:
 
   void suck(const DNSName &domain, const ComboAddress& remote, bool force=false);
   void ixfrSuck(const DNSName &domain, const TSIGTriplet& tt, const ComboAddress& laddr, const ComboAddress& remote, std::unique_ptr<AuthLua4>& pdl,
-                ZoneStatus& zs, vector<DNSRecord>* axfr);
+                ZoneStatus& zs, const std::string& sni, std::shared_ptr<TLSCtx>& tlsCtx, vector<DNSRecord>* axfr);
 
   void slaveRefresh(PacketHandler *P);
   void masterUpdateCheck(PacketHandler *P);

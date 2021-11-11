@@ -34,7 +34,9 @@ AXFRRetriever::AXFRRetriever(const ComboAddress& remote,
                              const TSIGTriplet& tt, 
                              const ComboAddress* laddr,
                              size_t maxReceivedBytes,
-                             uint16_t timeout)
+                             uint16_t timeout,
+                             std::string sni,
+                             std::shared_ptr<TLSCtx> tlsCtx)
   : d_tsigVerifier(tt, remote, d_trc), d_receivedBytes(0), d_maxReceivedBytes(maxReceivedBytes)
 {
   ComboAddress local;
@@ -49,18 +51,20 @@ AXFRRetriever::AXFRRetriever(const ComboAddress& remote,
   d_sock = -1;
   try {
     d_sock = makeQuerySocket(local, false); // make a TCP socket
-    if (d_sock < 0)
+    if (d_sock < 0) {
       throw ResolverException("Error creating socket for AXFR request to "+d_remote.toStringWithPort());
-    d_buf = boost::shared_array<char>(new char[65536]);
+    }
+
     d_remote = remote; // mostly for error reporting
-    this->connect(timeout);
+    struct timeval tv = { timeout, 0 };
+    d_handler = std::make_unique<TCPIOHandler>(sni, d_sock, tv, tlsCtx, time(nullptr));
+    d_handler->connect(false, remote, tv);
     d_soacount = 0;
   
-    vector<uint8_t> packet;
-    DNSPacketWriter pw(packet, domain, QType::AXFR);
+    DNSPacketWriter pw(d_packet, domain, QType::AXFR);
     pw.getHeader()->id = dns_random_uint16();
   
-    if(!tt.name.empty()) {
+    if (!tt.name.empty()) {
       if (tt.algo == DNSName("hmac-md5"))
         d_trc.d_algoName = tt.algo + DNSName("sig-alg.reg.int");
       else
@@ -71,19 +75,15 @@ AXFRRetriever::AXFRRetriever(const ComboAddress& remote,
       d_trc.d_eRcode=0;
       addTSIG(pw, d_trc, tt.name, tt.secret, "", false);
     }
-  
-    uint16_t replen=htons(packet.size());
-    Utility::iovec iov[2];
-    iov[0].iov_base=reinterpret_cast<char*>(&replen);
-    iov[0].iov_len=2;
-    iov[1].iov_base=packet.data();
-    iov[1].iov_len=packet.size();
-  
-    int ret=Utility::writev(d_sock, iov, 2);
-    if(ret < 0)
-      throw ResolverException("Error sending question to "+d_remote.toStringWithPort()+": "+stringerror());
-    if(ret != (int)(2+packet.size())) {
-      throw ResolverException("Partial write on AXFR request to "+d_remote.toStringWithPort());
+
+    uint16_t replen = htons(d_packet.size());
+    d_packet.insert(d_packet.begin(), reinterpret_cast<const uint8_t*>(&replen), reinterpret_cast<const uint8_t*>(&replen) + sizeof(replen));
+
+    try {
+      d_handler->write(d_packet.data(), d_packet.size(), tv);
+    }
+    catch (const std::exception& e) {
+      throw ResolverException("Error sending question to " + d_remote.toStringWithPort() + ": " + e.what());
     }
   
     int res = waitForData(d_sock, timeout, 0);
@@ -125,7 +125,7 @@ int AXFRRetriever::getChunk(Resolver::res_t &res, vector<DNSRecord>* records, ui
 
   d_receivedBytes += (uint16_t) len;
 
-  MOADNSParser mdp(false, d_buf.get(), len);
+  MOADNSParser mdp(false, reinterpret_cast<const char*>(d_packet.data()), d_packet.size());
 
   int err = mdp.d_header.rcode;
 
@@ -134,7 +134,7 @@ int AXFRRetriever::getChunk(Resolver::res_t &res, vector<DNSRecord>* records, ui
   }
 
   try {
-    d_tsigVerifier.check(std::string(d_buf.get(), len), mdp);
+    d_tsigVerifier.check(std::string(reinterpret_cast<const char*>(d_packet.data()), d_packet.size()), mdp);
   }
   catch(const std::runtime_error& re) {
     throw ResolverException(re.what());
@@ -167,22 +167,16 @@ int AXFRRetriever::getChunk(Resolver::res_t &res, vector<DNSRecord>* records, ui
 
 void AXFRRetriever::timeoutReadn(uint16_t bytes, uint16_t timeoutsec)
 {
-  time_t start=time(nullptr);
-  int n=0;
-  int numread;
-  while(n<bytes) {
-    int res=waitForData(d_sock, timeoutsec-(time(nullptr)-start));
-    if(res<0)
-      throw ResolverException("Reading data from remote nameserver over TCP: "+stringerror());
-    if(!res)
-      throw ResolverException("Timeout while reading data from remote nameserver over TCP");
+  struct timeval tm;
+  gettimeofday(&tm, nullptr);
+  tm.tv_sec += timeoutsec;
 
-    numread=recv(d_sock, d_buf.get()+n, bytes-n, 0);
-    if(numread<0)
-      throw ResolverException("Reading data from remote nameserver over TCP: "+stringerror());
-    if(numread==0)
-      throw ResolverException("Remote nameserver closed TCP connection");
-    n+=numread;
+  d_packet.resize(bytes);
+  try {
+    d_handler->read(d_packet.data(), d_packet.size(), tm);
+  }
+  catch (const std::exception& e) {
+    throw ResolverException("Error reading data from remote nameserver over TCP: " + std::string(e.what()));
   }
 }
 
@@ -242,7 +236,19 @@ void AXFRRetriever::connect(uint16_t timeout)
 
 int AXFRRetriever::getLength(uint16_t timeout)
 {
-  timeoutReadn(2, timeout);
-  return (unsigned char)d_buf[0]*256+(unsigned char)d_buf[1];
+  d_packet.resize(2);
+
+  struct timeval tm;
+  gettimeofday(&tm, nullptr);
+  tm.tv_sec += timeout;
+
+  try {
+    d_handler->read(d_packet.data(), d_packet.size(), tm);
+  }
+  catch (const std::exception& e) {
+    throw ResolverException("Error reading data from remote nameserver over TCP: " + std::string(e.what()));
+  }
+
+  return (unsigned char)d_packet.at(0)*256+(unsigned char)d_packet.at(1);
 }
 
