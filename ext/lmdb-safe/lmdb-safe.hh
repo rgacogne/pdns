@@ -218,6 +218,7 @@ protected:
 private:
   static MDB_txn *openROTransaction(MDBEnv *env, MDB_txn *parent, int flags=0);
 
+  std::thread::id d_tid;
   MDBEnv* d_parent;
   std::vector<MDBROCursor*> d_cursors;
 

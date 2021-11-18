@@ -63,7 +63,10 @@ void MDBEnv::incROTX()
 void MDBEnv::decROTX()
 {
   std::lock_guard<std::mutex> l(d_countmutex);
-  --d_ROtransactionsOut[std::this_thread::get_id()];
+  if (--d_ROtransactionsOut[std::this_thread::get_id()] < 0) {
+    std::cerr<<"Invalid number of RO transactions!"<<std::endl;
+    throw std::runtime_error("Invalid number of RO transactions");
+  }
 }
 
 void MDBEnv::incRWTX()
@@ -221,6 +224,7 @@ void MDBRWTransactionImpl::abort()
 }
 
 MDBROTransactionImpl::MDBROTransactionImpl(MDBEnv *parent, MDB_txn *txn):
+  d_tid(std::this_thread::get_id()),
   d_parent(parent),
   d_cursors(),
   d_txn(txn)
@@ -272,9 +276,23 @@ void MDBROTransactionImpl::abort()
   closeROCursors();
   // if d_txn is non-nullptr here, either the transaction object was invalidated earlier (e.g. by moving from it), or it is an RW transaction which has already cleaned up the d_txn pointer (with an abort).
   if (d_txn) {
-    d_parent->decROTX();
-    mdb_txn_abort(d_txn); // this appears to work better than abort for r/o database opening
-    d_txn = nullptr;
+    try {
+      d_parent->decROTX();
+      mdb_txn_abort(d_txn); // this appears to work better than abort for r/o database opening
+      d_txn = nullptr;
+    }
+    catch (...) {
+      mdb_txn_abort(d_txn); // this appears to work better than abort for r/o database opening
+      d_txn = nullptr;
+      if (std::this_thread::get_id() != d_tid) {
+        std::cerr<<"An LMDB transaction is aborted by a thread that did not create it!"<<std::endl;
+      }
+      throw;
+    }
+  }
+  if (std::this_thread::get_id() != d_tid) {
+    std::cerr<<"An LMDB transaction is aborted by a thread that did not create it!"<<std::endl;
+    throw std::runtime_error("An LMDB transaction is aborted by a thread that did not create it!");
   }
 }
 
@@ -283,9 +301,23 @@ void MDBROTransactionImpl::commit()
   closeROCursors();
   // if d_txn is non-nullptr here, either the transaction object was invalidated earlier (e.g. by moving from it), or it is an RW transaction which has already cleaned up the d_txn pointer (with an abort).
   if (d_txn) {
-    d_parent->decROTX();
-    mdb_txn_commit(d_txn); // this appears to work better than abort for r/o database opening
-    d_txn = nullptr;
+    try {
+      d_parent->decROTX();
+      mdb_txn_commit(d_txn); // this appears to work better than abort for r/o database opening
+      d_txn = nullptr;
+    }
+    catch (...) {
+      mdb_txn_commit(d_txn); // this appears to work better than abort for r/o database opening
+      d_txn = nullptr;
+      if (std::this_thread::get_id() != d_tid) {
+        std::cerr<<"An LMDB transaction is committed by a thread that did not create it!"<<std::endl;
+      }
+      throw;
+    }
+  }
+  if (std::this_thread::get_id() != d_tid) {
+    std::cerr<<"An LMDB transaction is committed by a thread that did not create it!"<<std::endl;
+    throw std::runtime_error("An LMDB transaction is committed by a thread that did not create it!");
   }
 }
 
