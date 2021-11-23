@@ -6,6 +6,8 @@
 #include <string.h>
 #include <map>
 
+#include <syslog.h>
+
 using std::string;
 using std::runtime_error;
 using std::tuple;
@@ -70,8 +72,12 @@ static void dumpCallStack()
   void *array[20]; //only care about last 17 functions (3 taken with tracing support)
   auto size = backtrace (array, 20);
   auto strings = backtrace_symbols (array, size);
-  for (int i = 0; i < size; i++) { //skip useless functions
-    std::cerr<<strings[i]<<std::endl;
+  if (strings) {
+    for (int i = 0; i < size; i++) { //skip useless functions
+      syslog(LOG_ERR, "%s", strings[i]);
+      std::cerr<<strings[i]<<std::endl;
+    }
+    free(strings);
   }
 #endif
 }
@@ -80,6 +86,7 @@ void MDBEnv::decROTX()
 {
   std::lock_guard<std::mutex> l(d_countmutex);
   if (--d_ROtransactionsOut[std::this_thread::get_id()] < 0) {
+    syslog(LOG_ERR, "Invalid number of RO transactions!");
     std::cerr<<"Invalid number of RO transactions!"<<std::endl;
     dumpCallStack();
   }
@@ -297,6 +304,7 @@ void MDBROTransactionImpl::abort()
     d_txn = nullptr;
   }
   if (std::this_thread::get_id() != d_tid) {
+    syslog(LOG_ERR, "An LMDB transaction is aborted by a thread that did not create it!");
     std::cerr<<"An LMDB transaction is aborted by a thread that did not create it!"<<std::endl;
     dumpCallStack();
   }
@@ -312,6 +320,7 @@ void MDBROTransactionImpl::commit()
     d_txn = nullptr;
   }
   if (std::this_thread::get_id() != d_tid) {
+    syslog(LOG_ERR, "An LMDB transaction is committed by a thread that did not create it!");
     std::cerr<<"An LMDB transaction is committed by a thread that did not create it!"<<std::endl;
     dumpCallStack();
   }
