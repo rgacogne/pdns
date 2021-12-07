@@ -458,7 +458,10 @@ public:
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
     if (!processResponse(du->response, localRespRuleActions, dr, false, false)) {
+      du->status_code = 502;
+      sendDoHUnitToTheMainThread(du, "dropped while processing a reponse");
       du->release();
+      du = nullptr;
       return;
     }
 
@@ -1660,6 +1663,8 @@ void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, IDState&& state)
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
     if (!processResponse(response, localRespRuleActions, dr, false, true)) {
+      status_code = 502;
+      sendDoHUnitToTheMainThread(this, "dropped while processing a reponse");
       release();
       return;
     }
