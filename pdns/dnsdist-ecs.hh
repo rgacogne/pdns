@@ -48,3 +48,4 @@ bool parseEDNSOptions(const DNSQuestion& dq);
 int getEDNSZ(const DNSQuestion& dq);
 bool queryHasEDNS(const DNSQuestion& dq);
 bool getEDNS0Record(const DNSQuestion& dq, EDNS0Record& edns0);
+bool getEDNS0Record(const PacketBuffer& buffer, EDNS0Record& edns0);

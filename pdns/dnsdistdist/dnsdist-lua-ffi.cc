@@ -658,7 +658,7 @@ bool dnsdist_ffi_dnsresponse_set_async(dnsdist_ffi_dnsquestion_t* dq, uint16_t a
   return false;
 }
 
-bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const char* tag, size_t tagSize)
+bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const char* tag, size_t tagSize, const char* tagValue, size_t tagValueSize)
 {
   auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
   if (!query) {
@@ -670,7 +670,7 @@ bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const cha
     if (!ids.qTag) {
       ids.qTag = std::make_unique<QTag>();
     }
-    (*ids.qTag)[std::string(tag, tagSize)] = "";
+    (*ids.qTag)[std::string(tag, tagSize)] = std::string(tagValue, tagValueSize);
   }
 
   return dnsdist::resumeQuery(std::move(query));
@@ -812,4 +812,45 @@ size_t dnsdist_ffi_dnsquestion_generate_proxy_protocol_payload(const dnsdist_ffi
   memcpy(out, payload.c_str(), payload.size());
 
   return payload.size();
+}
+
+bool dnsdist_ffi_set_rcode_from_async(uint16_t asyncID, uint16_t queryID, uint8_t rcode, bool clearAnswers)
+{
+  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  if (!query) {
+    return false;
+  }
+
+  const auto qnameLength = query->query.d_idstate.qname.wirelength();
+  auto& buffer = query->query.d_buffer;
+  if (buffer.size() < sizeof(dnsheader) + qnameLength + sizeof(uint16_t) + sizeof(uint16_t)) {
+    return false;
+  }
+
+  EDNS0Record edns0;
+  bool hadEDNS = false;
+  if (clearAnswers) {
+    hadEDNS = getEDNS0Record(buffer, edns0);
+  }
+
+  auto dh = reinterpret_cast<dnsheader*>(buffer.data());
+  dh->rcode = rcode;
+  dh->ad = false;
+  dh->aa = false;
+
+  if (clearAnswers) {
+    dh->ancount = 0;
+    dh->nscount = 0;
+    dh->arcount = 0;
+    buffer.resize(sizeof(dnsheader) + qnameLength + sizeof(uint16_t) + sizeof(uint16_t));
+    if (hadEDNS) {
+      if (!addEDNS(buffer, query->query.d_idstate.protocol.isUDP() ? 4096 : std::numeric_limits<uint16_t>::max(), edns0.extFlags & htons(EDNS_HEADER_FLAG_DO), g_PayloadSizeSelfGenAnswers, 0)) {
+        return false;
+      }
+    }
+  }
+
+  query->query.d_idstate.skipCache = true;
+
+  return dnsdist::resumeQuery(std::move(query));
 }

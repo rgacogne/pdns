@@ -1042,12 +1042,11 @@ bool queryHasEDNS(const DNSQuestion& dq)
   return false;
 }
 
-bool getEDNS0Record(const DNSQuestion& dq, EDNS0Record& edns0)
+bool getEDNS0Record(const PacketBuffer& packet, EDNS0Record& edns0)
 {
   uint16_t optStart;
   size_t optLen = 0;
   bool last = false;
-  const auto& packet = dq.getData();
   int res = locateEDNSOptRR(packet, &optStart, &optLen, &last);
   if (res != 0) {
     // no EDNS OPT RR
@@ -1067,4 +1066,9 @@ bool getEDNS0Record(const DNSQuestion& dq, EDNS0Record& edns0)
   // copy out 4-byte "ttl" (really the EDNS0 record), after root label (1) + type (2) + class (2).
   memcpy(&edns0, &packet.at(optStart + 5), sizeof edns0);
   return true;
+}
+
+bool getEDNS0Record(const DNSQuestion& dq, EDNS0Record& edns0)
+{
+  return getEDNS0Record(dq.getData(), edns0);
 }
