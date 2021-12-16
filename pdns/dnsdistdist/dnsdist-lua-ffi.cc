@@ -36,6 +36,14 @@ uint16_t dnsdist_ffi_dnsquestion_get_qclass(const dnsdist_ffi_dnsquestion_t* dq)
   return dq->dq->qclass;
 }
 
+uint16_t dnsdist_ffi_dnsquestion_get_id(const dnsdist_ffi_dnsquestion_t* dq)
+{
+  if (dq == nullptr) {
+    return 0;
+  }
+  return ntohs(dq->dq->getHeader()->id);
+}
+
 static void dnsdist_ffi_comboaddress_to_raw(const ComboAddress& ca, const void** addr, size_t* addrSize)
 {
   if (ca.isIPv4()) {
@@ -837,6 +845,8 @@ bool dnsdist_ffi_set_rcode_from_async(uint16_t asyncID, uint16_t queryID, uint8_
   dh->rcode = rcode;
   dh->ad = false;
   dh->aa = false;
+  dh->ra = dh->rd;
+  dh->qr = true;
 
   if (clearAnswers) {
     dh->ancount = 0;
