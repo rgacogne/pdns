@@ -186,11 +186,16 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
   gettime(&queryRealTime, true);
 
   auto& ids = query->query.d_idstate;
-  DNSQuestion dq(&ids.qname, ids.qtype, ids.qclass, &ids.origDest, &ids.origRemote, query->query.d_buffer, ids.protocol, &queryRealTime);
-#warning set additional values in dq ? a better option would be to make DNSQuestion a IDState overlay
-  dq.hopLocal = &ids.hopLocal;
-  dq.hopRemote = &ids.hopRemote;
-  dq.d_cs = ids.cs;
+  DNSQuestion dq = makeDNSQuestionFromIDState(ids, query->query.d_buffer);
+#warning a better option would be to make DNSQuestion a IDState overlay
+  auto restoreIDSFromDQ = [](DNSQuestion& dnq, IDState& idstate) {
+    /* some fields are moved into the DNSQuestion, so we need to restore them
+       if we are going to resume from the IDState and not from the DNSQuestion */
+    idstate.qTag = std::move(dnq.qTag);
+    idstate.subnet = std::move(dnq.subnet);
+    idstate.uniqueId = std::move(dnq.uniqueId);
+    idstate.dnsCryptQuery = std::move(dnq.dnsCryptQuery);
+  };
 
   LocalHolders holders;
 
@@ -205,6 +210,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     }
 
     if (query->downstream->isTCPOnly() || !dq.getProtocol().isUDP()) {
+      restoreIDSFromDQ(dq, ids);
       query->downstream->passCrossProtocolQuery(std::move(query));
       return true;
     }
@@ -228,6 +234,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
 
     struct timeval now;
     gettimeofday(&now, nullptr);
+    restoreIDSFromDQ(dq, ids);
     TCPResponse response(std::move(query->query.d_buffer), std::move(query->query.d_idstate), nullptr);
     response.d_async = true;
     response.d_selfGenerated = true;

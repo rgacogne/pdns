@@ -1153,6 +1153,7 @@ bool processResponse(PacketBuffer& response, LocalStateHolder<vector<DNSDistResp
 bool processRulesResult(const DNSAction::Action& action, DNSQuestion& dq, std::string& ruleresult, bool& drop);
 bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool muted, bool receivedOverUDP);
 
+DNSQuestion makeDNSQuestionFromIDState(IDState& ids, PacketBuffer& data);
 DNSResponse makeDNSResponseFromIDState(IDState& ids, PacketBuffer& data, const std::shared_ptr<DownstreamState>& ds);
 void setIDStateFromDNSQuestion(IDState& ids, DNSQuestion& dq, DNSName&& qname, uint16_t queryID /* network byte order */);
 

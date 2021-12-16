@@ -1,36 +1,52 @@
 
 #include "dnsdist.hh"
 
+static void setDNSQuestionFromIDState(DNSQuestion& dq, IDState& ids)
+{
+  dq.origFlags = ids.origFlags;
+  dq.cacheFlags = ids.cacheFlags;
+  dq.ecsAdded = ids.ecsAdded;
+  dq.ednsAdded = ids.ednsAdded;
+  dq.useZeroScope = ids.useZeroScope;
+  dq.packetCache = ids.packetCache;
+  dq.delayMsec = ids.delayMsec;
+  dq.skipCache = ids.skipCache;
+  dq.cacheKey = ids.cacheKey;
+  dq.cacheKeyNoECS = ids.cacheKeyNoECS;
+  dq.cacheKeyUDP = ids.cacheKeyUDP;
+  dq.dnssecOK = ids.dnssecOK;
+  dq.tempFailureTTL = ids.tempFailureTTL;
+  dq.qTag = std::move(ids.qTag);
+  dq.subnet = std::move(ids.subnet);
+  dq.uniqueId = std::move(ids.uniqueId);
+
+  if (ids.dnsCryptQuery) {
+    dq.dnsCryptQuery = std::move(ids.dnsCryptQuery);
+  }
+
+  dq.hopRemote = &ids.hopRemote;
+  dq.hopLocal = &ids.hopLocal;
+  dq.d_cs = ids.cs;
+
+  dq.du = ids.du;
+
+}
+
+DNSQuestion makeDNSQuestionFromIDState(IDState& ids, PacketBuffer& data)
+{
+  DNSQuestion dq(&ids.qname, ids.qtype, ids.qclass, &ids.origDest, &ids.origRemote, data, ids.protocol, &ids.sentTime.d_start);
+
+  setDNSQuestionFromIDState(dq, ids);
+
+  return dq;
+}
+
 DNSResponse makeDNSResponseFromIDState(IDState& ids, PacketBuffer& data, const std::shared_ptr<DownstreamState>& ds)
 {
   DNSResponse dr(&ids.qname, ids.qtype, ids.qclass, &ids.origDest, &ids.origRemote, data, ids.protocol, &ids.sentTime.d_start, ds);
 
-  dr.origFlags = ids.origFlags;
-  dr.cacheFlags = ids.cacheFlags;
-  dr.ecsAdded = ids.ecsAdded;
-  dr.ednsAdded = ids.ednsAdded;
-  dr.useZeroScope = ids.useZeroScope;
-  dr.packetCache = std::move(ids.packetCache);
-  dr.delayMsec = ids.delayMsec;
-  dr.skipCache = ids.skipCache;
-  dr.cacheKey = ids.cacheKey;
-  dr.cacheKeyNoECS = ids.cacheKeyNoECS;
-  dr.cacheKeyUDP = ids.cacheKeyUDP;
-  dr.dnssecOK = ids.dnssecOK;
-  dr.tempFailureTTL = ids.tempFailureTTL;
-  dr.qTag = std::move(ids.qTag);
-  dr.subnet = std::move(ids.subnet);
-  dr.uniqueId = std::move(ids.uniqueId);
+  setDNSQuestionFromIDState(dr, ids);
 
-  if (ids.dnsCryptQuery) {
-    dr.dnsCryptQuery = std::move(ids.dnsCryptQuery);
-  }
-
-  dr.hopRemote = &ids.hopRemote;
-  dr.hopLocal = &ids.hopLocal;
-  dr.d_cs = ids.cs;
-
-  dr.du = ids.du;
   return dr;
 }
 
