@@ -3,6 +3,7 @@
 
 static void setDNSQuestionFromIDState(DNSQuestion& dq, IDState& ids)
 {
+  dq.poolname = ids.poolName;
   dq.origFlags = ids.origFlags;
   dq.cacheFlags = ids.cacheFlags;
   dq.ecsAdded = ids.ecsAdded;
@@ -29,7 +30,6 @@ static void setDNSQuestionFromIDState(DNSQuestion& dq, IDState& ids)
   dq.d_cs = ids.cs;
 
   dq.du = ids.du;
-
 }
 
 DNSQuestion makeDNSQuestionFromIDState(IDState& ids, PacketBuffer& data)
@@ -64,6 +64,7 @@ void setIDStateFromDNSQuestion(IDState& ids, DNSQuestion& dq, DNSName&& qname, u
   }
   ids.sentTime.set(*dq.queryTime);
   ids.qname = std::move(qname);
+  ids.poolName = dq.poolname;
   ids.qtype = dq.qtype;
   ids.qclass = dq.qclass;
   ids.protocol = dq.protocol;

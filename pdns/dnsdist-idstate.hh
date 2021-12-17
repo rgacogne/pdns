@@ -99,7 +99,7 @@ struct IDState
     sentTime(true), tempFailureTTL(boost::none) { origDest.sin4.sin_family = 0; }
   IDState(const IDState& orig) = delete;
   IDState(IDState&& rhs) :
-    subnet(rhs.subnet), origRemote(rhs.origRemote), origDest(rhs.origDest), hopRemote(rhs.hopRemote), hopLocal(rhs.hopLocal), qname(std::move(rhs.qname)), sentTime(rhs.sentTime), packetCache(std::move(rhs.packetCache)), dnsCryptQuery(std::move(rhs.dnsCryptQuery)), qTag(std::move(rhs.qTag)), tempFailureTTL(rhs.tempFailureTTL), cs(rhs.cs), du(std::move(rhs.du)), cacheKey(rhs.cacheKey), cacheKeyNoECS(rhs.cacheKeyNoECS), cacheKeyUDP(rhs.cacheKeyUDP), backendFD(rhs.backendFD), delayMsec(rhs.delayMsec), qtype(rhs.qtype), qclass(rhs.qclass), origID(rhs.origID), origFlags(rhs.origFlags), cacheFlags(rhs.cacheFlags), protocol(rhs.protocol), ednsAdded(rhs.ednsAdded), ecsAdded(rhs.ecsAdded), skipCache(rhs.skipCache), dnssecOK(rhs.dnssecOK), useZeroScope(rhs.useZeroScope)
+    subnet(rhs.subnet), origRemote(rhs.origRemote), origDest(rhs.origDest), hopRemote(rhs.hopRemote), hopLocal(rhs.hopLocal), qname(std::move(rhs.qname)), poolName(std::move(rhs.poolName)), sentTime(rhs.sentTime), packetCache(std::move(rhs.packetCache)), dnsCryptQuery(std::move(rhs.dnsCryptQuery)), qTag(std::move(rhs.qTag)), tempFailureTTL(rhs.tempFailureTTL), cs(rhs.cs), du(std::move(rhs.du)), cacheKey(rhs.cacheKey), cacheKeyNoECS(rhs.cacheKeyNoECS), cacheKeyUDP(rhs.cacheKeyUDP), backendFD(rhs.backendFD), delayMsec(rhs.delayMsec), qtype(rhs.qtype), qclass(rhs.qclass), origID(rhs.origID), origFlags(rhs.origFlags), cacheFlags(rhs.cacheFlags), protocol(rhs.protocol), ednsAdded(rhs.ednsAdded), ecsAdded(rhs.ecsAdded), skipCache(rhs.skipCache), dnssecOK(rhs.dnssecOK), useZeroScope(rhs.useZeroScope)
   {
     if (rhs.isInUse()) {
       throw std::runtime_error("Trying to move an in-use IDState");
@@ -129,6 +129,7 @@ struct IDState
     hopRemote = rhs.hopRemote;
     hopLocal = rhs.hopLocal;
     qname = std::move(rhs.qname);
+    poolName = std::move(rhs.poolName);
     sentTime = rhs.sentTime;
     dnsCryptQuery = std::move(rhs.dnsCryptQuery);
     packetCache = std::move(rhs.packetCache);
@@ -234,6 +235,7 @@ struct IDState
   ComboAddress hopRemote;
   ComboAddress hopLocal;
   DNSName qname; // 24
+  std::string poolName; // 24
   StopWatch sentTime; // 16
   std::shared_ptr<DNSDistPacketCache> packetCache{nullptr}; // 16
   std::unique_ptr<DNSCryptQuery> dnsCryptQuery{nullptr}; // 8
