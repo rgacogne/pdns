@@ -258,8 +258,12 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
   return false;
 }
 
-void suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs)
+bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs)
 {
+  if (!g_asyncHolder) {
+    return false;
+  }
+
   struct timeval ttd;
   gettimeofday(&ttd, nullptr);
   ttd.tv_sec += timeoutMs / 1000;
@@ -271,11 +275,16 @@ void suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t 
 
   auto query = getInternalQueryFromDQ(dq);
 
-  g_asyncHolder.push(asyncID, queryID, ttd, std::move(query));
+  g_asyncHolder->push(asyncID, queryID, ttd, std::move(query));
+  return true;
 }
 
-void suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs)
+bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs)
 {
+  if (!g_asyncHolder) {
+    return false;
+  }
+
   struct timeval ttd;
   gettimeofday(&ttd, nullptr);
   ttd.tv_sec += timeoutMs / 1000;
@@ -289,8 +298,9 @@ void suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32
   query->isResponse = true;
   query->downstream = dr.d_downstream;
 
-  g_asyncHolder.push(asyncID, queryID, ttd, std::move(query));
+  g_asyncHolder->push(asyncID, queryID, ttd, std::move(query));
+  return true;
 }
 
-AsynchronousHolder g_asyncHolder;
+std::unique_ptr<AsynchronousHolder> g_asyncHolder;
 }

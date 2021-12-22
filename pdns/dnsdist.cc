@@ -46,6 +46,7 @@
 #endif
 
 #include "dnsdist.hh"
+#include "dnsdist-async.hh"
 #include "dnsdist-cache.hh"
 #include "dnsdist-carbon.hh"
 #include "dnsdist-console.hh"
@@ -2529,6 +2530,8 @@ int main(int argc, char** argv)
       _exit(EXIT_SUCCESS);
 #endif
     }
+
+    dnsdist::g_asyncHolder = std::make_unique<dnsdist::AsynchronousHolder>();
 
     auto todo = setupLua(*(g_lua.lock()), false, false, g_cmdLine.config);
 

@@ -668,7 +668,11 @@ bool dnsdist_ffi_dnsresponse_set_async(dnsdist_ffi_dnsquestion_t* dq, uint16_t a
 
 bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const char* tag, size_t tagSize, const char* tagValue, size_t tagValueSize)
 {
-  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  if (!dnsdist::g_asyncHolder) {
+    return false;
+  }
+
+  auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
     return false;
   }
@@ -686,7 +690,11 @@ bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const cha
 
 bool dnsdist_ffi_drop_from_async(uint16_t asyncID, uint16_t queryID)
 {
-  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  if (!dnsdist::g_asyncHolder) {
+    return false;
+  }
+
+  auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
     return false;
   }
@@ -708,8 +716,11 @@ bool dnsdist_ffi_set_answer_from_async(uint16_t asyncID, uint16_t queryID, const
   if (rawSize < sizeof(dnsheader)) {
     return false;
   }
+  if (!dnsdist::g_asyncHolder) {
+    return false;
+  }
 
-  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
     return false;
   }
@@ -824,7 +835,11 @@ size_t dnsdist_ffi_dnsquestion_generate_proxy_protocol_payload(const dnsdist_ffi
 
 bool dnsdist_ffi_set_rcode_from_async(uint16_t asyncID, uint16_t queryID, uint8_t rcode, bool clearAnswers)
 {
-  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  if (!dnsdist::g_asyncHolder) {
+    return false;
+  }
+
+  auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
     return false;
   }

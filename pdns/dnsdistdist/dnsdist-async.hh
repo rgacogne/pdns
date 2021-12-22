@@ -80,9 +80,9 @@ private:
   bool d_done{false};
 };
 
-void suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs);
-void suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs);
+bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs);
+bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs);
 bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query);
 
-extern AsynchronousHolder g_asyncHolder;
+extern std::unique_ptr<AsynchronousHolder> g_asyncHolder;
 }
