@@ -176,9 +176,20 @@ struct DOHFrontend
 #ifndef HAVE_DNS_OVER_HTTPS
 struct DOHUnit
 {
-  static void release(DOHUnit* ptr)
+  static void release(DOHUnit*)
   {
   }
+
+  void get()
+  {
+  }
+
+  void release()
+  {
+  }
+
+  size_t proxyProtocolPayloadSize{0};
+  uint16_t status_code{200};
 };
 
 #else /* HAVE_DNS_OVER_HTTPS */
