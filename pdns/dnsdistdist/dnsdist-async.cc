@@ -241,6 +241,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
 
     try {
       sender->handleResponse(now, std::move(response));
+      return true;
     }
     catch (const std::exception& e) {
       vinfolog("Got exception while resuming cross-protocol self-answered query: %s", e.what());
