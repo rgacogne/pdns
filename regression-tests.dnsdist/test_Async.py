@@ -292,13 +292,19 @@ class TestAsync(DNSDistTest):
 
             for method in ("sendUDPQuery", "sendTCPQuery"):
                 sender = getattr(self, method)
-                (_, receivedResponse) = sender(query, response=None, useQueue=False)
+                (receivedQuery, receivedResponse) = sender(query, response)
+                receivedQuery.id = query.id
+                self.assertEqual(query, receivedQuery)
                 self.assertEqual(receivedResponse, None)
 
-            (_, receivedResponse) = self.sendDOTQuery(self._tlsServerPort, self._serverName, query, response=None, caFile=self._caCert, useQueue=False)
+            (receivedQuery, receivedResponse) = self.sendDOTQuery(self._tlsServerPort, self._serverName, query, response=response, caFile=self._caCert)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
             self.assertEqual(receivedResponse, None)
 
-            (_, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=None, caFile=self._caCert, useQueue=False)
+            (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
             self.assertEqual(receivedResponse, None)
 
     def testRefused(self):
