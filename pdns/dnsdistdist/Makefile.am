@@ -141,6 +141,7 @@ dnsdist_SOURCES = \
 	dnsdist-console.cc dnsdist-console.hh \
 	dnsdist-discovery.cc dnsdist-discovery.hh \
 	dnsdist-dnscrypt.cc \
+	dnsdist-dnsparser.cc dnsdist-dnsparser.hh \
 	dnsdist-downstream-connection.hh \
 	dnsdist-dynblocks.cc dnsdist-dynblocks.hh \
 	dnsdist-dynbpf.cc dnsdist-dynbpf.hh \
@@ -242,6 +243,7 @@ testrunner_SOURCES = \
 	dnsdist-async.cc dnsdist-async.hh \
 	dnsdist-backend.cc \
 	dnsdist-cache.cc dnsdist-cache.hh \
+	dnsdist-dnsparser.cc dnsdist-dnsparser.hh \
 	dnsdist-downstream-connection.hh \
 	dnsdist-dynblocks.cc dnsdist-dynblocks.hh \
 	dnsdist-dynbpf.cc dnsdist-dynbpf.hh \
