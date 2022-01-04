@@ -200,7 +200,8 @@ inline bool DNSName::canonCompare(const DNSName& rhs) const
   if(ourcount == sizeof(ourpos) || rhscount==sizeof(rhspos)) {
     return slowCanonCompare(rhs);
   }
-  
+
+  bool equal = true;
   for(;;) {
     if(ourcount == 0 && rhscount != 0)
       return true;
@@ -214,14 +215,35 @@ inline bool DNSName::canonCompare(const DNSName& rhs) const
 					  d_storage.c_str() + ourpos[ourcount] + 1 + *(d_storage.c_str() + ourpos[ourcount]),
 					  rhs.d_storage.c_str() + rhspos[rhscount] + 1, 
 					  rhs.d_storage.c_str() + rhspos[rhscount] + 1 + *(rhs.d_storage.c_str() + rhspos[rhscount]),
-					  [](const unsigned char& a, const unsigned char& b) {
-					    return dns_tolower(a) < dns_tolower(b);
+					  [&equal](const unsigned char& a, const unsigned char& b) {
+					    auto la = dns_tolower(a);
+                                            auto lb = dns_tolower(b);
+                                            if (la < lb) {
+                                              equal = false;
+                                              return true;
+                                            }
+                                            if (la != lb) {
+                                              equal = false;
+                                            }
+                                            return false;
 					  });
     
     //    cout<<"Forward: "<<res<<endl;
     if(res)
       return true;
 
+    if (!equal) {
+      return false;
+    }
+
+    if (equal) {
+      // if the labels do not have the same length
+      if ((*(d_storage.c_str() + ourpos[ourcount])) != *(rhs.d_storage.c_str() + rhspos[rhscount])) {
+        return false;
+      }
+    }
+
+#if 0
     res=std::lexicographical_compare(	  rhs.d_storage.c_str() + rhspos[rhscount] + 1, 
 					  rhs.d_storage.c_str() + rhspos[rhscount] + 1 + *(rhs.d_storage.c_str() + rhspos[rhscount]),
 					  d_storage.c_str() + ourpos[ourcount] + 1, 
@@ -232,6 +254,7 @@ inline bool DNSName::canonCompare(const DNSName& rhs) const
     //    cout<<"Reverse: "<<res<<endl;
     if(res)
       return false;
+#endif
   }
   return false;
 }
