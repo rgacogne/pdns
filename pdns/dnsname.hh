@@ -185,6 +185,7 @@ public:
   }
 
   bool has8bitBytes() const; /* returns true if at least one byte of the labels forming the name is not included in [A-Za-z0-9_*./@ \\:-] */
+  void rebase(const DNSName& from, const DNSName& to);
 
   class RawLabelsVisitor
   {

@@ -635,3 +635,9 @@ bool DNSName::RawLabelsVisitor::empty() const
 {
   return d_position == 0;
 }
+
+void DNSName::rebase(const DNSName& from, const DNSName& to)
+{
+  makeUsRelative(from);
+  *this += to;
+}
