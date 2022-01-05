@@ -491,3 +491,9 @@ bool DNSName::has8bitBytes() const
 
   return false;
 }
+
+void DNSName::rebase(const DNSName& from, const DNSName& to)
+{
+  makeUsRelative(from);
+  *this += to;
+}
