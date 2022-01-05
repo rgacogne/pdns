@@ -240,6 +240,7 @@ struct IDState
   std::shared_ptr<DNSDistPacketCache> packetCache{nullptr}; // 16
   std::unique_ptr<DNSCryptQuery> dnsCryptQuery{nullptr}; // 8
   std::unique_ptr<QTag> qTag{nullptr}; // 8
+  std::unique_ptr<PacketBuffer> d_packet;
   boost::optional<uint32_t> tempFailureTTL; // 8
   ClientState* cs{nullptr}; // 8
   DOHUnit* du{nullptr}; // 8 (not a unique_ptr because we currently need to be able to peek at it without taking ownership until later)
