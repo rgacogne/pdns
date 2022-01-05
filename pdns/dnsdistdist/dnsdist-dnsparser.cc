@@ -34,11 +34,10 @@ DNSPacketOverlay::DNSPacketOverlay(const std::string_view& packet)
   uint64_t numRecords = ntohs(d_header.ancount) + ntohs(d_header.nscount) + ntohs(d_header.arcount);
   d_records.reserve(numRecords);
 
-  try
-  {
+  try {
     PacketReader reader(pdns_string_view(reinterpret_cast<const char*>(packet.data()), packet.size()));
 
-    for (uint16_t n = 0; n < ntohs(d_header.qdcount) ; ++n) {
+    for (uint16_t n = 0; n < ntohs(d_header.qdcount); ++n) {
       reader.xfrName(d_qname);
       reader.xfrType(d_qtype);
       reader.xfrType(d_qclass);
@@ -119,8 +118,8 @@ bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNS
       rrname = pr.getName();
       rrtype = pr.get16BitInt();
       rrclass = pr.get16BitInt();
-      (void) rrtype;
-      (void) rrclass;
+      (void)rrtype;
+      (void)rrclass;
     }
   }
 

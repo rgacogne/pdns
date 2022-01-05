@@ -79,7 +79,7 @@ public:
   {
   }
 
-  InternalQuery(PacketBuffer&& buffer, IDState&& state) :
+  InternalQuery(PacketBuffer&& buffer, InternalQueryState&& state) :
     d_idstate(std::move(state)), d_buffer(std::move(buffer))
   {
   }
@@ -95,7 +95,7 @@ public:
     return d_idstate.qtype == QType::AXFR || d_idstate.qtype == QType::IXFR;
   }
 
-  IDState d_idstate;
+  InternalQueryState d_idstate;
   std::string d_proxyProtocolPayload;
   PacketBuffer d_buffer;
   uint32_t d_proxyProtocolPayloadAddedSize{0};
@@ -119,7 +119,7 @@ struct TCPResponse : public TCPQuery
     memset(&d_cleartextDH, 0, sizeof(d_cleartextDH));
   }
 
-  TCPResponse(PacketBuffer&& buffer, IDState&& state, std::shared_ptr<ConnectionToBackend> conn) :
+  TCPResponse(PacketBuffer&& buffer, InternalQueryState&& state, std::shared_ptr<ConnectionToBackend> conn) :
     TCPQuery(std::move(buffer), std::move(state)), d_connection(conn)
   {
     memset(&d_cleartextDH, 0, sizeof(d_cleartextDH));
@@ -147,7 +147,7 @@ public:
   virtual const ClientState* getClientState() const = 0;
   virtual void handleResponse(const struct timeval& now, TCPResponse&& response) = 0;
   virtual void handleXFRResponse(const struct timeval& now, TCPResponse&& response) = 0;
-  virtual void notifyIOError(IDState&& query, const struct timeval& now) = 0;
+  virtual void notifyIOError(InternalQueryState&& query, const struct timeval& now) = 0;
 
   /* whether the connection should be automatically released to the pool after handleResponse()
      has been called */

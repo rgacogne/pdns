@@ -425,7 +425,7 @@ static void handleResponse(DOHFrontend& df, st_h2o_req_t* req, uint16_t statusCo
 class DoHTCPCrossQuerySender : public TCPQuerySender
 {
 public:
-  DoHTCPCrossQuerySender(DOHUnitUniquePtr&& du_): du(std::move(du_))
+  DoHTCPCrossQuerySender(const ClientState& cs): d_cs(cs)
   {
   }
 
@@ -436,19 +436,16 @@ public:
 
   const ClientState* getClientState() const override
   {
-    if (!du || !du->dsc || !du->dsc->cs) {
-      throw std::runtime_error("No query associated to this DoHTCPCrossQuerySender");
-    }
-
-    return du->dsc->cs;
+    return &d_cs;
   }
 
   void handleResponse(const struct timeval& now, TCPResponse&& response) override
   {
-    if (!du) {
+    if (!response.d_idstate.du) {
       return;
     }
 
+    auto du = std::move(response.d_idstate.du);
     if (du->rsock == -1) {
       return;
     }
@@ -456,23 +453,24 @@ public:
     du->response = std::move(response.d_buffer);
     du->ids = std::move(response.d_idstate);
 
-    DNSResponse dr = makeDNSResponseFromIDState(du->ids, du->response, du->downstream);
+    DNSResponse dr(du->ids, du->response, du->ids.sentTime.d_start, du->downstream);
     dnsheader cleartextDH;
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
     if (!response.isAsync()) {
       thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
 
-      if (!processResponse(du->response, localRespRuleActions, dr, false, false)) {
+      dr.ids.du = std::move(du);
+      if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false, false)) {
 #warning should we not notify the main thread?
-        du.reset();
         return;
       }
 
       if (dr.isAsynchronous()) {
-        du.reset();
         return;
       }
+
+      du = std::move(dr.ids.du);
     }
 
     if (!response.d_selfGenerated) {
@@ -483,7 +481,7 @@ public:
       if (backendProtocol == dnsdist::Protocol::DoUDP && du->tcp) {
         backendProtocol = dnsdist::Protocol::DoTCP;
       }
-      handleResponseSent(du->ids, udiff, *dr.remote, du->downstream->d_config.remote, du->response.size(), cleartextDH, backendProtocol);
+      handleResponseSent(du->ids, udiff, du->ids.origRemote, du->downstream->d_config.remote, du->response.size(), cleartextDH, backendProtocol);
     }
 
     ++g_stats.responses;
@@ -499,29 +497,29 @@ public:
     return handleResponse(now, std::move(response));
   }
 
-  void notifyIOError(IDState&& query, const struct timeval& now) override
+  void notifyIOError(InternalQueryState&& query, const struct timeval& now) override
   {
-    if (!du) {
+    if (!query.du) {
       return;
     }
 
-    if (du->rsock == -1) {
+    if (query.du->rsock == -1) {
       return;
     }
 
+    auto du = std::move(query.du);
     du->ids = std::move(query);
     du->status_code = 502;
     sendDoHUnitToTheMainThread(std::move(du), "cross-protocol error response");
   }
-
-private:
-  DOHUnitUniquePtr du;
+protected:
+  const ClientState& d_cs;
 };
 
 class DoHCrossProtocolQuery : public CrossProtocolQuery
 {
 public:
-  DoHCrossProtocolQuery(DOHUnitUniquePtr&& du_): du(std::move(du_))
+  DoHCrossProtocolQuery(DOHUnitUniquePtr&& du)
   {
     if (!du->response.empty()) {
       /* happens when a response becomes async */
@@ -530,51 +528,56 @@ public:
     else {
       query = InternalQuery(std::move(du->query), std::move(du->ids));
     }
+
+    /* it might have been moved when we moved du->ids */
+    if (du) {
+      query.d_idstate.du = std::move(du);
+    }
     /* we _could_ remove it from the query buffer and put in query's d_proxyProtocolPayload,
        clearing query.d_proxyProtocolPayloadAdded and du->proxyProtocolPayloadSize.
        Leave it for now because we know that the onky case where the payload has been
        added is when we tried over UDP, got a TC=1 answer and retried over TCP/DoT,
        and we know the TCP/DoT code can handle it. */
-    query.d_proxyProtocolPayloadAdded = du->proxyProtocolPayloadSize > 0;
-    downstream = du->downstream;
-    proxyProtocolPayloadSize = du->proxyProtocolPayloadSize;
+    query.d_proxyProtocolPayloadAdded = query.d_idstate.du->proxyProtocolPayloadSize > 0;
+    downstream = query.d_idstate.du->downstream;
+    proxyProtocolPayloadSize = query.d_idstate.du->proxyProtocolPayloadSize;
   }
 
   void handleInternalError()
   {
-    du->status_code = 502;
-    sendDoHUnitToTheMainThread(std::move(du), "DoH internal error");
+    query.d_idstate.du->status_code = 502;
+    sendDoHUnitToTheMainThread(std::move(query.d_idstate.du), "DoH internal error");
   }
 
   std::shared_ptr<TCPQuerySender> getTCPQuerySender() override
   {
-    du->downstream = downstream;
-    auto sender = std::make_shared<DoHTCPCrossQuerySender>(std::move(du));
+    query.d_idstate.du->downstream = downstream;
+    auto sender = std::make_shared<DoHTCPCrossQuerySender>(*query.d_idstate.cs);
     return sender;
   }
-
-private:
-  DOHUnitUniquePtr du;
 };
 
 std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq)
 {
-  DOHUnit* du = dq.du;
-  if (!du) {
+  if (!dq.ids.du) {
     throw std::runtime_error("Trying to create a DoH cross protocol query without a valid DoH unit");
   }
 
-  setIDStateFromDNSQuestion(du->ids, dq, DNSName(*dq.qname), dq.getHeader()->id);
+  auto du = std::move(dq.ids.du);
+  du->ids = std::move(dq.ids);
+  du->ids.origID = dq.getHeader()->id;
 
-  du->get();
-  return std::make_unique<DoHCrossProtocolQuery>(DOHUnitUniquePtr(du, DOHUnit::release));
+  return std::make_unique<DoHCrossProtocolQuery>(std::move(du));
 }
 
 /*
    We are not in the main DoH thread but in the DoH 'client' thread.
 */
-static void processDOHQuery(DOHUnitUniquePtr&& du)
+static void processDOHQuery(DOHUnitUniquePtr&& unit)
 {
+  auto& ids = unit->ids;
+  ids.du = std::move(unit);
+  auto& du = ids.du;
   uint16_t queryId = 0;
   ComboAddress remote;
 
@@ -630,17 +633,15 @@ static void processDOHQuery(DOHUnitUniquePtr&& du)
       queryId = ntohs(dh->id);
     }
 
-    uint16_t qtype, qclass;
-    unsigned int qnameWireLength = 0;
-    DNSName qname(reinterpret_cast<const char*>(du->query.data()), du->query.size(), sizeof(dnsheader), false, &qtype, &qclass, &qnameWireLength);
-    DNSQuestion dq(&qname, qtype, qclass, &du->ids.origDest, &du->ids.origRemote, du->query, dnsdist::Protocol::DoH, &queryRealTime);
-    dq.ednsAdded = du->ids.ednsAdded;
-    /* store the raw pointer */
-    dq.du = du.get();
-    dq.d_cs = &cs;
+    auto downstream = du->downstream;
+    du->ids.qname = DNSName(reinterpret_cast<const char*>(du->query.data()), du->query.size(), sizeof(dnsheader), false, &du->ids.qtype, &du->ids.qclass);
+    DNSQuestion dq(du->ids, du->query, queryRealTime);
+    const uint16_t* flags = getFlagsFromDNSHeader(dq.getHeader());
+    ids.origFlags = *flags;
+    du->ids.cs = &cs;
     dq.sni = std::move(du->sni);
 
-    auto result = processQuery(dq, holders, du->downstream);
+    auto result = processQuery(dq, holders, downstream);
 
     if (result == ProcessQueryResult::Drop) {
       du->status_code = 403;
@@ -666,24 +667,23 @@ static void processDOHQuery(DOHUnitUniquePtr&& du)
       return;
     }
 
-    if (du->downstream == nullptr) {
+    if (downstream == nullptr) {
       du->status_code = 502;
       sendDoHUnitToTheMainThread(std::move(du), "DoH no backend available");
       return;
     }
 
-    if (du->downstream->isTCPOnly()) {
+    du->downstream = downstream;
+
+    if (downstream->isTCPOnly()) {
       std::string proxyProtocolPayload;
       /* we need to do this _before_ creating the cross protocol query because
          after that the buffer will have been moved */
-      if (du->downstream->d_config.useProxyProtocol) {
+      if (downstream->d_config.useProxyProtocol) {
         proxyProtocolPayload = getProxyProtocolPayload(dq);
       }
 
-      setIDStateFromDNSQuestion(du->ids, dq, std::move(qname), htons(queryId));
-
       du->tcp = true;
-      std::shared_ptr<DownstreamState>& downstream = du->downstream;
 
       /* this moves du->ids, careful! */
       auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du));
@@ -698,8 +698,8 @@ static void processDOHQuery(DOHUnitUniquePtr&& du)
       }
     }
 
-    ComboAddress dest = du->ids.origDest;
-    if (!assignOutgoingUDPQueryToBackend(du->downstream, du, htons(queryId), dq, std::move(qname), std::move(du->query), dest)) {
+    ComboAddress dest = dq.ids.origDest;
+    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, std::move(du->query), dest)) {
       sendDoHUnitToTheMainThread(std::move(du), "DoH internal error");
       return;
     }
@@ -783,6 +783,7 @@ static void doh_dispatch_query(DOHServerConfig* dsc, h2o_handler_t* self, h2o_re
     du->req = req;
     du->ids.origDest = local;
     du->ids.origRemote = remote;
+    du->ids.protocol = dnsdist::Protocol::DoH;
     du->rsock = dsc->dohresponsepair[0];
     du->query = std::move(query);
     du->path = std::move(path);
@@ -1062,11 +1063,11 @@ HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& reg
 
 bool HTTPHeaderRule::matches(const DNSQuestion* dq) const
 {
-  if (!dq->du) {
+  if (!dq->ids.du) {
     return false;
   }
 
-  for (const auto& header : dq->du->headers) {
+  for (const auto& header : dq->ids.du->headers) {
     if (header.first == d_header) {
       return d_regex.match(header.second);
     }
@@ -1087,15 +1088,15 @@ HTTPPathRule::HTTPPathRule(const std::string& path)
 
 bool HTTPPathRule::matches(const DNSQuestion* dq) const
 {
-  if (!dq->du) {
+  if (!dq->ids.du) {
     return false;
   }
 
-  if (dq->du->query_at == SIZE_MAX) {
-    return dq->du->path == d_path;
+  if (dq->ids.du->query_at == SIZE_MAX) {
+    return dq->ids.du->path == d_path;
   }
   else {
-    return d_path.compare(0, d_path.size(), dq->du->path, 0, dq->du->query_at) == 0;
+    return d_path.compare(0, d_path.size(), dq->ids.du->path, 0, dq->ids.du->query_at) == 0;
   }
 }
 
@@ -1110,11 +1111,11 @@ HTTPPathRegexRule::HTTPPathRegexRule(const std::string& regex): d_regex(regex), 
 
 bool HTTPPathRegexRule::matches(const DNSQuestion* dq) const
 {
-  if (!dq->du) {
+  if (!dq->ids.du) {
     return false;
   }
 
-  return d_regex.match(dq->du->getHTTPPath());
+  return d_regex.match(dq->ids.du->getHTTPPath());
 }
 
 string HTTPPathRegexRule::toString() const
@@ -1601,7 +1602,7 @@ void dohThread(ClientState* cs)
   }
 }
 
-void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, IDState&& state)
+void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, InternalQueryState&& state)
 {
   du->response = std::move(udpResponse);
   du->ids = std::move(state);
@@ -1609,11 +1610,12 @@ void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, 
   const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
   if (!dh->tc) {
     thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
-    DNSResponse dr = makeDNSResponseFromIDState(du->ids, du->response, du->downstream);
+    DNSResponse dr(du->ids, du->response, du->ids.sentTime.d_start, du->downstream);
     dnsheader cleartextDH;
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
-    if (!processResponse(du->response, localRespRuleActions, dr, false, true)) {
+    dr.ids.du = std::move(du);
+    if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false, true)) {
       #warning should we not notify the main thread??
       return;
     }
@@ -1622,10 +1624,12 @@ void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, 
       return;
     }
 
+    du = std::move(dr.ids.du);
+
     double udiff = du->ids.sentTime.udiff();
     vinfolog("Got answer from %s, relayed to %s (https), took %f usec", du->downstream->d_config.remote.toStringWithPort(), du->ids.origRemote.toStringWithPort(), udiff);
 
-    handleResponseSent(du->ids, udiff, *dr.remote, du->downstream->d_config.remote, du->response.size(), cleartextDH, du->downstream->getProtocol());
+    handleResponseSent(du->ids, udiff, dr.ids.origRemote, du->downstream->d_config.remote, du->response.size(), cleartextDH, du->downstream->getProtocol());
 
     ++g_stats.responses;
     if (du->ids.cs) {

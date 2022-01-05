@@ -35,7 +35,7 @@ std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq)
   }
 #ifdef HAVE_DNS_OVER_HTTPS
   else if (protocol == dnsdist::Protocol::DoH) {
-    if (dq.du == nullptr) {
+    if (dq.ids.du == nullptr) {
       throw std::runtime_error("Trying to get a DoH cross-protocol query from a question without DoH unit");
     }
 

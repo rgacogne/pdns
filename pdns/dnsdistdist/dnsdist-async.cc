@@ -149,12 +149,11 @@ static bool resumeResponse(std::unique_ptr<CrossProtocolQuery>&& response)
 
   try {
     auto& ids = response->query.d_idstate;
-    DNSResponse dr = makeDNSResponseFromIDState(ids, response->query.d_buffer, response->downstream);
+    DNSResponse dr(ids, response->query.d_buffer, ids.sentTime.d_start, response->downstream);
 
     auto result = processResponseAfterRules(response->query.d_buffer, dr, ids.cs->muted, !(response->downstream && response->downstream->isTCPOnly()) || dr.getProtocol().isUDP());
     if (!result) {
       /* easy */
-#warning check that we are not leaking DU
       return false;
     }
 
@@ -186,17 +185,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
   gettime(&queryRealTime, true);
 
   auto& ids = query->query.d_idstate;
-  DNSQuestion dq = makeDNSQuestionFromIDState(ids, query->query.d_buffer);
-#warning a better option would be to make DNSQuestion a IDState overlay
-  auto restoreIDSFromDQ = [](DNSQuestion& dnq, IDState& idstate) {
-    /* some fields are moved into the DNSQuestion, so we need to restore them
-       if we are going to resume from the IDState and not from the DNSQuestion */
-    idstate.qTag = std::move(dnq.qTag);
-    idstate.subnet = std::move(dnq.subnet);
-    idstate.uniqueId = std::move(dnq.uniqueId);
-    idstate.dnsCryptQuery = std::move(dnq.dnsCryptQuery);
-  };
-
+  DNSQuestion dq(ids, query->query.d_buffer, queryRealTime);
   LocalHolders holders;
 
   auto result = processQueryAfterRules(dq, holders, query->downstream);
@@ -210,7 +199,6 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     }
 
     if (query->downstream->isTCPOnly() || !dq.getProtocol().isUDP()) {
-      restoreIDSFromDQ(dq, ids);
       query->downstream->passCrossProtocolQuery(std::move(query));
       return true;
     }
@@ -219,12 +207,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     /* at this point 'du', if it is not nullptr, is owned by the DoHCrossProtocolQuery
        which will stop existing when we return, so we need to increment the reference count
     */
-    DOHUnitUniquePtr du(ids.du, DOHUnit::release);
-    if (du) {
-      du->get();
-    }
-
-    return assignOutgoingUDPQueryToBackend(query->downstream, du, queryID, dq, std::move(ids.qname), std::move(query->query.d_buffer), ids.origDest);
+    return assignOutgoingUDPQueryToBackend(query->downstream, queryID, dq, std::move(query->query.d_buffer), ids.origDest);
   }
   else if (result == ProcessQueryResult::SendAnswer) {
     auto sender = query->getTCPQuerySender();
@@ -234,7 +217,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
 
     struct timeval now;
     gettimeofday(&now, nullptr);
-    restoreIDSFromDQ(dq, ids);
+
     TCPResponse response(std::move(query->query.d_buffer), std::move(query->query.d_idstate), nullptr);
     response.d_async = true;
     response.d_selfGenerated = true;
@@ -247,8 +230,6 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
       vinfolog("Got exception while resuming cross-protocol self-answered query: %s", e.what());
       return false;
     }
-
-    //return sendUDPResponse(ids.cs->udpFD, std::move(query->query.d_buffer), dq.delayMsec, ids.origDest, ids.origRemote);
   }
   else if (result == ProcessQueryResult::Asynchronous) {
     /* nope */

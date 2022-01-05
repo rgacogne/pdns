@@ -261,7 +261,7 @@ bool slowRewriteEDNSOptionInQueryWithRecords(const PacketBuffer& initialPacket, 
   return true;
 }
 
-static bool slowParseEDNSOptions(const PacketBuffer& packet, std::shared_ptr<std::map<uint16_t, EDNSOptionView> >& options)
+static bool slowParseEDNSOptions(const PacketBuffer& packet, std::unique_ptr<std::map<uint16_t, EDNSOptionView> >& options)
 {
   if (packet.size() < sizeof(dnsheader)) {
     return false;
@@ -513,7 +513,7 @@ bool parseEDNSOptions(const DNSQuestion& dq)
     return true;
   }
 
-  dq.ednsOptions = std::make_shared<std::map<uint16_t, EDNSOptionView> >();
+  dq.ednsOptions = std::make_unique<std::map<uint16_t, EDNSOptionView> >();
 
   if (ntohs(dh->arcount) == 0) {
     /* nothing in additional so no EDNS */
@@ -526,7 +526,7 @@ bool parseEDNSOptions(const DNSQuestion& dq)
 
   size_t remaining = 0;
   uint16_t optRDPosition;
-  int res = getEDNSOptionsStart(dq.getData(), dq.qname->wirelength(), &optRDPosition, &remaining);
+  int res = getEDNSOptionsStart(dq.getData(), dq.ids.qname.wirelength(), &optRDPosition, &remaining);
 
   if (res == 0) {
     res = getEDNSOptions(reinterpret_cast<const char*>(&dq.getData().at(optRDPosition)), remaining, *dq.ednsOptions);
@@ -647,11 +647,10 @@ bool handleEDNSClientSubnet(PacketBuffer& packet, const size_t maximumSize, cons
 
 bool handleEDNSClientSubnet(DNSQuestion& dq, bool& ednsAdded, bool& ecsAdded)
 {
-  assert(dq.remote != nullptr);
   string newECSOption;
-  generateECSOption(dq.ecsSet ? dq.ecs.getNetwork() : *dq.remote, newECSOption, dq.ecsSet ? dq.ecs.getBits() : dq.ecsPrefixLength);
+  generateECSOption(dq.ecs ? dq.ecs->getNetwork() : dq.ids.origRemote, newECSOption, dq.ecs ? dq.ecs->getBits() : dq.ecsPrefixLength);
 
-  return handleEDNSClientSubnet(dq.getMutableData(), dq.getMaximumSize(), dq.qname->wirelength(), ednsAdded, ecsAdded, dq.ecsOverride, newECSOption);
+  return handleEDNSClientSubnet(dq.getMutableData(), dq.getMaximumSize(), dq.ids.qname.wirelength(), ednsAdded, ecsAdded, dq.ecsOverride, newECSOption);
 }
 
 static int removeEDNSOptionFromOptions(unsigned char* optionsStart, const uint16_t optionsLen, const uint16_t optionCodeToRemove, uint16_t* newOptionsLen)
@@ -868,7 +867,7 @@ bool setNegativeAndAdditionalSOA(DNSQuestion& dq, bool nxd, const DNSName& zone,
     return false;
   }
 
-  size_t queryPartSize = sizeof(dnsheader) + dq.qname->wirelength() + DNS_TYPE_SIZE + DNS_CLASS_SIZE;
+  size_t queryPartSize = sizeof(dnsheader) + dq.ids.qname.wirelength() + DNS_TYPE_SIZE + DNS_CLASS_SIZE;
   if (packet.size() < queryPartSize) {
     /* something is already wrong, don't build on flawed foundations */
     return false;
@@ -950,7 +949,7 @@ bool addEDNSToQueryTurnedResponse(DNSQuestion& dq)
   size_t remaining = 0;
 
   auto& packet = dq.getMutableData();
-  int res = getEDNSOptionsStart(packet, dq.qname->wirelength(), &optRDPosition, &remaining);
+  int res = getEDNSOptionsStart(packet, dq.ids.qname.wirelength(), &optRDPosition, &remaining);
 
   if (res != 0) {
     /* if the initial query did not have EDNS0, we are done */
@@ -997,7 +996,7 @@ int getEDNSZ(const DNSQuestion& dq)
       return 0;
     }
 
-    size_t pos = sizeof(dnsheader) + dq.qname->wirelength() + DNS_TYPE_SIZE + DNS_CLASS_SIZE;
+    size_t pos = sizeof(dnsheader) + dq.ids.qname.wirelength() + DNS_TYPE_SIZE + DNS_CLASS_SIZE;
 
     if (dq.getData().size() <= (pos + /* root */ 1 + DNS_TYPE_SIZE + DNS_CLASS_SIZE)) {
       return 0;
@@ -1034,7 +1033,7 @@ bool queryHasEDNS(const DNSQuestion& dq)
   uint16_t optRDPosition;
   size_t ecsRemaining = 0;
 
-  int res = getEDNSOptionsStart(dq.getData(), dq.qname->wirelength(), &optRDPosition, &ecsRemaining);
+  int res = getEDNSOptionsStart(dq.getData(), dq.ids.qname.wirelength(), &optRDPosition, &ecsRemaining);
   if (res == 0) {
     return true;
   }

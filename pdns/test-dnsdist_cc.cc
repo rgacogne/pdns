@@ -54,7 +54,7 @@ bool sendUDPResponse(int origFD, const PacketBuffer& response, const int delayMs
   return false;
 }
 
-bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, DOHUnitUniquePtr& newDU, uint16_t queryID, DNSQuestion& dq, DNSName&& qname, PacketBuffer&& query, ComboAddress& dest)
+bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint16_t queryID, DNSQuestion& dq, PacketBuffer&& query, ComboAddress& dest)
 {
   return false;
 }
@@ -86,12 +86,12 @@ static void validateQuery(const PacketBuffer& packet, bool hasEdns=true, bool ha
 
 static void validateECS(const PacketBuffer& packet, const ComboAddress& expected)
 {
-  ComboAddress rem("::1");
-  unsigned int consumed = 0;
-  uint16_t qtype;
-  uint16_t qclass;
-  DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-  DNSQuestion dq(&qname, qtype, qclass, nullptr, &rem, const_cast<PacketBuffer&>(packet), dnsdist::Protocol::DoUDP, nullptr);
+  struct timespec queryTime;
+  InternalQueryState ids;
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  ids.origRemote = ComboAddress("::1");
+  ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+  DNSQuestion dq(ids, const_cast<PacketBuffer&>(packet), queryTime);
   BOOST_CHECK(parseEDNSOptions(dq));
   BOOST_REQUIRE(dq.ednsOptions != nullptr);
   BOOST_CHECK_EQUAL(dq.ednsOptions->size(), 1U);
@@ -124,8 +124,11 @@ BOOST_AUTO_TEST_CASE(test_addXPF)
 
   struct timespec queryTime;
   gettime(&queryTime);  // does not have to be accurate ("realTime") in tests
-  ComboAddress remote;
   DNSName name("www.powerdns.com.");
+  InternalQueryState ids;
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  ids.origRemote = ComboAddress("::1");
+  ids.origDest = ComboAddress("::1");
 
   PacketBuffer query;
   GenericDNSPacketWriter<PacketBuffer> pw(query, name, QType::A, QClass::IN, 0);
@@ -136,13 +139,10 @@ BOOST_AUTO_TEST_CASE(test_addXPF)
     PacketBuffer packet = query;
 
     /* large enough packet */
-    unsigned int consumed = 0;
-    uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-    BOOST_CHECK_EQUAL(qname, name);
-    BOOST_CHECK(qtype == QType::A);
-
-    DNSQuestion dq(&qname, qtype, QClass::IN, &remote, &remote, packet, dnsdist::Protocol::DoUDP, &queryTime);
+    ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+    DNSQuestion dq(ids, const_cast<PacketBuffer&>(packet), queryTime);
+    BOOST_CHECK_EQUAL(ids.qname, name);
+    BOOST_CHECK(ids.qtype == QType::A);
 
     BOOST_CHECK(addXPF(dq, xpfOptionCode));
     BOOST_CHECK(packet.size() > query.size());
@@ -155,13 +155,10 @@ BOOST_AUTO_TEST_CASE(test_addXPF)
 
     /* packet is already too large for the 4096 limit over UDP */
     packet.resize(4096);
-    unsigned int consumed = 0;
-    uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-    BOOST_CHECK_EQUAL(qname, name);
-    BOOST_CHECK(qtype == QType::A);
-
-    DNSQuestion dq(&qname, qtype, QClass::IN, &remote, &remote, packet, dnsdist::Protocol::DoUDP, &queryTime);
+    ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+    DNSQuestion dq(ids, const_cast<PacketBuffer&>(packet), queryTime);
+    BOOST_CHECK_EQUAL(ids.qname, name);
+    BOOST_CHECK(ids.qtype == QType::A);
 
     BOOST_REQUIRE(!addXPF(dq, xpfOptionCode));
     BOOST_CHECK_EQUAL(packet.size(), 4096U);
@@ -173,13 +170,10 @@ BOOST_AUTO_TEST_CASE(test_addXPF)
     PacketBuffer packet = query;
 
     /* packet with trailing data (overriding it) */
-    unsigned int consumed = 0;
-    uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-    BOOST_CHECK_EQUAL(qname, name);
-    BOOST_CHECK(qtype == QType::A);
-
-    DNSQuestion dq(&qname, qtype, QClass::IN, &remote, &remote, packet, dnsdist::Protocol::DoUDP, &queryTime);
+    ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+    DNSQuestion dq(ids, const_cast<PacketBuffer&>(packet), queryTime);
+    BOOST_CHECK_EQUAL(ids.qname, name);
+    BOOST_CHECK(ids.qtype == QType::A);
 
     /* add trailing data */
     const size_t trailingDataSize = 10;
@@ -347,9 +341,12 @@ BOOST_AUTO_TEST_CASE(addECSWithoutEDNSButWithAnswer)
 
 BOOST_AUTO_TEST_CASE(addECSWithoutEDNSAlreadyParsed)
 {
+  InternalQueryState ids;
+  ids.origRemote = ComboAddress("192.0.2.1");
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  struct timespec queryTime;
   bool ednsAdded = false;
   bool ecsAdded = false;
-  ComboAddress remote("192.0.2.1");
   DNSName name("www.powerdns.com.");
 
   PacketBuffer query;
@@ -358,15 +355,12 @@ BOOST_AUTO_TEST_CASE(addECSWithoutEDNSAlreadyParsed)
 
   auto packet = query;
 
-  unsigned int consumed = 0;
-  uint16_t qtype;
-  uint16_t qclass;
-  DNSName qname(reinterpret_cast<const char *>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-  BOOST_CHECK_EQUAL(qname, name);
-  BOOST_CHECK(qtype == QType::A);
-  BOOST_CHECK(qclass == QClass::IN);
+  ids.qname = DNSName(reinterpret_cast<const char *>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+  BOOST_CHECK_EQUAL(ids.qname, name);
+  BOOST_CHECK(ids.qtype == QType::A);
+  BOOST_CHECK(ids.qclass == QClass::IN);
 
-  DNSQuestion dq(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+  DNSQuestion dq(ids, packet, queryTime);
   /* Parse the options before handling ECS, simulating a Lua rule asking for EDNS Options */
   BOOST_CHECK(!parseEDNSOptions(dq));
 
@@ -376,7 +370,7 @@ BOOST_AUTO_TEST_CASE(addECSWithoutEDNSAlreadyParsed)
   BOOST_CHECK_EQUAL(ednsAdded, true);
   BOOST_CHECK_EQUAL(ecsAdded, true);
   validateQuery(packet);
-  validateECS(packet, remote);
+  validateECS(packet, ids.origRemote);
 
   /* trailing data */
   packet = query;
@@ -384,12 +378,12 @@ BOOST_AUTO_TEST_CASE(addECSWithoutEDNSAlreadyParsed)
 
   ednsAdded = false;
   ecsAdded = false;
-  consumed = 0;
-  qname = DNSName(reinterpret_cast<char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-  BOOST_CHECK_EQUAL(qname, name);
-  BOOST_CHECK(qtype == QType::A);
-  BOOST_CHECK(qclass == QClass::IN);
-  DNSQuestion dq2(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+
+  ids.qname = DNSName(reinterpret_cast<char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+  BOOST_CHECK_EQUAL(ids.qname, name);
+  BOOST_CHECK(ids.qtype == QType::A);
+  BOOST_CHECK(ids.qclass == QClass::IN);
+  DNSQuestion dq2(ids, packet, queryTime);
 
   BOOST_CHECK(handleEDNSClientSubnet(dq2, ednsAdded, ecsAdded));
   BOOST_CHECK_GT(packet.size(), query.size());
@@ -397,7 +391,7 @@ BOOST_AUTO_TEST_CASE(addECSWithoutEDNSAlreadyParsed)
   BOOST_CHECK_EQUAL(ednsAdded, true);
   BOOST_CHECK_EQUAL(ecsAdded, true);
   validateQuery(packet);
-  validateECS(packet, remote);
+  validateECS(packet, ids.origRemote);
 }
 
 BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECS) {
@@ -447,9 +441,12 @@ BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECS) {
 }
 
 BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECSAlreadyParsed) {
+  InternalQueryState ids;
+  ids.origRemote = ComboAddress("2001:DB8::1");
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  struct timespec queryTime;
   bool ednsAdded = false;
   bool ecsAdded = false;
-  ComboAddress remote("2001:DB8::1");
   DNSName name("www.powerdns.com.");
 
   PacketBuffer query;
@@ -460,15 +457,12 @@ BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECSAlreadyParsed) {
 
   auto packet = query;
 
-  unsigned int consumed = 0;
-  uint16_t qtype;
-  uint16_t qclass;
-  DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-  BOOST_CHECK_EQUAL(qname, name);
-  BOOST_CHECK(qtype == QType::A);
-  BOOST_CHECK(qclass == QClass::IN);
+  ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+  BOOST_CHECK_EQUAL(ids.qname, name);
+  BOOST_CHECK(ids.qtype == QType::A);
+  BOOST_CHECK(ids.qclass == QClass::IN);
 
-  DNSQuestion dq(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+  DNSQuestion dq(ids, packet, queryTime);
   /* Parse the options before handling ECS, simulating a Lua rule asking for EDNS Options */
   BOOST_CHECK(parseEDNSOptions(dq));
 
@@ -478,19 +472,18 @@ BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECSAlreadyParsed) {
   BOOST_CHECK_EQUAL(ednsAdded, false);
   BOOST_CHECK_EQUAL(ecsAdded, true);
   validateQuery(packet);
-  validateECS(packet, remote);
+  validateECS(packet, ids.origRemote);
 
   /* trailing data */
   packet = query;
   packet.resize(2048);
-  consumed = 0;
   ednsAdded = false;
   ecsAdded = false;
-  qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-  BOOST_CHECK_EQUAL(qname, name);
-  BOOST_CHECK(qtype == QType::A);
-  BOOST_CHECK(qclass == QClass::IN);
-  DNSQuestion dq2(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+  ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+  BOOST_CHECK_EQUAL(ids.qname, name);
+  BOOST_CHECK(ids.qtype == QType::A);
+  BOOST_CHECK(ids.qclass == QClass::IN);
+  DNSQuestion dq2(ids, packet, queryTime);
 
   BOOST_CHECK(handleEDNSClientSubnet(dq2, ednsAdded, ecsAdded));
   BOOST_CHECK_GT(packet.size(), query.size());
@@ -498,7 +491,7 @@ BOOST_AUTO_TEST_CASE(addECSWithEDNSNoECSAlreadyParsed) {
   BOOST_CHECK_EQUAL(ednsAdded, false);
   BOOST_CHECK_EQUAL(ecsAdded, true);
   validateQuery(packet);
-  validateECS(packet, remote);
+  validateECS(packet, ids.origRemote);
 }
 
 BOOST_AUTO_TEST_CASE(replaceECSWithSameSize) {
@@ -542,11 +535,15 @@ BOOST_AUTO_TEST_CASE(replaceECSWithSameSizeAlreadyParsed) {
   bool ednsAdded = false;
   bool ecsAdded = false;
   ComboAddress remote("192.168.1.25");
-  DNSName name("www.powerdns.com.");
   ComboAddress origRemote("127.0.0.1");
+  InternalQueryState ids;
+  ids.origRemote = remote;
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  ids.qname = DNSName("www.powerdns.com.");
+  struct timespec queryTime;
 
   PacketBuffer query;
-  GenericDNSPacketWriter<PacketBuffer> pw(query, name, QType::A, QClass::IN, 0);
+  GenericDNSPacketWriter<PacketBuffer> pw(query, ids.qname, QType::A, QClass::IN, 0);
   pw.getHeader()->rd = 1;
   EDNSSubnetOpts ecsOpts;
   ecsOpts.source = Netmask(origRemote, ECSSourcePrefixV4);
@@ -562,11 +559,11 @@ BOOST_AUTO_TEST_CASE(replaceECSWithSameSizeAlreadyParsed) {
   uint16_t qtype;
   uint16_t qclass;
   DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-  BOOST_CHECK_EQUAL(qname, name);
+  BOOST_CHECK_EQUAL(qname, ids.qname);
   BOOST_CHECK(qtype == QType::A);
   BOOST_CHECK(qclass == QClass::IN);
 
-  DNSQuestion dq(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+  DNSQuestion dq(ids, packet, queryTime);
   dq.ecsOverride = true;
 
   /* Parse the options before handling ECS, simulating a Lua rule asking for EDNS Options */
@@ -1445,18 +1442,13 @@ BOOST_AUTO_TEST_CASE(rewritingWithoutECSWhenLastOption) {
   validateResponse(newResponse, true, 1);
 }
 
-static DNSQuestion getDNSQuestion(const DNSName& qname, const uint16_t qtype, const uint16_t qclass, const ComboAddress& lc, const ComboAddress& rem, const struct timespec& realTime, PacketBuffer& query)
-{
-  return DNSQuestion(&qname, qtype, qclass, &lc, &rem, query, dnsdist::Protocol::DoUDP, &realTime);
-}
-
-static DNSQuestion turnIntoResponse(const DNSName& qname, const uint16_t qtype, const uint16_t qclass, const ComboAddress& lc, const ComboAddress& rem, const struct timespec& queryRealTime, PacketBuffer&  query, bool resizeBuffer=true)
+static DNSQuestion turnIntoResponse(InternalQueryState& ids, PacketBuffer& query, struct timespec& queryRealTime, bool resizeBuffer=true)
 {
   if (resizeBuffer) {
     query.resize(4096);
   }
 
-  auto dq = getDNSQuestion(qname, qtype, qclass, lc, rem, queryRealTime, query);
+  auto dq = DNSQuestion(ids, query, queryRealTime);
 
   BOOST_CHECK(addEDNSToQueryTurnedResponse(dq));
 
@@ -1465,11 +1457,17 @@ static DNSQuestion turnIntoResponse(const DNSName& qname, const uint16_t qtype, 
 
 static int getZ(const DNSName& qname, const uint16_t qtype, const uint16_t qclass, PacketBuffer& query)
 {
-  ComboAddress lc("127.0.0.1");
-  ComboAddress rem("127.0.0.1");
+  InternalQueryState ids;
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  ids.qname = qname;
+  ids.qtype = qtype;
+  ids.qclass = qclass;
+  ids.origDest = ComboAddress("127.0.0.1");
+  ids.origRemote = ComboAddress("127.0.0.1");
   struct timespec queryRealTime;
   gettime(&queryRealTime, true);
-  DNSQuestion dq = getDNSQuestion(qname, qtype, qclass, lc, rem, queryRealTime, query);
+
+  auto dq = DNSQuestion(ids, query, queryRealTime);
 
   return getEDNSZ(dq);
 }
@@ -1571,12 +1569,14 @@ BOOST_AUTO_TEST_CASE(test_getEDNSZ) {
 }
 
 BOOST_AUTO_TEST_CASE(test_addEDNSToQueryTurnedResponse) {
-
+  InternalQueryState ids;
+  ids.qname = DNSName("www.powerdns.com.");
+  ids.qtype = QType::A;
+  ids.qclass = QClass::IN;
+  ids.origDest = ComboAddress("127.0.0.1");
+  ids.origRemote = ComboAddress("127.0.0.1");
   uint16_t z;
   uint16_t udpPayloadSize;
-  DNSName qname("www.powerdns.com.");
-  uint16_t qtype = QType::A;
-  uint16_t qclass = QClass::IN;
   EDNSSubnetOpts ecsOpts;
   ecsOpts.source = Netmask(ComboAddress("127.0.0.1"), ECSSourcePrefixV4);
   string origECSOptionStr = makeEDNSSubnetOptsString(ecsOpts);
@@ -1585,20 +1585,18 @@ BOOST_AUTO_TEST_CASE(test_addEDNSToQueryTurnedResponse) {
   GenericDNSPacketWriter<PacketBuffer>::optvect_t opts;
   opts.emplace_back(EDNSOptionCode::COOKIE, cookiesOptionStr);
   opts.emplace_back(EDNSOptionCode::ECS, origECSOptionStr);
-  ComboAddress lc("127.0.0.1");
-  ComboAddress rem("127.0.0.1");
   struct timespec queryRealTime;
   gettime(&queryRealTime, true);
 
   {
     /* no EDNS */
     PacketBuffer query;
-    GenericDNSPacketWriter<PacketBuffer> pw(query, qname, qtype, qclass, 0);
+    GenericDNSPacketWriter<PacketBuffer> pw(query, ids.qname, ids.qtype, ids.qclass, 0);
     pw.getHeader()->qr = 1;
     pw.getHeader()->rcode = RCode::NXDomain;
     pw.commit();
 
-    auto dq = turnIntoResponse(qname, qtype, qclass, lc, rem, queryRealTime, query);
+    auto dq = turnIntoResponse(ids, query, queryRealTime);
     BOOST_CHECK_EQUAL(getEDNSZ(dq), 0);
     BOOST_CHECK_EQUAL(getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(dq.getData().data()), dq.getData().size(), &udpPayloadSize, &z), false);
     BOOST_CHECK_EQUAL(z, 0);
@@ -1608,12 +1606,12 @@ BOOST_AUTO_TEST_CASE(test_addEDNSToQueryTurnedResponse) {
   {
     /* truncated EDNS */
     PacketBuffer query;
-    GenericDNSPacketWriter<PacketBuffer> pw(query, qname, qtype, qclass, 0);
+    GenericDNSPacketWriter<PacketBuffer> pw(query, ids.qname, ids.qtype, ids.qclass, 0);
     pw.addOpt(512, 0, EDNS_HEADER_FLAG_DO);
     pw.commit();
 
     query.resize(query.size() - (/* RDLEN */ sizeof(uint16_t) + /* last byte of TTL / Z */ 1));
-    auto dq = turnIntoResponse(qname, qtype, qclass, lc, rem, queryRealTime, query, false);
+    auto dq = turnIntoResponse(ids, query, queryRealTime, false);
     BOOST_CHECK_EQUAL(getEDNSZ(dq), 0);
     BOOST_CHECK_EQUAL(getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(dq.getData().data()), dq.getData().size(), &udpPayloadSize, &z), false);
     BOOST_CHECK_EQUAL(z, 0);
@@ -1623,11 +1621,11 @@ BOOST_AUTO_TEST_CASE(test_addEDNSToQueryTurnedResponse) {
   {
     /* valid EDNS, no options, DO not set */
     PacketBuffer query;
-    GenericDNSPacketWriter<PacketBuffer> pw(query, qname, qtype, qclass, 0);
+    GenericDNSPacketWriter<PacketBuffer> pw(query, ids.qname, ids.qtype, ids.qclass, 0);
     pw.addOpt(512, 0, 0);
     pw.commit();
 
-    auto dq = turnIntoResponse(qname, qtype, qclass, lc, rem, queryRealTime, query);
+    auto dq = turnIntoResponse(ids, query, queryRealTime);
     BOOST_CHECK_EQUAL(getEDNSZ(dq), 0);
     BOOST_CHECK_EQUAL(getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(dq.getData().data()), dq.getData().size(), &udpPayloadSize, &z), true);
     BOOST_CHECK_EQUAL(z, 0);
@@ -1637,11 +1635,11 @@ BOOST_AUTO_TEST_CASE(test_addEDNSToQueryTurnedResponse) {
   {
     /* valid EDNS, no options, DO set */
     PacketBuffer query;
-    GenericDNSPacketWriter<PacketBuffer> pw(query, qname, qtype, qclass, 0);
+    GenericDNSPacketWriter<PacketBuffer> pw(query, ids.qname, ids.qtype, ids.qclass, 0);
     pw.addOpt(512, 0, EDNS_HEADER_FLAG_DO);
     pw.commit();
 
-    auto dq = turnIntoResponse(qname, qtype, qclass, lc, rem, queryRealTime, query);
+    auto dq = turnIntoResponse(ids, query, queryRealTime);
     BOOST_CHECK_EQUAL(getEDNSZ(dq), EDNS_HEADER_FLAG_DO);
     BOOST_CHECK_EQUAL(getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(dq.getData().data()), dq.getData().size(), &udpPayloadSize, &z), true);
     BOOST_CHECK_EQUAL(z, EDNS_HEADER_FLAG_DO);
@@ -1651,11 +1649,11 @@ BOOST_AUTO_TEST_CASE(test_addEDNSToQueryTurnedResponse) {
   {
     /* valid EDNS, options, DO not set */
     PacketBuffer query;
-    GenericDNSPacketWriter<PacketBuffer> pw(query, qname, qtype, qclass, 0);
+    GenericDNSPacketWriter<PacketBuffer> pw(query, ids.qname, ids.qtype, ids.qclass, 0);
     pw.addOpt(512, 0, 0, opts);
     pw.commit();
 
-    auto dq = turnIntoResponse(qname, qtype, qclass, lc, rem, queryRealTime, query);
+    auto dq = turnIntoResponse(ids, query, queryRealTime);
     BOOST_CHECK_EQUAL(getEDNSZ(dq), 0);
     BOOST_CHECK_EQUAL(getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(dq.getData().data()), dq.getData().size(), &udpPayloadSize, &z), true);
     BOOST_CHECK_EQUAL(z, 0);
@@ -1665,11 +1663,11 @@ BOOST_AUTO_TEST_CASE(test_addEDNSToQueryTurnedResponse) {
   {
     /* valid EDNS, options, DO set */
     PacketBuffer query;
-    GenericDNSPacketWriter<PacketBuffer> pw(query, qname, qtype, qclass, 0);
+    GenericDNSPacketWriter<PacketBuffer> pw(query, ids.qname, ids.qtype, ids.qclass, 0);
     pw.addOpt(512, 0, EDNS_HEADER_FLAG_DO, opts);
     pw.commit();
 
-    auto dq = turnIntoResponse(qname, qtype, qclass, lc, rem, queryRealTime, query);
+    auto dq = turnIntoResponse(ids, query, queryRealTime);
     BOOST_CHECK_EQUAL(getEDNSZ(dq), EDNS_HEADER_FLAG_DO);
     BOOST_CHECK_EQUAL(getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(dq.getData().data()), dq.getData().size(), &udpPayloadSize, &z), true);
     BOOST_CHECK_EQUAL(z, EDNS_HEADER_FLAG_DO);
@@ -1922,6 +1920,10 @@ BOOST_AUTO_TEST_CASE(test_isEDNSOptionInOpt) {
 }
 
 BOOST_AUTO_TEST_CASE(test_setNegativeAndAdditionalSOA) {
+  InternalQueryState ids;
+  ids.origRemote = ComboAddress("192.0.2.1");
+  ids.protocol = dnsdist::Protocol::DoUDP;
+
   struct timespec queryTime;
   gettime(&queryTime);  // does not have to be accurate ("realTime") in tests
   ComboAddress remote;
@@ -1941,10 +1943,8 @@ BOOST_AUTO_TEST_CASE(test_setNegativeAndAdditionalSOA) {
     /* no incoming EDNS */
     auto packet = query;
 
-    unsigned int consumed = 0;
-    uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-    DNSQuestion dq(&qname, qtype, QClass::IN, &remote, &remote, packet, dnsdist::Protocol::DoUDP, &queryTime);
+    ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, nullptr);
+    DNSQuestion dq(ids, packet, queryTime);
 
     BOOST_CHECK(setNegativeAndAdditionalSOA(dq, true, DNSName("zone."), 42, DNSName("mname."), DNSName("rname."), 1, 2, 3, 4 , 5));
     BOOST_CHECK(packet.size() > query.size());
@@ -1965,10 +1965,8 @@ BOOST_AUTO_TEST_CASE(test_setNegativeAndAdditionalSOA) {
     /* now with incoming EDNS */
     auto packet = queryWithEDNS;
 
-    unsigned int consumed = 0;
-    uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-    DNSQuestion dq(&qname, qtype, QClass::IN, &remote, &remote, packet, dnsdist::Protocol::DoUDP, &queryTime);
+    ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, nullptr);
+    DNSQuestion dq(ids, packet, queryTime);
 
     BOOST_CHECK(setNegativeAndAdditionalSOA(dq, true, DNSName("zone."), 42, DNSName("mname."), DNSName("rname."), 1, 2, 3, 4 , 5));
     BOOST_CHECK(packet.size() > queryWithEDNS.size());
@@ -1993,10 +1991,8 @@ BOOST_AUTO_TEST_CASE(test_setNegativeAndAdditionalSOA) {
     /* no incoming EDNS */
     auto packet = query;
 
-    unsigned int consumed = 0;
-    uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-    DNSQuestion dq(&qname, qtype, QClass::IN, &remote, &remote, packet, dnsdist::Protocol::DoUDP, &queryTime);
+    ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, nullptr);
+    DNSQuestion dq(ids, packet, queryTime);
 
     BOOST_CHECK(setNegativeAndAdditionalSOA(dq, false, DNSName("zone."), 42, DNSName("mname."), DNSName("rname."), 1, 2, 3, 4 , 5));
     BOOST_CHECK(packet.size() > query.size());
@@ -2017,10 +2013,8 @@ BOOST_AUTO_TEST_CASE(test_setNegativeAndAdditionalSOA) {
     /* now with incoming EDNS */
     auto packet = queryWithEDNS;
 
-    unsigned int consumed = 0;
-    uint16_t qtype;
-    DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, nullptr, &consumed);
-    DNSQuestion dq(&qname, qtype, QClass::IN, &remote, &remote, packet, dnsdist::Protocol::DoUDP, &queryTime);
+    ids.qname = DNSName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &ids.qtype, nullptr);
+    DNSQuestion dq(ids, packet, queryTime);
 
     BOOST_CHECK(setNegativeAndAdditionalSOA(dq, false, DNSName("zone."), 42, DNSName("mname."), DNSName("rname."), 1, 2, 3, 4 , 5));
     BOOST_CHECK(packet.size() > queryWithEDNS.size());
@@ -2042,9 +2036,12 @@ BOOST_AUTO_TEST_CASE(test_setNegativeAndAdditionalSOA) {
 }
 
 BOOST_AUTO_TEST_CASE(getEDNSOptionsWithoutEDNS) {
-  const ComboAddress remote("192.168.1.25");
+  InternalQueryState ids;
+  ids.origRemote = ComboAddress("192.168.1.25");
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  struct timespec queryTime;
+
   const DNSName name("www.powerdns.com.");
-  const ComboAddress origRemote("127.0.0.1");
   const ComboAddress v4("192.0.2.1");
 
   {
@@ -2061,7 +2058,7 @@ BOOST_AUTO_TEST_CASE(getEDNSOptionsWithoutEDNS) {
     uint16_t qtype;
     uint16_t qclass;
     DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-    DNSQuestion dq(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+    DNSQuestion dq(ids, packet, queryTime);
 
     BOOST_CHECK(!parseEDNSOptions(dq));
   }
@@ -2082,7 +2079,7 @@ BOOST_AUTO_TEST_CASE(getEDNSOptionsWithoutEDNS) {
     uint16_t qtype;
     uint16_t qclass;
     DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-    DNSQuestion dq(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+    DNSQuestion dq(ids, packet, queryTime);
 
     BOOST_CHECK(!parseEDNSOptions(dq));
   }
@@ -2103,7 +2100,7 @@ BOOST_AUTO_TEST_CASE(getEDNSOptionsWithoutEDNS) {
     uint16_t qtype;
     uint16_t qclass;
     DNSName qname(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &qtype, &qclass, &consumed);
-    DNSQuestion dq(&qname, qtype, qclass, nullptr, &remote, packet, dnsdist::Protocol::DoUDP, nullptr);
+    DNSQuestion dq(ids, packet, queryTime);
 
     BOOST_CHECK(!parseEDNSOptions(dq));
   }

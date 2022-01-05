@@ -232,7 +232,7 @@ struct DOHUnit
     }
   }
 
-  IDState ids;
+  InternalQueryState ids;
   std::string sni;
   std::string path;
   std::string scheme;
@@ -270,7 +270,7 @@ struct DOHUnit
   void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="");
 };
 
-void handleUDPResponseForDoH(std::unique_ptr<DOHUnit, void(*)(DOHUnit*)>&&, PacketBuffer&& response, IDState&& state);
+void handleUDPResponseForDoH(std::unique_ptr<DOHUnit, void(*)(DOHUnit*)>&&, PacketBuffer&& response, InternalQueryState&& state);
 
 struct CrossProtocolQuery;
 struct DNSQuestion;
