@@ -2244,6 +2244,8 @@ static void sighandler(int sig)
 }
 #endif
 
+#include "dnsdist-discovery.hh"
+
 int main(int argc, char** argv)
 {
   try {
@@ -2731,6 +2733,8 @@ int main(int argc, char** argv)
     }
 #endif /* DISABLE_SECPOLL */
 
+    cerr<<dnsdist::discoverBackendUpgrade(ComboAddress("9.9.9.9:53"), 2)<<endl;
+    
     if(g_cmdLine.beSupervised) {
 #ifdef HAVE_SYSTEMD
       sd_notify(0, "READY=1");
