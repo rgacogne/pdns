@@ -554,6 +554,16 @@ void dnsdist_ffi_dnsquestion_spoof_addrs(dnsdist_ffi_dnsquestion_t* dq, const dn
   sa(dq->dq, &result);
 }
 
+bool dnsdist_ffi_dnsquestion_set_restartable(dnsdist_ffi_dnsquestion_t* dq)
+{
+  if (dq == nullptr || dq->dq == nullptr) {
+    return false;
+  }
+
+  dq->dq->ids.d_packet = std::make_unique<PacketBuffer>(dq->dq->getData());
+  return true;
+}
+
 size_t dnsdist_ffi_servers_list_get_count(const dnsdist_ffi_servers_list_t* list)
 {
   return list->ffiServers.size();
@@ -730,9 +740,6 @@ bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const cha
     }
     (*ids.qTag)[std::string(tag, tagSize)] = std::string(tagValue, tagValueSize);
   }
-  #warning FIXME/TODO flag?
-  cerr<<"setting d_packet"<<endl;
-  query->query.d_idstate.d_packet = std::make_unique<PacketBuffer>(query->query.d_buffer);
 
   return dnsdist::resumeQuery(std::move(query));
 }
