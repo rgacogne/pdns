@@ -478,6 +478,12 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool mut
     dr.ids.packetCache->insert(cacheKey, zeroScope ? boost::none : dr.ids.subnet, dr.ids.cacheFlags, dr.ids.dnssecOK, dr.ids.qname, dr.ids.qtype, dr.ids.qclass, response, receivedOverUDP, dr.getHeader()->rcode, dr.ids.tempFailureTTL);
   }
 
+  if (dr.ids.ttlCap > 0) {
+    std::string result;
+    LimitTTLResponseAction ac(0, dr.ids.ttlCap);
+    ac(&dr, &result);
+  }
+
 #ifdef HAVE_DNSCRYPT
   if (!muted) {
     if (!encryptResponse(response, dr.getMaximumSize(), dr.overTCP(), dr.ids.dnsCryptQuery)) {
@@ -1193,10 +1199,16 @@ static void queueResponse(const ClientState& cs, const PacketBuffer& response, c
 static bool prepareOutgoingResponse(LocalHolders& holders, const ClientState& cs, DNSQuestion& dq, bool cacheHit)
 {
   std::shared_ptr<DownstreamState> ds{nullptr};
-  DNSResponse dr(dq.ids, dq.getMutableData(), dq.queryTime, ds);
 
+  DNSResponse dr(dq.ids, dq.getMutableData(), dq.queryTime, ds);
   if (!applyRulesToResponse(cacheHit ? holders.cacheHitRespRuleactions : holders.selfAnsweredRespRuleactions, dr)) {
     return false;
+  }
+
+  if (dr.ids.ttlCap > 0) {
+    std::string result;
+    LimitTTLResponseAction ac(0, dr.ids.ttlCap);
+    ac(&dr, &result);
   }
 
 #ifdef HAVE_DNSCRYPT

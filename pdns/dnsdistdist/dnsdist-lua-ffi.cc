@@ -564,6 +564,13 @@ bool dnsdist_ffi_dnsquestion_set_restartable(dnsdist_ffi_dnsquestion_t* dq)
   return true;
 }
 
+void dnsdist_ffi_dnsquestion_set_max_returned_ttl(dnsdist_ffi_dnsquestion_t* dq, uint32_t max)
+{
+  if (dq != nullptr && dq->dq != nullptr) {
+    dq->dq->ids.ttlCap = max;
+  }
+}
+
 size_t dnsdist_ffi_servers_list_get_count(const dnsdist_ffi_servers_list_t* list)
 {
   return list->ffiServers.size();
@@ -643,16 +650,23 @@ void dnsdist_ffi_dnsresponse_set_max_ttl(dnsdist_ffi_dnsresponse_t* dr, uint32_t
 
 void dnsdist_ffi_dnsresponse_limit_ttl(dnsdist_ffi_dnsresponse_t* dr, uint32_t min, uint32_t max)
 {
-  if (dr->dr != nullptr) {
+  if (dr != nullptr && dr->dr != nullptr) {
     std::string result;
     LimitTTLResponseAction ac(min, max);
     ac(dr->dr, &result);
   }
 }
 
+void dnsdist_ffi_dnsresponse_set_max_returned_ttl(dnsdist_ffi_dnsresponse_t* dr, uint32_t max)
+{
+  if (dr != nullptr && dr->dr != nullptr) {
+    dr->dr->ids.ttlCap = max;
+  }
+}
+
 void dnsdist_ffi_dnsresponse_clear_records_type(dnsdist_ffi_dnsresponse_t* dr, uint16_t qtype)
 {
-  if (dr->dr != nullptr) {
+  if (dr != nullptr && dr->dr != nullptr) {
     clearDNSPacketRecordTypes(dr->dr->getMutableData(), std::set<QType>{qtype});
   }
 }
@@ -668,15 +682,14 @@ bool dnsdist_ffi_dnsresponse_rebase(dnsdist_ffi_dnsresponse_t* dr, const char* i
     DNSName parsed(initialName, initialNameSize, 0, false);
 
     if (!dnsdist::rebaseDNSPacket(dr->dr->getMutableData(), dr->dr->ids.qname, parsed)) {
-      cerr<<__PRETTY_FUNCTION__<<": error rebasing"<<endl;
       return false;
     }
 
-    //*dr->dr->qname = parsed;
+    dr->dr->ids.qname = parsed;
+    dr->dr->ids.skipCache = true;
   }
   catch (const std::exception& e) {
     vinfolog("Error rebasing packet on a new DNSName: %s", e.what());
-    cerr<<__PRETTY_FUNCTION__<<": exception rebasing"<<endl;
     return false;
   }
 
@@ -747,13 +760,11 @@ bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const cha
 bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_t queryID, const char* alternateName, size_t alternateNameSize, const char* tag, size_t tagSize, const char* tagValue, size_t tagValueSize, const char* formerNameTagName, size_t formerNameTagSize)
 {
   if (!dnsdist::g_asyncHolder) {
-    cerr<<__PRETTY_FUNCTION__<<": no holder"<<endl;
     return false;
   }
 
   auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
-    cerr<<__PRETTY_FUNCTION__<<": no query"<<endl;
     return false;
   }
 
@@ -768,7 +779,6 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
     PacketBuffer initialPacket;
     if (query->isResponse) {
       if (!ids.d_packet) {
-        cerr<<__PRETTY_FUNCTION__<<": query not found in response"<<endl;
         return false;
       }
       initialPacket = std::move(*ids.d_packet);
@@ -779,7 +789,6 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
 
     // edit qname in query packet
     if (!dnsdist::rebaseDNSPacket(initialPacket, originalName, parsed)) {
-      cerr<<__PRETTY_FUNCTION__<<": error rebasing"<<endl;
       return false;
     }
     if (query->isResponse) {
@@ -789,7 +798,6 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
   }
   catch (const std::exception& e) {
     vinfolog("Error rebasing packet on a new DNSName: %s", e.what());
-    cerr<<__PRETTY_FUNCTION__<<": exception rebasing"<<endl;
     return false;
   }
 
@@ -807,6 +815,8 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
     }
     (*ids.qTag)[std::string(tag, tagSize)] = std::string(tagValue, tagValueSize);
   }
+
+  ids.skipCache = true;
 
   // resume as query
   return dnsdist::resumeQuery(std::move(query));
