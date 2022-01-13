@@ -28,6 +28,16 @@
 
 namespace dnsdist {
 
+const std::string ServiceDiscovery::s_discoveryDomain{"_dns.resolver.arpa."};
+const QType ServiceDiscovery::s_discoveryType{QType::SVCB};
+const uint16_t ServiceDiscovery::s_defaultDoHSVCKey{7};
+
+bool ServiceDiscovery::addUpgradeableServer(std::shared_ptr<DownstreamState>& server, uint32_t interval, std::string poolAfterUpgrade, uint16_t dohSVCKey, bool keepAfterUpgrade)
+{
+  d_upgradeableBackends.emplace_back(UpgradeableBackend{server, poolAfterUpgrade, 0, interval, dohSVCKey, keepAfterUpgrade});
+  return true;
+}
+
 struct DesignatedResolvers
 {
   DNSName target;
@@ -35,7 +45,7 @@ struct DesignatedResolvers
   std::vector<ComboAddress> hints;
 };
 
-static bool parseSVCParams(const std::string& answer, std::map<uint16_t, DesignatedResolvers>& resolvers)
+static bool parseSVCParams(const PacketBuffer& answer, std::map<uint16_t, DesignatedResolvers>& resolvers)
 {
   if (answer.size() <= sizeof(struct dnsheader)) {
     throw std::runtime_error("Looking for SVC records in a packet smaller than a DNS header");
@@ -43,7 +53,7 @@ static bool parseSVCParams(const std::string& answer, std::map<uint16_t, Designa
 
   std::map<DNSName, std::vector<ComboAddress>> hints;
   const struct dnsheader* dh = reinterpret_cast<const struct dnsheader*>(answer.data());
-  PacketReader pr(answer);
+  PacketReader pr(pdns_string_view(reinterpret_cast<const char*>(answer.data()), answer.size()));
   uint16_t qdcount = ntohs(dh->qdcount);
   uint16_t ancount = ntohs(dh->ancount);
   uint16_t nscount = ntohs(dh->nscount);
@@ -133,54 +143,54 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
   try {
     const DNSName specialUseDomainName("_dns.resolver.arpa.");
 
-    std::vector<uint8_t> packet;
-    DNSPacketWriter pw(packet, specialUseDomainName, QType::SVCB);
-    pw.getHeader()->id = getRandomDNSID();
+    auto id = getRandomDNSID();
+    PacketBuffer packet;
+    GenericDNSPacketWriter pw(packet, specialUseDomainName, QType::SVCB);
+    pw.getHeader()->id = id;
     pw.getHeader()->rd = 1;
     pw.addOpt(4096, 0, 0);
 
-    Socket sock(addr.sin4.sin_family, SOCK_DGRAM);
+    uint16_t querySize = static_cast<uint16_t>(packet.size());
+    const uint8_t sizeBytes[] = { static_cast<uint8_t>(querySize / 256), static_cast<uint8_t>(querySize % 256) };
+    packet.insert(packet.begin(), sizeBytes, sizeBytes + 2);
+
+    Socket sock(addr.sin4.sin_family, SOCK_STREAM);
     sock.setNonBlocking();
-    sock.connect(addr);
-    sock.send(string(packet.begin(), packet.end()));
+    sock.connect(addr, timeout);
 
-    string reply;
-    int ret = waitForData(sock.getHandle(), timeout, 0);
-    if (ret < 0) {
+    sock.writenWithTimeout(reinterpret_cast<const char*>(packet.data()), packet.size(), timeout);
+
+    uint16_t responseSize = 0;
+    auto got = sock.readWithTimeout(reinterpret_cast<char*>(&responseSize), sizeof(responseSize), timeout);
+    if (got < 0 || static_cast<size_t>(got) != sizeof(responseSize)) {
       if (g_verbose) {
-        warnlog("Error while waiting for the ADD upgrade response from backend %s: %d", addr.toString(), ret);
-      }
-      return false;
-    }
-    else if (ret == 0) {
-      if (g_verbose) {
-        warnlog("Timeout while waiting for the ADD upgrade response from backend %s", addr.toString());
+        warnlog("Error while waiting for the ADD upgrade response from backend %s: %d", addr.toString(), got);
       }
       return false;
     }
 
-    try {
-      sock.read(reply);
-    }
-    catch(const std::exception& e) {
+    packet.resize(ntohs(responseSize));
+
+    got = sock.readWithTimeout(reinterpret_cast<char *>(packet.data()), packet.size(), timeout);
+    if (got < 0 || static_cast<size_t>(got) != packet.size()) {
       if (g_verbose) {
-        warnlog("Error while reading for the ADD upgrade response from backend %s: %s", addr.toString(), e.what());
+        warnlog("Error while waiting for the ADD upgrade response from backend %s: %d", addr.toString(), got);
       }
       return false;
     }
 
-    if (reply.size() <= sizeof(struct dnsheader)) {
+    if (packet.size() <= sizeof(struct dnsheader)) {
       if (g_verbose) {
-        warnlog("Too short answer of size %d received from the backend %s", reply.size(), addr.toString());
+        warnlog("Too short answer of size %d received from the backend %s", packet.size(), addr.toString());
       }
       return false;
     }
 
     struct dnsheader d;
-    memcpy(&d, reply.c_str(), sizeof(d));
-    if (d.id != pw.getHeader()->id) {
+    memcpy(&d, packet.data(), sizeof(d));
+    if (d.id != id) {
       if (g_verbose) {
-        warnlog("Invalid ID (%d / %d) received from the backend %s", d.id, pw.getHeader()->id, addr.toString());
+        warnlog("Invalid ID (%d / %d) received from the backend %s", d.id, id, addr.toString());
       }
       return false;
     }
@@ -202,7 +212,7 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
 
     uint16_t receivedType;
     uint16_t receivedClass;
-    DNSName receivedName(reply.c_str(), reply.size(), sizeof(dnsheader), false, &receivedType, &receivedClass);
+    DNSName receivedName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &receivedType, &receivedClass);
 
     if (receivedName != specialUseDomainName || receivedType != QType::SVCB || receivedClass != QClass::IN) {
       if (g_verbose) {
@@ -213,13 +223,24 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
 
     std::map<uint16_t, DesignatedResolvers> resolvers;
 
-    if (!parseSVCParams(reply, resolvers)) {
+    if (!parseSVCParams(packet, resolvers)) {
       return false;
     }
 
 #warning we should make the dohpath key configurable, unfortunately.. it seems 7 will be selected but it can still change
+    struct DiscoveredResolverConfig
+    {
+      ComboAddress d_addr;
+      std::string d_dohPath;
+      uint16_t d_port{0};
+      dnsdist::Protocol d_protocol;
+    };
+
     cerr<<"Got "<<resolvers.size()<<" resolver options"<<endl;
     for (const auto& resolver : resolvers) {
+      DiscoveredResolverConfig config;
+      config.d_addr.sin4.sin_family = 0;
+
       cerr<<"- Priority "<<resolver.first<<" target is "<<resolver.second.target<<endl;
       for (const auto& param : resolver.second.params) {
         cerr<<"\t key: "<<SvcParam::keyToString(param.getKey())<<endl;
@@ -227,12 +248,55 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
           auto alpns = param.getALPN();
           for (const auto& alpn : alpns) {
             cerr<<"\t alpn: "<<alpn<<endl;
+
+            if (alpn == "dot") {
+              config.d_protocol = dnsdist::Protocol::DoT;
+              if (config.d_port == 0) {
+                config.d_port = 853;
+              }
+            }
+            else if (alpn == "h2") {
+              config.d_protocol = dnsdist::Protocol::DoH;
+              if (config.d_port == 0) {
+                config.d_port = 443;
+              }
+            }
           }
         }
+        else if (param.getKey() == SvcParam::port) {
+          config.d_port = param.getPort();
+        }
+        else if (param.getKey() == SvcParam::ipv4hint || param.getKey() == SvcParam::ipv6hint) {
+          if (config.d_addr.sin4.sin_family == 0) {
+            auto hints = param.getIPHints();
+            if (!hints.empty()) {
+              config.d_addr = hints.at(0);
+            }
+          }
+        }
+        else if (SvcParam::keyToString(param.getKey()) == "key65380") {
+          config.d_dohPath = param.getValue();
+          auto expression = config.d_dohPath.find('{');
+          if (expression != std::string::npos) {
+            /* nuke the {?dns} expression, if any, as we only support POST anyway */
+            config.d_dohPath.resize(expression);
+          }
+          cerr<<"\t dohPath: "<<config.d_dohPath<<endl;
+        }
       }
+
+      #warning actually we should probably prefer the same address than the one we already know
+      if (config.d_addr.sin4.sin_family == 0 && !resolver.second.hints.empty()) {
+        config.d_addr = resolver.second.hints.at(0);
+      }
+
       for (const auto& hint : resolver.second.hints) {
         cerr<<"\t hint: "<<hint.toString()<<endl;
       }
+      cerr<<config.d_addr.toString()<<endl;
+      cerr<<config.d_dohPath<<endl;
+      cerr<<config.d_port<<endl;
+      cerr<<config.d_protocol.toPrettyString()<<endl;
     }
 
     return true;
@@ -247,5 +311,55 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
   return false;
 }
 
+void ServiceDiscovery::worker()
+{
+  while (!d_upgradeableBackends.empty()) {
+    time_t now = time(nullptr);
+
+    for (auto& backend : d_upgradeableBackends) {
+      try {
+        if (backend.d_nextCheck > now) {
+          continue;
+        }
+
+        /*
+discover=false
+discoverDoHKey=7
+discoverInterval=3600
+discoverPool=""
+discoverKeep=false
+        */
+#warning FIXME: source address and interface
+        auto [upgradeable, newConfig] = discoverBackendUpgrade(backend.d_ds, backend.d_dohKey);
+        if (upgradeable) {
+          /* create new backend, put it into the right pool(s)
+             remove the existing backend if needed
+             remove backend from list
+          */
+        }
+        else {
+          backend.d_nextCheck = now + backend.d_interval;
+        }
+      }
+      catch (const std::exception& e) {
+        vinfolog("Exception in the Service Discovery thread: %s", e.what());
+      }
+      catch (...) {
+        vinfolog("Exception in the Service Discovery thread");
+      }
+    }
+  }
 }
 
+bool ServiceDiscovery::run()
+{
+  if (d_upgradeableBackends.empty()) {
+    return true;
+  }
+
+  d_thread = std::thread(&ServiceDiscovery::worker, this);
+
+  return true;
+}
+
+}

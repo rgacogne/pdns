@@ -20,9 +20,43 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #pragma once
+#include <vector>
+#include <thread>
 
 #include "iputils.hh"
 
 namespace dnsdist {
+
+class DownstreamState;
+
+class ServiceDiscovery
+{
+public:
+
+  bool addUpgradeableServer(std::shared_ptr<DownstreamState>& server, uint32_t interval, std::string poolAfterUpgrade, uint16_t dohSVCKey, bool keepAfterUpgrade);
+
+  /* starts a background thread if needed */
+  bool run();
+private:
+  static const std::string s_discoveryDomain;
+  static const QType s_discoveryType;
+  static const uint16_t s_defaultDoHSVCKey;
+
+  struct UpgradeableBackend
+  {
+    std::shared_ptr<DownstreamState> d_ds;
+    std::string d_poolAfterUpgrade;
+    time_t d_nextCheck;
+    uint32_t d_interval;
+    uint16_t d_dohKey;
+    bool keepAfterUpgrade;
+  };
+
+  void worker();
+
+  std::vector<UpgradeableBackend> d_upgradeableBackends;
+  std::thread d_thread;
+};
+
 bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout);
 }
