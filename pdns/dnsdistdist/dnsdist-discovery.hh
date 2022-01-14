@@ -23,11 +23,13 @@
 #include <vector>
 #include <thread>
 
+#include "dnsname.hh"
+#include "dnsdist-protocols.hh"
 #include "iputils.hh"
 
-namespace dnsdist {
+struct DownstreamState;
 
-class DownstreamState;
+namespace dnsdist {
 
 class ServiceDiscovery
 {
@@ -37,8 +39,17 @@ public:
 
   /* starts a background thread if needed */
   bool run();
+
+  struct DiscoveredResolverConfig
+  {
+    ComboAddress d_addr;
+    std::string d_dohPath;
+    uint16_t d_port{0};
+    dnsdist::Protocol d_protocol;
+  };
+
 private:
-  static const std::string s_discoveryDomain;
+  static const DNSName s_discoveryDomain;
   static const QType s_discoveryType;
   static const uint16_t s_defaultDoHSVCKey;
 
@@ -52,11 +63,13 @@ private:
     bool keepAfterUpgrade;
   };
 
+  static bool getDiscoveredConfig(const UpgradeableBackend& backend, DiscoveredResolverConfig& config);
+  static bool tryToUpgradeBackend(const UpgradeableBackend& backend);
+
   void worker();
 
   std::vector<UpgradeableBackend> d_upgradeableBackends;
   std::thread d_thread;
 };
 
-bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout);
 }

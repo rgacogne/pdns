@@ -20,6 +20,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "config.h"
 #include "dnsdist-discovery.hh"
 #include "dnsdist.hh"
 #include "dnsparser.hh"
@@ -28,7 +29,7 @@
 
 namespace dnsdist {
 
-const std::string ServiceDiscovery::s_discoveryDomain{"_dns.resolver.arpa."};
+const DNSName ServiceDiscovery::s_discoveryDomain{"_dns.resolver.arpa."};
 const QType ServiceDiscovery::s_discoveryType{QType::SVCB};
 const uint16_t ServiceDiscovery::s_defaultDoHSVCKey{7};
 
@@ -138,14 +139,118 @@ static bool parseSVCParams(const PacketBuffer& answer, std::map<uint16_t, Design
   return !resolvers.empty();
 }
 
-bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
+static bool handleSVCResult(const PacketBuffer& answer, const ComboAddress& existingAddr, uint16_t dohSVCKey, ServiceDiscovery::DiscoveredResolverConfig& config)
 {
-  try {
-    const DNSName specialUseDomainName("_dns.resolver.arpa.");
+  std::map<uint16_t, DesignatedResolvers> resolvers;
+  if (!parseSVCParams(answer, resolvers)) {
+    return false;
+  }
+  cerr<<"Got "<<resolvers.size()<<" resolver options"<<endl;
 
+  for (const auto& resolver : resolvers) {
+    /* do not compare the ports */
+    std::set<ComboAddress, ComboAddress::addressOnlyLessThan> tentativeAddresses;
+    ServiceDiscovery::DiscoveredResolverConfig tempConfig;
+    tempConfig.d_addr.sin4.sin_family = 0;
+
+    //cerr<<"- Priority "<<resolver.first<<" target is "<<resolver.second.target<<endl;
+    for (const auto& param : resolver.second.params) {
+      //cerr<<"\t key: "<<SvcParam::keyToString(param.getKey())<<endl;
+      if (param.getKey() == SvcParam::alpn) {
+        auto alpns = param.getALPN();
+        for (const auto& alpn : alpns) {
+          //cerr<<"\t alpn: "<<alpn<<endl;
+
+          if (alpn == "dot") {
+            tempConfig.d_protocol = dnsdist::Protocol::DoT;
+            if (tempConfig.d_port == 0) {
+              tempConfig.d_port = 853;
+            }
+          }
+          else if (alpn == "h2") {
+            tempConfig.d_protocol = dnsdist::Protocol::DoH;
+            if (tempConfig.d_port == 0) {
+              tempConfig.d_port = 443;
+            }
+          }
+        }
+      }
+      else if (param.getKey() == SvcParam::port) {
+        tempConfig.d_port = param.getPort();
+      }
+      else if (param.getKey() == SvcParam::ipv4hint || param.getKey() == SvcParam::ipv6hint) {
+        if (tempConfig.d_addr.sin4.sin_family == 0) {
+          auto hints = param.getIPHints();
+          for (const auto& hint : hints) {
+            tentativeAddresses.insert(hint);
+          }
+        }
+      }
+      else if (dohSVCKey != 0 && param.getKey() == dohSVCKey) {
+        tempConfig.d_dohPath = param.getValue();
+        auto expression = tempConfig.d_dohPath.find('{');
+        if (expression != std::string::npos) {
+          /* nuke the {?dns} expression, if any, as we only support POST anyway */
+          tempConfig.d_dohPath.resize(expression);
+        }
+        //cerr<<"\t dohPath: "<<tempConfig.d_dohPath<<endl;
+      }
+    }
+
+    if (tempConfig.d_protocol == dnsdist::Protocol::DoH){
+#ifndef HAVE_DNS_OVER_HTTPS
+      continue;
+#endif
+      if (tempConfig.d_dohPath.empty()) {
+        continue;
+      }
+    }
+    else if (tempConfig.d_protocol == dnsdist::Protocol::DoT) {
+#ifndef HAVE_DNS_OVER_TLS
+      continue;
+#endif
+    }
+    else {
+      continue;
+    }
+
+    /* we have a config that we can use! */
+
+    for (const auto& hint : resolver.second.hints) {
+      tentativeAddresses.insert(hint);
+    }
+
+    /* we prefer the address we already know, whenever possible */
+    if (tentativeAddresses.count(existingAddr) != 0) {
+      tempConfig.d_addr = existingAddr;
+    }
+    else {
+      tempConfig.d_addr = *tentativeAddresses.begin();
+    }
+
+    tempConfig.d_addr.sin4.sin_port = tempConfig.d_port;
+
+    config = tempConfig;
+
+    cerr<<config.d_addr.toString()<<endl;
+    cerr<<config.d_dohPath<<endl;
+    cerr<<config.d_port<<endl;
+    cerr<<config.d_protocol.toPrettyString()<<endl;
+    return true;
+  }
+
+  return false;
+}
+
+bool ServiceDiscovery::getDiscoveredConfig(const UpgradeableBackend& upgradeableBackend, ServiceDiscovery::DiscoveredResolverConfig& config)
+{
+#warning FIXME: source address and interface
+  const auto& backend = upgradeableBackend.d_ds;
+  const auto& addr = backend->remote;
+  try {
     auto id = getRandomDNSID();
     PacketBuffer packet;
-    GenericDNSPacketWriter pw(packet, specialUseDomainName, QType::SVCB);
+    GenericDNSPacketWriter pw(packet, s_discoveryDomain, s_discoveryType);
     pw.getHeader()->id = id;
     pw.getHeader()->rd = 1;
     pw.addOpt(4096, 0, 0);
@@ -156,12 +261,12 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
 
     Socket sock(addr.sin4.sin_family, SOCK_STREAM);
     sock.setNonBlocking();
-    sock.connect(addr, timeout);
+    sock.connect(addr, backend->tcpConnectTimeout);
 
-    sock.writenWithTimeout(reinterpret_cast<const char*>(packet.data()), packet.size(), timeout);
+    sock.writenWithTimeout(reinterpret_cast<const char*>(packet.data()), packet.size(), backend->tcpSendTimeout);
 
     uint16_t responseSize = 0;
-    auto got = sock.readWithTimeout(reinterpret_cast<char*>(&responseSize), sizeof(responseSize), timeout);
+    auto got = sock.readWithTimeout(reinterpret_cast<char*>(&responseSize), sizeof(responseSize), backend->tcpRecvTimeout);
     if (got < 0 || static_cast<size_t>(got) != sizeof(responseSize)) {
       if (g_verbose) {
         warnlog("Error while waiting for the ADD upgrade response from backend %s: %d", addr.toString(), got);
@@ -171,7 +276,7 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
 
     packet.resize(ntohs(responseSize));
 
-    got = sock.readWithTimeout(reinterpret_cast<char *>(packet.data()), packet.size(), timeout);
+    got = sock.readWithTimeout(reinterpret_cast<char *>(packet.data()), packet.size(), backend->tcpRecvTimeout);
     if (got < 0 || static_cast<size_t>(got) != packet.size()) {
       if (g_verbose) {
         warnlog("Error while waiting for the ADD upgrade response from backend %s: %d", addr.toString(), got);
@@ -197,7 +302,7 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
 
     if (d.rcode != RCode::NoError) {
       if (g_verbose) {
-        warnlog("Response code '%s' received from the backend %s for '%s'", RCode::to_s(d.rcode), addr.toString(), specialUseDomainName);
+        warnlog("Response code '%s' received from the backend %s for '%s'", RCode::to_s(d.rcode), addr.toString(), s_discoveryDomain);
       }
 
       return false;
@@ -214,92 +319,14 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
     uint16_t receivedClass;
     DNSName receivedName(reinterpret_cast<const char*>(packet.data()), packet.size(), sizeof(dnsheader), false, &receivedType, &receivedClass);
 
-    if (receivedName != specialUseDomainName || receivedType != QType::SVCB || receivedClass != QClass::IN) {
+    if (receivedName != s_discoveryDomain || receivedType != s_discoveryType || receivedClass != QClass::IN) {
       if (g_verbose) {
-        warnlog("Invalid answer, either the qname (%s / %s), qtype (%s / %s) or qclass (%s / %s) does not match, received from the backend %s", receivedName, specialUseDomainName, QType(receivedType).toString(), QType(QType::SVCB).toString(), QClass(receivedClass).toString(), QClass::IN.toString(), addr.toString());
+        warnlog("Invalid answer, either the qname (%s / %s), qtype (%s / %s) or qclass (%s / %s) does not match, received from the backend %s", receivedName, s_discoveryDomain, QType(receivedType).toString(), s_discoveryType.toString(), QClass(receivedClass).toString(), QClass::IN.toString(), addr.toString());
       }
       return false;
     }
 
-    std::map<uint16_t, DesignatedResolvers> resolvers;
-
-    if (!parseSVCParams(packet, resolvers)) {
-      return false;
-    }
-
-#warning we should make the dohpath key configurable, unfortunately.. it seems 7 will be selected but it can still change
-    struct DiscoveredResolverConfig
-    {
-      ComboAddress d_addr;
-      std::string d_dohPath;
-      uint16_t d_port{0};
-      dnsdist::Protocol d_protocol;
-    };
-
-    cerr<<"Got "<<resolvers.size()<<" resolver options"<<endl;
-    for (const auto& resolver : resolvers) {
-      DiscoveredResolverConfig config;
-      config.d_addr.sin4.sin_family = 0;
-
-      cerr<<"- Priority "<<resolver.first<<" target is "<<resolver.second.target<<endl;
-      for (const auto& param : resolver.second.params) {
-        cerr<<"\t key: "<<SvcParam::keyToString(param.getKey())<<endl;
-        if (param.getKey() == SvcParam::alpn) {
-          auto alpns = param.getALPN();
-          for (const auto& alpn : alpns) {
-            cerr<<"\t alpn: "<<alpn<<endl;
-
-            if (alpn == "dot") {
-              config.d_protocol = dnsdist::Protocol::DoT;
-              if (config.d_port == 0) {
-                config.d_port = 853;
-              }
-            }
-            else if (alpn == "h2") {
-              config.d_protocol = dnsdist::Protocol::DoH;
-              if (config.d_port == 0) {
-                config.d_port = 443;
-              }
-            }
-          }
-        }
-        else if (param.getKey() == SvcParam::port) {
-          config.d_port = param.getPort();
-        }
-        else if (param.getKey() == SvcParam::ipv4hint || param.getKey() == SvcParam::ipv6hint) {
-          if (config.d_addr.sin4.sin_family == 0) {
-            auto hints = param.getIPHints();
-            if (!hints.empty()) {
-              config.d_addr = hints.at(0);
-            }
-          }
-        }
-        else if (SvcParam::keyToString(param.getKey()) == "key65380") {
-          config.d_dohPath = param.getValue();
-          auto expression = config.d_dohPath.find('{');
-          if (expression != std::string::npos) {
-            /* nuke the {?dns} expression, if any, as we only support POST anyway */
-            config.d_dohPath.resize(expression);
-          }
-          cerr<<"\t dohPath: "<<config.d_dohPath<<endl;
-        }
-      }
-
-      #warning actually we should probably prefer the same address than the one we already know
-      if (config.d_addr.sin4.sin_family == 0 && !resolver.second.hints.empty()) {
-        config.d_addr = resolver.second.hints.at(0);
-      }
-
-      for (const auto& hint : resolver.second.hints) {
-        cerr<<"\t hint: "<<hint.toString()<<endl;
-      }
-      cerr<<config.d_addr.toString()<<endl;
-      cerr<<config.d_dohPath<<endl;
-      cerr<<config.d_port<<endl;
-      cerr<<config.d_protocol.toPrettyString()<<endl;
-    }
-
-    return true;
+    return handleSVCResult(packet, addr, upgradeableBackend.d_dohKey, config);
   }
   catch (const std::exception& e) {
     errlog("Error while trying to discover backend upgrade for %s: %s", addr.toStringWithPort(), e.what());
@@ -311,14 +338,31 @@ bool discoverBackendUpgrade(const ComboAddress& addr, unsigned int timeout)
   return false;
 }
 
+bool ServiceDiscovery::tryToUpgradeBackend(const UpgradeableBackend& backend)
+{
+  ServiceDiscovery::DiscoveredResolverConfig config;
+
+  if (!ServiceDiscovery::getDiscoveredConfig(backend, config)) {
+    return false;
+  }
+
+  /* create new backend, put it into the right pool(s)
+     remove the existing backend if needed
+     remove backend from list
+  */
+  return true;
+}
+
 void ServiceDiscovery::worker()
 {
   while (!d_upgradeableBackends.empty()) {
     time_t now = time(nullptr);
 
-    for (auto& backend : d_upgradeableBackends) {
+    for (auto backendIt = d_upgradeableBackends.begin(); backendIt != d_upgradeableBackends.end(); ) {
       try {
+        auto& backend = *backendIt;
         if (backend.d_nextCheck > now) {
+          ++backendIt;
           continue;
         }
 
@@ -329,16 +373,13 @@ discoverInterval=3600
 discoverPool=""
 discoverKeep=false
         */
-#warning FIXME: source address and interface
-        auto [upgradeable, newConfig] = discoverBackendUpgrade(backend.d_ds, backend.d_dohKey);
-        if (upgradeable) {
-          /* create new backend, put it into the right pool(s)
-             remove the existing backend if needed
-             remove backend from list
-          */
+        auto upgraded = tryToUpgradeBackend(backend);
+        if (upgraded) {
+          backendIt = d_upgradeableBackends.erase(backendIt);
         }
         else {
           backend.d_nextCheck = now + backend.d_interval;
+          ++backendIt;
         }
       }
       catch (const std::exception& e) {
