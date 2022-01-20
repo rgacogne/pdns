@@ -44,7 +44,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
   return ProcessQueryResult::Drop;
 }
 
-bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool muted, bool receivedOverUDP)
+bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool muted)
 {
   return false;
 }

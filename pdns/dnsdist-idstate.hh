@@ -146,6 +146,7 @@ struct InternalQueryState
   bool skipCache{false};
   bool dnssecOK{false};
   bool useZeroScope{false};
+  bool forwardedOverUDP{false};
 };
 
 struct IDState

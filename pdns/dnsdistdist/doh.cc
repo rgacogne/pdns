@@ -461,7 +461,7 @@ public:
       thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
 
       dr.ids.du = std::move(du);
-      if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false, false)) {
+      if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false)) {
 #warning should we not notify the main thread?
         return;
       }
@@ -1278,6 +1278,7 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
       /* restoring the original ID */
       dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(du->query.data() + du->proxyProtocolPayloadSize);
       queryDH->id = du->ids.origID;
+      du->ids.forwardedOverUDP = false;
 
       du->tcp = true;
       du->truncated = false;
@@ -1615,7 +1616,7 @@ void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, 
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
     dr.ids.du = std::move(du);
-    if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false, true)) {
+    if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false)) {
       #warning should we not notify the main thread??
       return;
     }

@@ -445,9 +445,7 @@ static bool applyRulesToResponse(LocalStateHolder<vector<DNSDistResponseRuleActi
   return true;
 }
 
-// whether the query was received over TCP or not (for rules, dnstap, protobuf, ...) will be taken from the DNSResponse, but receivedOverUDP is used to insert into the cache,
-// so that answers received over UDP for DoH are still cached with UDP answers.
-bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool muted, bool receivedOverUDP)
+bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool muted)
 {
   bool zeroScope = false;
   if (!fixUpResponse(response, dr.ids.qname, dr.ids.origFlags, dr.ids.ednsAdded, dr.ids.ecsAdded, dr.ids.useZeroScope ? &zeroScope : nullptr)) {
@@ -467,7 +465,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool mut
       zeroScope = false;
     }
     uint32_t cacheKey = dr.ids.cacheKey;
-    if (dr.ids.protocol == dnsdist::Protocol::DoH && receivedOverUDP) {
+    if (dr.ids.protocol == dnsdist::Protocol::DoH && dr.ids.forwardedOverUDP) {
       cacheKey = dr.ids.cacheKeyUDP;
     }
     else if (zeroScope) {
@@ -475,7 +473,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool mut
       cacheKey = dr.ids.cacheKeyNoECS;
     }
 
-    dr.ids.packetCache->insert(cacheKey, zeroScope ? boost::none : dr.ids.subnet, dr.ids.cacheFlags, dr.ids.dnssecOK, dr.ids.qname, dr.ids.qtype, dr.ids.qclass, response, receivedOverUDP, dr.getHeader()->rcode, dr.ids.tempFailureTTL);
+    dr.ids.packetCache->insert(cacheKey, zeroScope ? boost::none : dr.ids.subnet, dr.ids.cacheFlags, dr.ids.dnssecOK, dr.ids.qname, dr.ids.qtype, dr.ids.qclass, response, dr.ids.forwardedOverUDP, dr.getHeader()->rcode, dr.ids.tempFailureTTL);
   }
 
   if (dr.ids.ttlCap > 0) {
@@ -495,9 +493,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool mut
   return true;
 }
 
-// whether the query was received over TCP or not (for rules, dnstap, protobuf, ...) will be taken from the DNSResponse, but receivedOverUDP is used to insert into the cache,
-// so that answers received over UDP for DoH are still cached with UDP answers.
-bool processResponse(PacketBuffer& response, LocalStateHolder<vector<DNSDistResponseRuleAction> >& localRespRuleActions, DNSResponse& dr, bool muted, bool receivedOverUDP)
+bool processResponse(PacketBuffer& response, LocalStateHolder<vector<DNSDistResponseRuleAction> >& localRespRuleActions, DNSResponse& dr, bool muted)
 {
   if (!applyRulesToResponse(localRespRuleActions, dr)) {
     return false;
@@ -507,7 +503,7 @@ bool processResponse(PacketBuffer& response, LocalStateHolder<vector<DNSDistResp
     return true;
   }
 
-  return processResponseAfterRules(response, dr, muted, receivedOverUDP);
+  return processResponseAfterRules(response, dr, muted);
 }
 
 static size_t getInitialUDPPacketBufferSize()
@@ -596,7 +592,7 @@ static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& re
   memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
   if (!isAsync) {
-    if (!processResponse(response, localRespRuleActions, dr, ids.cs && ids.cs->muted, true)) {
+    if (!processResponse(response, localRespRuleActions, dr, ids.cs && ids.cs->muted)) {
       if (queryId) {
         ds->releaseState(*queryId);
       }
@@ -1509,6 +1505,7 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint1
       int fd = ds->pickSocketForSending();
       dq.ids.backendFD = fd;
       dq.ids.origID = queryID;
+      dq.ids.forwardedOverUDP = true;
       ids->internal = std::move(dq.ids);
 
       vinfolog("Got query for %s|%s from %s%s, relayed to %s", ids->internal.qname.toLogString(), QType(ids->internal.qtype).toString(), ids->internal.origRemote.toStringWithPort(), (doh ? " (https)" : ""), ds->getNameWithAddr());

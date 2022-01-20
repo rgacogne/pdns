@@ -151,7 +151,7 @@ static bool resumeResponse(std::unique_ptr<CrossProtocolQuery>&& response)
     auto& ids = response->query.d_idstate;
     DNSResponse dr(ids, response->query.d_buffer, ids.sentTime.d_start, response->downstream);
 
-    auto result = processResponseAfterRules(response->query.d_buffer, dr, ids.cs->muted, !(response->downstream && response->downstream->isTCPOnly()) || dr.getProtocol().isUDP());
+    auto result = processResponseAfterRules(response->query.d_buffer, dr, ids.cs->muted);
     if (!result) {
       /* easy */
       return false;
@@ -198,7 +198,13 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
       return false;
     }
 
-    if (query->downstream->isTCPOnly() || !dq.getProtocol().isUDP()) {
+#ifdef HAVE_DNS_OVER_HTTPS
+    if (dq.ids.du != nullptr) {
+      dq.ids.du->downstream = query->downstream;
+    }
+#endif
+
+    if (query->downstream->isTCPOnly() || !(dq.getProtocol().isUDP() || dq.getProtocol() == dnsdist::Protocol::DoH)) {
       query->downstream->passCrossProtocolQuery(std::move(query));
       return true;
     }
