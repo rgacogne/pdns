@@ -1292,7 +1292,12 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
     }
 
     if (dq.ids.packetCache && !dq.ids.skipCache) {
-      if (dq.ids.packetCache->get(dq, dq.getHeader()->id, &dq.ids.cacheKey, dq.ids.subnet, dq.ids.dnssecOK, !dq.overTCP(), allowExpired)) {
+      bool forwardedOverUDP = !dq.overTCP();
+      if (selectedBackend && selectedBackend->isTCPOnly()) {
+        forwardedOverUDP = false;
+      }
+
+      if (dq.ids.packetCache->get(dq, dq.getHeader()->id, &dq.ids.cacheKey, dq.ids.subnet, dq.ids.dnssecOK, forwardedOverUDP, allowExpired)) {
 
         restoreFlags(dq.getHeader(), dq.ids.origFlags);
 
@@ -1302,7 +1307,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
 
         return ProcessQueryResult::SendAnswer;
       }
-      else if (dq.ids.protocol == dnsdist::Protocol::DoH) {
+      else if (dq.ids.protocol == dnsdist::Protocol::DoH && !forwardedOverUDP) {
         /* do a second-lookup for UDP responses */
         /* we need to do a copy to be able to restore the query on a TC=1 cached answer */
         PacketBuffer initialQuery(dq.getData());
