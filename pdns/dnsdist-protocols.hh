@@ -31,7 +31,7 @@ class Protocol
 public:
   enum typeenum : uint8_t
   {
-    DoUDP,
+    DoUDP = 0,
     DoTCP,
     DNSCryptUDP,
     DNSCryptTCP,
@@ -48,6 +48,7 @@ public:
   const std::string& toString() const;
   const std::string& toPrettyString() const;
   bool isUDP() const;
+  uint8_t toNumber() const;
 
 private:
   typeenum d_protocol;
