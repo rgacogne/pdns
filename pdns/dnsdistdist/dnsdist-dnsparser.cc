@@ -123,14 +123,14 @@ bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNS
     }
   }
 
-  const std::set<QType> nameOnlyTypes = {QType::MX, QType::NS, QType::PTR, QType::CNAME, QType::DNAME};
-  const std::set<QType> noNameTypes{QType::A, QType::AAAA, QType::DHCID, QType::TXT, QType::OPT, QType::HINFO, QType::DNSKEY, QType::CDNSKEY, QType::DS, QType::CDS, QType::DLV, QType::SSHFP, QType::KEY, QType::CERT, QType::TLSA, QType::SMIMEA, QType::OPENPGPKEY, QType::NSEC3, QType::CSYNC, QType::NSEC3PARAM, QType::LOC, QType::NID, QType::L32, QType::L64, QType::EUI48, QType::EUI64, QType::URI, QType::CAA};
+  const std::set<QType> nameOnlyTypes = {QType::NS, QType::PTR, QType::CNAME, QType::DNAME};
+  const std::set<QType> noNameTypes{QType::A, QType::AAAA, QType::DHCID, QType::TXT, QType::OPT, QType::HINFO, QType::DNSKEY, QType::CDNSKEY, QType::DS, QType::CDS, QType::DLV, QType::SSHFP, QType::KEY, QType::CERT, QType::TLSA, QType::SMIMEA, QType::OPENPGPKEY, QType::NSEC, QType::NSEC3, QType::CSYNC, QType::NSEC3PARAM, QType::LOC, QType::NID, QType::L32, QType::L64, QType::EUI48, QType::EUI64, QType::URI, QType::CAA};
 
   /* copy AN, NS and AR */
   for (idx = 0; idx < recordsCount; idx++) {
     rrname = pr.getName();
-    if (rrname.isPartOf(from)) {
-      rrname.rebase(from, to);
+    if (rrname == from) {
+      rrname = to;
     }
     pr.getDnsrecordheader(ah);
 
@@ -138,8 +138,8 @@ bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNS
     pw.startRecord(rrname, ah.d_type, ah.d_ttl, ah.d_class, place, true);
     if (nameOnlyTypes.count(ah.d_type)) {
       rrname = pr.getName();
-      if (rrname.isPartOf(from)) {
-        rrname.rebase(from, to);
+      if (rrname == from) {
+        rrname = to;
       }
       pw.xfrName(rrname);
     }
@@ -151,6 +151,38 @@ bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNS
       /* good luck */
       pr.xfrBlob(blob);
       pw.xfrBlob(blob);
+    }
+    else if (ah.d_type == QType::MX) {
+      auto prio = pr.get16BitInt();
+      rrname = pr.getName();
+      pw.xfr16BitInt(prio);
+      pw.xfrName(rrname);
+    }
+    else if (ah.d_type == QType::SOA) {
+      auto mname = pr.getName();
+      pw.xfrName(mname);
+      auto rname = pr.getName();
+      pw.xfrName(rname);
+      /* serial */
+      pw.xfr32BitInt(pr.get32BitInt());
+      /* refresh */
+      pw.xfr32BitInt(pr.get32BitInt());
+      /* retry */
+      pw.xfr32BitInt(pr.get32BitInt());
+      /* expire */
+      pw.xfr32BitInt(pr.get32BitInt());
+      /* minimal */
+      pw.xfr32BitInt(pr.get32BitInt());
+    }
+    else if (ah.d_type == QType::SRV) {
+      /* weight */
+      pw.xfr16BitInt(pr.get16BitInt());
+      /* port */
+      pw.xfr16BitInt(pr.get16BitInt());
+      auto target = pr.getName();
+      pw.xfrName(target);
+      /* preference */
+      pw.xfr16BitInt(pr.get16BitInt());
     }
     else {
       /* sorry, unsafe type */
