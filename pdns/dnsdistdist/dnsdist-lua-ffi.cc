@@ -90,7 +90,7 @@ void dnsdist_ffi_dnsquestion_get_masked_remoteaddr(dnsdist_ffi_dnsquestion_t* dq
 
 uint16_t dnsdist_ffi_dnsquestion_get_local_port(const dnsdist_ffi_dnsquestion_t* dq)
 {
-  return dq->dq->ids.origRemote.getPort();
+  return dq->dq->ids.origDest.getPort();
 }
 
 uint16_t dnsdist_ffi_dnsquestion_get_remote_port(const dnsdist_ffi_dnsquestion_t* dq)
