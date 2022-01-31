@@ -72,8 +72,9 @@ struct ConnectionInfo
   int fd{-1};
 };
 
-struct InternalQuery
+class InternalQuery
 {
+public:
   InternalQuery()
   {
   }
@@ -124,9 +125,15 @@ struct TCPResponse : public TCPQuery
     memset(&d_cleartextDH, 0, sizeof(d_cleartextDH));
   }
 
+  bool isAsync() const
+  {
+    return d_async;
+  }
+
   std::shared_ptr<ConnectionToBackend> d_connection{nullptr};
   dnsheader d_cleartextDH;
   bool d_selfGenerated{false};
+  bool d_async{false};
 };
 
 class TCPQuerySender
@@ -170,6 +177,7 @@ struct CrossProtocolQuery
   std::shared_ptr<DownstreamState> downstream{nullptr};
   size_t proxyProtocolPayloadSize{0};
   bool isXFR{false};
+  bool isResponse{false};
 };
 
 class TCPClientCollection
@@ -280,3 +288,5 @@ private:
 };
 
 extern std::unique_ptr<TCPClientCollection> g_tcpclientthreads;
+
+std::unique_ptr<CrossProtocolQuery> getTCPCrossProtocolQueryFromDQ(DNSQuestion& dq);

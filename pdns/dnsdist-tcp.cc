@@ -494,7 +494,7 @@ void IncomingTCPConnectionState::handleResponse(const struct timeval& now, TCPRe
 {
   std::shared_ptr<IncomingTCPConnectionState> state = shared_from_this();
 
-  if (response.d_connection && response.d_connection->getDS() && response.d_connection->getDS()->d_config.useProxyProtocol) {
+  if (!response.isAsync() && response.d_connection && response.d_connection->getDS() && response.d_connection->getDS()->d_config.useProxyProtocol) {
     // if we have added a TCP Proxy Protocol payload to a connection, don't release it to the general pool as no one else will be able to use it anyway
     if (!response.d_connection->willBeReusable(true)) {
       // if it can't be reused even by us, well
@@ -523,31 +523,39 @@ void IncomingTCPConnectionState::handleResponse(const struct timeval& now, TCPRe
     return;
   }
 
-  try {
-    auto& ids = response.d_idstate;
-    unsigned int qnameWireLength;
-    if (!response.d_connection || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, response.d_connection->getRemote(), qnameWireLength)) {
+  if (!response.isAsync()) {
+    try {
+      auto& ids = response.d_idstate;
+      unsigned int qnameWireLength;
+      if (!response.d_connection || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, response.d_connection->getRemote(), qnameWireLength)) {
+        state->terminateClientConnection();
+        return;
+      }
+
+      if (response.d_connection->getDS()) {
+        ++response.d_connection->getDS()->responses;
+      }
+
+      DNSResponse dr = makeDNSResponseFromIDState(ids, response.d_buffer, response.d_connection->getDS());
+      dr.d_incomingTCPState = state;
+
+      memcpy(&response.d_cleartextDH, dr.getHeader(), sizeof(response.d_cleartextDH));
+
+      if (!processResponse(response.d_buffer, state->d_threadData.localRespRuleActions, dr, false, false)) {
+        state->terminateClientConnection();
+        return;
+      }
+
+      if (dr.isAsynchronous()) {
+        /* we are done for now */
+        return;
+      }
+    }
+    catch (const std::exception& e) {
+      vinfolog("Unexpected exception while handling response from backend: %s", e.what());
       state->terminateClientConnection();
       return;
     }
-
-    if (response.d_connection->getDS()) {
-      ++response.d_connection->getDS()->responses;
-    }
-
-    DNSResponse dr = makeDNSResponseFromIDState(ids, response.d_buffer);
-
-    memcpy(&response.d_cleartextDH, dr.getHeader(), sizeof(response.d_cleartextDH));
-
-    if (!processResponse(response.d_buffer, state->d_threadData.localRespRuleActions, dr, false, false)) {
-      state->terminateClientConnection();
-      return;
-    }
-  }
-  catch (const std::exception& e) {
-    vinfolog("Unexpected exception while handling response from backend: %s", e.what());
-    state->terminateClientConnection();
-    return;
   }
 
   ++g_stats.responses;
@@ -570,7 +578,7 @@ struct TCPCrossProtocolResponse
 class TCPCrossProtocolQuerySender : public TCPQuerySender
 {
 public:
-  TCPCrossProtocolQuerySender(std::shared_ptr<IncomingTCPConnectionState>& state): d_state(state)
+  TCPCrossProtocolQuerySender(std::shared_ptr<IncomingTCPConnectionState> state): d_state(std::move(state))
   {
   }
 
@@ -623,7 +631,7 @@ private:
 class TCPCrossProtocolQuery : public CrossProtocolQuery
 {
 public:
-  TCPCrossProtocolQuery(PacketBuffer&& buffer, IDState&& ids, std::shared_ptr<DownstreamState>& ds, std::shared_ptr<TCPCrossProtocolQuerySender>& sender): d_sender(sender)
+  TCPCrossProtocolQuery(PacketBuffer&& buffer, IDState&& ids, std::shared_ptr<DownstreamState> ds, std::shared_ptr<TCPCrossProtocolQuerySender> sender): d_sender(std::move(sender))
   {
     query = InternalQuery(std::move(buffer), std::move(ids));
     downstream = ds;
@@ -642,6 +650,19 @@ public:
 private:
   std::shared_ptr<TCPCrossProtocolQuerySender> d_sender;
 };
+
+std::unique_ptr<CrossProtocolQuery> getTCPCrossProtocolQueryFromDQ(DNSQuestion& dq)
+{
+  auto state = dq.getIncomingTCPState();
+  if (!state) {
+    throw std::runtime_error("Trying to create a TCP cross protocol query without a valid TCP state");
+  }
+
+  IDState ids;
+  setIDStateFromDNSQuestion(ids, dq, DNSName(*dq.qname), dq.getHeader()->id);
+
+  return std::make_unique<TCPCrossProtocolQuery>(std::move(dq.getMutableData()), std::move(ids), nullptr, std::make_shared<TCPCrossProtocolQuerySender>(std::move(state)));
+}
 
 static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, const struct timeval& now)
 {
@@ -726,6 +747,9 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   DNSQuestion dq(&qname, qtype, qclass, &state->d_proxiedDestination, &state->d_proxiedRemote, state->d_buffer, protocol, &queryRealTime);
   dq.dnsCryptQuery = std::move(dnsCryptQuery);
   dq.sni = state->d_handler.getServerNameIndication();
+  dq.d_cs = state->d_ci.cs;
+  dq.d_incomingTCPState = state;
+
   if (state->d_proxyProtocolValues) {
     /* we need to copy them, because the next queries received on that connection will
        need to get the _unaltered_ values */
@@ -737,10 +761,14 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   }
 
   std::shared_ptr<DownstreamState> ds;
-  auto result = processQuery(dq, *state->d_ci.cs, state->d_threadData.holders, ds);
+  auto result = processQuery(dq, state->d_threadData.holders, ds);
 
   if (result == ProcessQueryResult::Drop) {
     state->terminateClientConnection();
+    return;
+  }
+  else if (result == ProcessQueryResult::Asynchronous) {
+    /* we are done for now */
     return;
   }
 
@@ -762,9 +790,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   }
 
   IDState ids;
-  setIDStateFromDNSQuestion(ids, dq, std::move(qname));
-  ids.origID = dh->id;
-  ids.cs = state->d_ci.cs;
+  setIDStateFromDNSQuestion(ids, dq, std::move(qname), dh->id);
 
   ++state->d_currentQueriesCount;
 

@@ -19,37 +19,31 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#pragma once
+#include "dnsdist-internal-queries.hh"
+#include "dnsdist-tcp.hh"
+#include "doh.hh"
 
-#include <vector>
-#include <string>
+std::unique_ptr<CrossProtocolQuery> getUDPCrossProtocolQueryFromDQ(DNSQuestion& dq);
 
 namespace dnsdist
 {
-class Protocol
+std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq)
 {
-public:
-  enum typeenum : uint8_t
-  {
-    DoUDP,
-    DoTCP,
-    DNSCryptUDP,
-    DNSCryptTCP,
-    DoT,
-    DoH
-  };
+  auto protocol = dq.getProtocol();
+  if (protocol == dnsdist::Protocol::DoUDP || protocol == dnsdist::Protocol::DNSCryptUDP) {
+    return getUDPCrossProtocolQueryFromDQ(dq);
+  }
+#ifdef HAVE_DNS_OVER_HTTPS
+  else if (protocol == dnsdist::Protocol::DoH) {
+    if (dq.du == nullptr) {
+      throw std::runtime_error("Trying to get a DoH cross-protocol query from a question without DoH unit");
+    }
 
-  Protocol(typeenum protocol = DoUDP);
-  explicit Protocol(const std::string& protocol);
-
-  bool operator==(typeenum) const;
-  bool operator!=(typeenum) const;
-
-  const std::string& toString() const;
-  const std::string& toPrettyString() const;
-  bool isUDP() const;
-
-private:
-  typeenum d_protocol;
-};
+    return getDoHCrossProtocolQueryFromDQ(dq);
+  }
+#endif
+  else {
+    return getTCPCrossProtocolQueryFromDQ(dq);
+  }
+}
 }

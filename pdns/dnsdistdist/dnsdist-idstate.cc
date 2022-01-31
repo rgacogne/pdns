@@ -1,9 +1,10 @@
 
 #include "dnsdist.hh"
 
-DNSResponse makeDNSResponseFromIDState(IDState& ids, PacketBuffer& data)
+DNSResponse makeDNSResponseFromIDState(IDState& ids, PacketBuffer& data, const std::shared_ptr<DownstreamState>& ds)
 {
-  DNSResponse dr(&ids.qname, ids.qtype, ids.qclass, &ids.origDest, &ids.origRemote, data, ids.protocol, &ids.sentTime.d_start);
+  DNSResponse dr(&ids.qname, ids.qtype, ids.qclass, &ids.origDest, &ids.origRemote, data, ids.protocol, &ids.sentTime.d_start, ds);
+
   dr.origFlags = ids.origFlags;
   dr.cacheFlags = ids.cacheFlags;
   dr.ecsAdded = ids.ecsAdded;
@@ -27,14 +28,24 @@ DNSResponse makeDNSResponseFromIDState(IDState& ids, PacketBuffer& data)
 
   dr.hopRemote = &ids.hopRemote;
   dr.hopLocal = &ids.hopLocal;
+  dr.d_cs = ids.cs;
 
+  dr.du = ids.du;
   return dr;
 }
 
-void setIDStateFromDNSQuestion(IDState& ids, DNSQuestion& dq, DNSName&& qname)
+void setIDStateFromDNSQuestion(IDState& ids, DNSQuestion& dq, DNSName&& qname, uint16_t queryID)
 {
   ids.origRemote = *dq.remote;
   ids.origDest = *dq.local;
+  ids.cs = dq.getFrontend();
+  if (ids.origDest.sin4.sin_family == 0 && ids.cs != nullptr) {
+    /* If we couldn't harvest the real dest addr, still
+       write down the listening addr since it will be useful
+       (especially if it's not an 'any' one).
+    */
+    ids.origDest = ids.cs->local;
+  }
   ids.sentTime.set(*dq.queryTime);
   ids.qname = std::move(qname);
   ids.qtype = dq.qtype;
@@ -71,5 +82,7 @@ void setIDStateFromDNSQuestion(IDState& ids, DNSQuestion& dq, DNSName&& qname)
     ids.hopLocal.sin4.sin_family = 0;
   }
 
+  ids.origID = queryID;
   ids.dnsCryptQuery = std::move(dq.dnsCryptQuery);
+  ids.du = dq.du;
 }

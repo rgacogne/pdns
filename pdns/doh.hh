@@ -261,6 +261,11 @@ struct DOHUnit
 
 void handleUDPResponseForDoH(std::unique_ptr<DOHUnit, void(*)(DOHUnit*)>&&, PacketBuffer&& response, IDState&& state);
 
+struct CrossProtocolQuery;
+struct DNSQuestion;
+
+std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq);
+
 #endif /* HAVE_DNS_OVER_HTTPS  */
 
 using DOHUnitUniquePtr = std::unique_ptr<DOHUnit, void(*)(DOHUnit*)>;

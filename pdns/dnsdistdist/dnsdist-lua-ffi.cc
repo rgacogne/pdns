@@ -20,6 +20,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "dnsdist-async.hh"
 #include "dnsdist-lua-ffi.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-ecs.hh"
@@ -616,6 +617,103 @@ void dnsdist_ffi_dnsresponse_clear_records_type(dnsdist_ffi_dnsresponse_t* dr, u
   if (dr->dr != nullptr) {
     clearDNSPacketRecordTypes(dr->dr->getMutableData(), std::set<QType>{qtype});
   }
+}
+
+bool dnsdist_ffi_dnsquestion_set_async(dnsdist_ffi_dnsquestion_t* dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs)
+{
+  try {
+    dq->dq->asynchronous = true;
+    dnsdist::suspendQuery(*dq->dq, asyncID, queryID, timeoutMs);
+    return true;
+  }
+  catch (const std::exception& e) {
+    vinfolog("Error in dnsdist_ffi_dnsquestion_set_async: %s", e.what());
+  }
+  catch (...) {
+    vinfolog("Exception in dnsdist_ffi_dnsquestion_set_async");
+  }
+
+  return false;
+}
+
+bool dnsdist_ffi_dnsresponse_set_async(dnsdist_ffi_dnsquestion_t* dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs)
+{
+  try {
+    dq->dq->asynchronous = true;
+    auto dr = dynamic_cast<DNSResponse*>(dq->dq);
+    if (!dr) {
+      vinfolog("Passed a DNSQuestion instead of a DNSResponse to dnsdist_ffi_dnsresponse_set_async");
+      return false;
+    }
+
+    dnsdist::suspendResponse(*dr, asyncID, queryID, timeoutMs);
+    return true;
+  }
+  catch (const std::exception& e) {
+    vinfolog("Error in dnsdist_ffi_dnsresponse_set_async: %s", e.what());
+  }
+  catch (...) {
+    vinfolog("Exception in dnsdist_ffi_dnsresponse_set_async");
+  }
+  return false;
+}
+
+bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const char* tag, size_t tagSize)
+{
+  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  if (!query) {
+    return false;
+  }
+
+  if (tag != nullptr && tagSize > 0) {
+    auto& ids = query->query.d_idstate;
+    if (!ids.qTag) {
+      ids.qTag = std::make_unique<QTag>();
+    }
+    (*ids.qTag)[std::string(tag, tagSize)] = "";
+  }
+
+  return dnsdist::resumeQuery(std::move(query));
+}
+
+bool dnsdist_ffi_drop_from_async(uint16_t asyncID, uint16_t queryID)
+{
+  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  if (!query) {
+    return false;
+  }
+
+  auto sender = query->getTCPQuerySender();
+  if (!sender) {
+    return false;
+  }
+
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+  sender->notifyIOError(std::move(query->query.d_idstate), now);
+
+  return true;
+}
+
+bool dnsdist_ffi_set_answer_from_async(uint16_t asyncID, uint16_t queryID, const char* raw, size_t rawSize)
+{
+  if (rawSize < sizeof(dnsheader)) {
+    return false;
+  }
+
+  auto query = dnsdist::g_asyncHolder.get(asyncID, queryID);
+  if (!query) {
+    return false;
+  }
+
+  auto oldId = reinterpret_cast<const dnsheader*>(query->query.d_buffer.data())->id;
+  query->query.d_buffer.clear();
+  query->query.d_buffer.insert(query->query.d_buffer.begin(), raw, raw + rawSize);
+  reinterpret_cast<dnsheader*>(query->query.d_buffer.data())->id = oldId;
+
+  query->query.d_idstate.skipCache = true;
+
+  return dnsdist::resumeQuery(std::move(query));
 }
 
 static constexpr char s_lua_ffi_code[] = R"FFICodeContent(

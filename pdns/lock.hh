@@ -257,6 +257,12 @@ public:
     d_lock.lock();
   }
 
+  /* to work with condition_variable */
+  std::unique_lock<std::mutex>& getUniqueLock()
+  {
+    return d_lock;
+  }
+
 private:
   std::unique_lock<std::mutex> d_lock;
   T& d_value;
@@ -288,7 +294,7 @@ public:
     return LockGuardedHolder<T>(d_value, d_mutex);
   }
 
-  LockGuardedHolder<const T> read_only_lock() const
+  LockGuardedHolder<const T> read_only_lock()
   {
     return LockGuardedHolder<const T>(d_value, d_mutex);
   }

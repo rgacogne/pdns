@@ -26,6 +26,8 @@
 #include <unistd.h>
 
 #include "dnsdist.hh"
+#include "dnsdist-async.hh"
+#include "dnsdist-internal-queries.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-xpf.hh"
 
@@ -36,6 +38,33 @@
 #include "ednsoptions.hh"
 #include "ednscookies.hh"
 #include "ednssubnet.hh"
+
+ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders, std::shared_ptr<DownstreamState>& selectedBackend)
+{
+  return ProcessQueryResult::Drop;
+}
+
+bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool muted, bool receivedOverUDP)
+{
+  return false;
+}
+
+bool sendUDPResponse(int origFD, const PacketBuffer& response, const int delayMsec, const ComboAddress& origDest, const ComboAddress& origRemote)
+{
+  return false;
+}
+
+bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, DOHUnitUniquePtr& newDU, uint16_t queryID, DNSQuestion& dq, DNSName&& qname, PacketBuffer&& query, ComboAddress& dest)
+{
+  return false;
+}
+
+namespace dnsdist {
+std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq)
+{
+  return nullptr;
+}
+}
 
 BOOST_AUTO_TEST_SUITE(test_dnsdist_cc)
 

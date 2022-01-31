@@ -26,7 +26,7 @@ BOOST_AUTO_TEST_CASE(test_MPlexer)
   for (const auto& entry : FDMultiplexer::getMultiplexerMap()) {
     auto mplexer = std::unique_ptr<FDMultiplexer>(entry.second(FDMultiplexer::s_maxevents));
     BOOST_REQUIRE(mplexer != nullptr);
-    //cerr<<"Testing multiplexer "<<mplexer->getName()<<endl;
+    // cerr<<"Testing multiplexer "<<mplexer->getName()<<endl;
 
     struct timeval now = {0, 0};
     int ready = mplexer->run(&now, 100);
@@ -226,7 +226,7 @@ BOOST_AUTO_TEST_CASE(test_MPlexer_ReadAndWrite)
   for (const auto& entry : FDMultiplexer::getMultiplexerMap()) {
     auto mplexer = std::unique_ptr<FDMultiplexer>(entry.second(FDMultiplexer::s_maxevents));
     BOOST_REQUIRE(mplexer != nullptr);
-    //cerr<<"Testing multiplexer "<<mplexer->getName()<<" for read AND write"<<endl;
+    // cerr<<"Testing multiplexer "<<mplexer->getName()<<" for read AND write"<<endl;
 
     int sockets[2];
     int res = socketpair(AF_UNIX, SOCK_STREAM, 0, sockets);

@@ -21,35 +21,10 @@
  */
 #pragma once
 
-#include <vector>
-#include <string>
+#include <memory>
+#include "dnsdist.hh"
 
 namespace dnsdist
 {
-class Protocol
-{
-public:
-  enum typeenum : uint8_t
-  {
-    DoUDP,
-    DoTCP,
-    DNSCryptUDP,
-    DNSCryptTCP,
-    DoT,
-    DoH
-  };
-
-  Protocol(typeenum protocol = DoUDP);
-  explicit Protocol(const std::string& protocol);
-
-  bool operator==(typeenum) const;
-  bool operator!=(typeenum) const;
-
-  const std::string& toString() const;
-  const std::string& toPrettyString() const;
-  bool isUDP() const;
-
-private:
-  typeenum d_protocol;
-};
+std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq);
 }
