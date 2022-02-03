@@ -51,6 +51,8 @@ public:
   bool d_enableRenegotiation{false};
   /* enable TLS async mode, if supported by any engine */
   bool d_asyncMode{false};
+  /* enable kTLS mode, if supported */
+  bool d_ktls{false};
 };
 
 struct TLSErrorCounters
@@ -69,7 +71,7 @@ struct TLSErrorCounters
 #ifdef HAVE_LIBSSL
 #include <openssl/ssl.h>
 
-void registerOpenSSLUser();
+void registerOpenSSLUser(bool loadEverything = false);
 void unregisterOpenSSLUser();
 
 /* From rfc5077 Section 4. Recommended Ticket Construction */

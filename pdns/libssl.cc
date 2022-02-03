@@ -75,7 +75,7 @@ static int s_ticketsKeyIndex{-1};
 static int s_countersIndex{-1};
 static int s_keyLogIndex{-1};
 
-void registerOpenSSLUser()
+void registerOpenSSLUser(bool loadEverything)
 {
   if (s_users.fetch_add(1) == 0) {
 #ifdef HAVE_OPENSSL_INIT_CRYPTO
@@ -83,7 +83,13 @@ void registerOpenSSLUser()
        which can then be used to load engines.
        Do not load all ciphers and digests, we only need a few of them and these
        will be loaded by OPENSSL_init_ssl(). */
-    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, nullptr);
+//    if (loadEverything) {
+      OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, nullptr);
+//    }
+//    else {
+//      OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG|OPENSSL_INIT_NO_ADD_ALL_CIPHERS|OPENSSL_INIT_NO_ADD_ALL_DIGESTS, nullptr);
+//    }
+
     OPENSSL_init_ssl(0, nullptr);
 #endif
 
@@ -727,7 +733,12 @@ std::unique_ptr<SSL_CTX, void(*)(SSL_CTX*)> libssl_init_server_context(const TLS
     SSL_CTX_set_num_tickets(ctx.get(), 0);
 #endif /* HAVE_SSL_CTX_SET_NUM_TICKETS */
   }
-  sslOptions |= SSL_OP_ENABLE_KTLS;
+
+  if (config.d_ktls) {
+#ifdef SSL_OP_ENABLE_KTLS
+    sslOptions |= SSL_OP_ENABLE_KTLS;
+#endif /* SSL_OP_ENABLE_KTLS */
+  }
 
   if (config.d_sessionTimeout > 0) {
     SSL_CTX_set_timeout(ctx.get(), config.d_sessionTimeout);

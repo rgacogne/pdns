@@ -253,6 +253,10 @@ static void parseTLSConfig(TLSConfig& config, const std::string& context, boost:
   if (vars->count("tlsAsyncMode")) {
     config.d_asyncMode = boost::get<bool>((*vars).at("tlsAsyncMode"));
   }
+
+  if (vars->count("ktls")) {
+    config.d_ktls = boost::get<bool>((*vars).at("ktls"));
+  }
 }
 
 #endif // defined(HAVE_DNS_OVER_TLS) || defined(HAVE_DNS_OVER_HTTPS)
@@ -583,6 +587,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                            }
                            if (vars.count("enableRenegotiation")) {
                              tlsParams.d_enableRenegotiation = boost::get<bool>(vars.at("enableRenegotiation"));
+                           }
+                           if (vars.count("ktls")) {
+                             tlsParams.d_ktls = boost::get<bool>(vars.at("ktls"));
                            }
                            if (vars.count("subjectName")) {
                              ret->d_tlsSubjectName = boost::get<string>(vars.at("subjectName"));
