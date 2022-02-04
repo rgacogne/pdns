@@ -246,7 +246,7 @@ bool ServiceDiscovery::getDiscoveredConfig(const UpgradeableBackend& upgradeable
 {
 #warning FIXME: source address and interface
   const auto& backend = upgradeableBackend.d_ds;
-  const auto& addr = backend->remote;
+  const auto& addr = backend->d_config.remote;
   try {
     auto id = getRandomDNSID();
     PacketBuffer packet;
@@ -261,12 +261,12 @@ bool ServiceDiscovery::getDiscoveredConfig(const UpgradeableBackend& upgradeable
 
     Socket sock(addr.sin4.sin_family, SOCK_STREAM);
     sock.setNonBlocking();
-    sock.connect(addr, backend->tcpConnectTimeout);
+    sock.connect(addr, backend->d_config.tcpConnectTimeout);
 
-    sock.writenWithTimeout(reinterpret_cast<const char*>(packet.data()), packet.size(), backend->tcpSendTimeout);
+    sock.writenWithTimeout(reinterpret_cast<const char*>(packet.data()), packet.size(), backend->d_config.tcpSendTimeout);
 
     uint16_t responseSize = 0;
-    auto got = sock.readWithTimeout(reinterpret_cast<char*>(&responseSize), sizeof(responseSize), backend->tcpRecvTimeout);
+    auto got = sock.readWithTimeout(reinterpret_cast<char*>(&responseSize), sizeof(responseSize), backend->d_config.tcpRecvTimeout);
     if (got < 0 || static_cast<size_t>(got) != sizeof(responseSize)) {
       if (g_verbose) {
         warnlog("Error while waiting for the ADD upgrade response from backend %s: %d", addr.toString(), got);
@@ -276,7 +276,7 @@ bool ServiceDiscovery::getDiscoveredConfig(const UpgradeableBackend& upgradeable
 
     packet.resize(ntohs(responseSize));
 
-    got = sock.readWithTimeout(reinterpret_cast<char *>(packet.data()), packet.size(), backend->tcpRecvTimeout);
+    got = sock.readWithTimeout(reinterpret_cast<char *>(packet.data()), packet.size(), backend->d_config.tcpRecvTimeout);
     if (got < 0 || static_cast<size_t>(got) != packet.size()) {
       if (g_verbose) {
         warnlog("Error while waiting for the ADD upgrade response from backend %s: %d", addr.toString(), got);
