@@ -35,7 +35,7 @@ const uint16_t ServiceDiscovery::s_defaultDoHSVCKey{7};
 
 bool ServiceDiscovery::addUpgradeableServer(std::shared_ptr<DownstreamState>& server, uint32_t interval, std::string poolAfterUpgrade, uint16_t dohSVCKey, bool keepAfterUpgrade)
 {
-  d_upgradeableBackends.emplace_back(UpgradeableBackend{server, poolAfterUpgrade, 0, interval, dohSVCKey, keepAfterUpgrade});
+  s_upgradeableBackends.lock()->emplace_back(UpgradeableBackend{server, poolAfterUpgrade, 0, interval, dohSVCKey, keepAfterUpgrade});
   return true;
 }
 
@@ -145,22 +145,17 @@ static bool handleSVCResult(const PacketBuffer& answer, const ComboAddress& exis
   if (!parseSVCParams(answer, resolvers)) {
     return false;
   }
-  cerr<<"Got "<<resolvers.size()<<" resolver options"<<endl;
 
-  for (const auto& resolver : resolvers) {
+  for (const auto& [priority, resolver] : resolvers) {
     /* do not compare the ports */
     std::set<ComboAddress, ComboAddress::addressOnlyLessThan> tentativeAddresses;
     ServiceDiscovery::DiscoveredResolverConfig tempConfig;
     tempConfig.d_addr.sin4.sin_family = 0;
 
-    //cerr<<"- Priority "<<resolver.first<<" target is "<<resolver.second.target<<endl;
-    for (const auto& param : resolver.second.params) {
-      //cerr<<"\t key: "<<SvcParam::keyToString(param.getKey())<<endl;
+    for (const auto& param : resolver.params) {
       if (param.getKey() == SvcParam::alpn) {
         auto alpns = param.getALPN();
         for (const auto& alpn : alpns) {
-          //cerr<<"\t alpn: "<<alpn<<endl;
-
           if (alpn == "dot") {
             tempConfig.d_protocol = dnsdist::Protocol::DoT;
             if (tempConfig.d_port == 0) {
@@ -193,7 +188,6 @@ static bool handleSVCResult(const PacketBuffer& answer, const ComboAddress& exis
           /* nuke the {?dns} expression, if any, as we only support POST anyway */
           tempConfig.d_dohPath.resize(expression);
         }
-        //cerr<<"\t dohPath: "<<tempConfig.d_dohPath<<endl;
       }
     }
 
@@ -216,7 +210,7 @@ static bool handleSVCResult(const PacketBuffer& answer, const ComboAddress& exis
 
     /* we have a config that we can use! */
 
-    for (const auto& hint : resolver.second.hints) {
+    for (const auto& hint : resolver.hints) {
       tentativeAddresses.insert(hint);
     }
 
@@ -228,14 +222,10 @@ static bool handleSVCResult(const PacketBuffer& answer, const ComboAddress& exis
       tempConfig.d_addr = *tentativeAddresses.begin();
     }
 
+    tempConfig.d_subjectName = resolver.target.toStringNoDot();
     tempConfig.d_addr.sin4.sin_port = tempConfig.d_port;
 
     config = tempConfig;
-
-    cerr<<config.d_addr.toString()<<endl;
-    cerr<<config.d_dohPath<<endl;
-    cerr<<config.d_port<<endl;
-    cerr<<config.d_protocol.toPrettyString()<<endl;
     return true;
   }
 
@@ -340,25 +330,94 @@ bool ServiceDiscovery::getDiscoveredConfig(const UpgradeableBackend& upgradeable
 
 bool ServiceDiscovery::tryToUpgradeBackend(const UpgradeableBackend& backend)
 {
-  ServiceDiscovery::DiscoveredResolverConfig config;
+  ServiceDiscovery::DiscoveredResolverConfig discoveredConfig;
 
-  if (!ServiceDiscovery::getDiscoveredConfig(backend, config)) {
+  if (!ServiceDiscovery::getDiscoveredConfig(backend, discoveredConfig)) {
     return false;
   }
 
-  /* create new backend, put it into the right pool(s)
-     remove the existing backend if needed
-     remove backend from list
-  */
-  return true;
+  if (discoveredConfig.d_protocol != dnsdist::Protocol::DoT && discoveredConfig.d_protocol != dnsdist::Protocol::DoH) {
+    return false;
+  }
+
+  DownstreamState::Config config(backend.d_ds->d_config);
+  config.remote = discoveredConfig.d_addr;
+  if (discoveredConfig.d_port != 0) {
+    config.remote.setPort(discoveredConfig.d_port);
+  }
+  else {
+    if (discoveredConfig.d_protocol == dnsdist::Protocol::DoT) {
+      config.remote.setPort(853);
+    }
+    else if (discoveredConfig.d_protocol == dnsdist::Protocol::DoH) {
+      config.remote.setPort(443);
+    }
+  }
+
+  config.d_dohPath = discoveredConfig.d_dohPath;
+  config.d_tlsSubjectName = discoveredConfig.d_subjectName;
+
+  if (!backend.d_poolAfterUpgrade.empty()) {
+    config.pools.clear();
+    config.pools.insert(backend.d_poolAfterUpgrade);
+  }
+
+  try {
+    /* create new backend, put it into the right pool(s) */
+    TLSContextParameters tlsParams;
+    auto tlsCtx = getTLSContext(tlsParams);
+    auto newServer = std::make_shared<DownstreamState>(std::move(config), std::move(tlsCtx), true);
+
+    infolog("Added automatically upgraded server %s", newServer->getNameWithAddr());
+
+    auto localPools = g_pools.getCopy();
+    if (!newServer->d_config.pools.empty()) {
+      for (const auto& poolName : newServer->d_config.pools) {
+        addServerToPool(localPools, poolName, newServer);
+      }
+    }
+    else {
+      addServerToPool(localPools, "", newServer);
+    }
+    g_pools.setState(localPools);
+
+    newServer->start();
+
+    auto states = g_dstates.getCopy();
+    states.push_back(newServer);
+    /* remove the existing backend if needed */
+    if (!backend.keepAfterUpgrade) {
+      for (auto it = states.begin(); it != states.end(); ++it) {
+        if (*it == backend.d_ds) {
+          states.erase(it);
+          break;
+        }
+      }
+    }
+
+    std::stable_sort(states.begin(), states.end(), [](const decltype(newServer)& a, const decltype(newServer)& b) {
+      return a->d_config.order < b->d_config.order;
+    });
+    g_dstates.setState(states);
+
+    return true;
+  }
+  catch (const std::exception& e) {
+    warnlog("Error when trying to upgrade a discovered backend: %s", e.what());
+  }
+
+  return false;
 }
 
 void ServiceDiscovery::worker()
 {
-  while (!d_upgradeableBackends.empty()) {
+  while (true) {
     time_t now = time(nullptr);
 
-    for (auto backendIt = d_upgradeableBackends.begin(); backendIt != d_upgradeableBackends.end(); ) {
+    auto upgradeables = *(s_upgradeableBackends.lock());
+    std::set<std::shared_ptr<DownstreamState>> upgradedBackends;
+
+    for (auto backendIt = upgradeables.begin(); backendIt != upgradeables.end(); ) {
       try {
         auto& backend = *backendIt;
         if (backend.d_nextCheck > now) {
@@ -375,7 +434,8 @@ discoverKeep=false
         */
         auto upgraded = tryToUpgradeBackend(backend);
         if (upgraded) {
-          backendIt = d_upgradeableBackends.erase(backendIt);
+          upgradedBackends.insert(backend.d_ds);
+          backendIt = upgradeables.erase(backendIt);
         }
         else {
           backend.d_nextCheck = now + backend.d_interval;
@@ -389,18 +449,30 @@ discoverKeep=false
         vinfolog("Exception in the Service Discovery thread");
       }
     }
+
+
+    {
+      auto backends = s_upgradeableBackends.lock();
+      for (auto it = backends->begin(); it != backends->end(); ) {
+        if (upgradedBackends.count(it->d_ds) != 0) {
+          it = backends->erase(it);
+        }
+        else {
+          ++it;
+        }
+      }
+    }
   }
 }
 
 bool ServiceDiscovery::run()
 {
-  if (d_upgradeableBackends.empty()) {
-    return true;
-  }
-
-  d_thread = std::thread(&ServiceDiscovery::worker, this);
+  s_thread = std::thread(&ServiceDiscovery::worker);
+  s_thread.detach();
 
   return true;
 }
 
+LockGuarded<std::vector<ServiceDiscovery::UpgradeableBackend>> ServiceDiscovery::s_upgradeableBackends;
+std::thread ServiceDiscovery::s_thread;
 }

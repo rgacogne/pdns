@@ -26,6 +26,7 @@
 #include "dnsname.hh"
 #include "dnsdist-protocols.hh"
 #include "iputils.hh"
+#include "lock.hh"
 
 struct DownstreamState;
 
@@ -35,14 +36,15 @@ class ServiceDiscovery
 {
 public:
 
-  bool addUpgradeableServer(std::shared_ptr<DownstreamState>& server, uint32_t interval, std::string poolAfterUpgrade, uint16_t dohSVCKey, bool keepAfterUpgrade);
+  static bool addUpgradeableServer(std::shared_ptr<DownstreamState>& server, uint32_t interval, std::string poolAfterUpgrade, uint16_t dohSVCKey, bool keepAfterUpgrade);
 
   /* starts a background thread if needed */
-  bool run();
+  static bool run();
 
   struct DiscoveredResolverConfig
   {
     ComboAddress d_addr;
+    std::string d_subjectName;
     std::string d_dohPath;
     uint16_t d_port{0};
     dnsdist::Protocol d_protocol;
@@ -66,10 +68,10 @@ private:
   static bool getDiscoveredConfig(const UpgradeableBackend& backend, DiscoveredResolverConfig& config);
   static bool tryToUpgradeBackend(const UpgradeableBackend& backend);
 
-  void worker();
+  static void worker();
 
-  std::vector<UpgradeableBackend> d_upgradeableBackends;
-  std::thread d_thread;
+  static LockGuarded<std::vector<UpgradeableBackend>> s_upgradeableBackends;
+  static std::thread s_thread;
 };
 
 }
