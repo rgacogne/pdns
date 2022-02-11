@@ -126,6 +126,8 @@ void dnsdist_ffi_dnsquestion_spoof_packet(dnsdist_ffi_dnsquestion_t* dq, const c
 
 /* decrease the returned TTL but _after_ inserting the original response into the packet cache */
 void dnsdist_ffi_dnsquestion_set_max_returned_ttl(dnsdist_ffi_dnsquestion_t* dq, uint32_t max) __attribute__ ((visibility ("default")));
+/* add a record type to apply the TTL cap to (see above) */
+void dnsdist_ffi_dnsquestion_add_type_to_max_returned_ttl(dnsdist_ffi_dnsquestion_t* dr, uint16_t type) __attribute__ ((visibility ("default")));;
 
 // store the DNS packet of the query in our internal state so we can restart the query if we do not like the response
 bool dnsdist_ffi_dnsquestion_set_restartable(dnsdist_ffi_dnsquestion_t* dq) __attribute__ ((visibility ("default")));
@@ -151,6 +153,8 @@ void dnsdist_ffi_dnsresponse_set_max_ttl(dnsdist_ffi_dnsresponse_t* dr, uint32_t
 void dnsdist_ffi_dnsresponse_limit_ttl(dnsdist_ffi_dnsresponse_t* dr, uint32_t min, uint32_t max) __attribute__ ((visibility ("default")));
 /* decrease the returned TTL but _after_ inserting the original response into the packet cache */
 void dnsdist_ffi_dnsresponse_set_max_returned_ttl(dnsdist_ffi_dnsresponse_t* dr, uint32_t max) __attribute__ ((visibility ("default")));
+/* add a record type to apply the TTL cap to (see above) */
+void dnsdist_ffi_dnsresponse_add_type_to_max_returned_ttl(dnsdist_ffi_dnsresponse_t* dr, uint16_t type) __attribute__ ((visibility ("default")));;
 void dnsdist_ffi_dnsresponse_clear_records_type(dnsdist_ffi_dnsresponse_t* dr, uint16_t qtype) __attribute__ ((visibility ("default")));
 bool dnsdist_ffi_dnsresponse_rebase(dnsdist_ffi_dnsresponse_t* dr, const char* initialName, size_t initialNameSize) __attribute__ ((visibility ("default")));
 

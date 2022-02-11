@@ -572,6 +572,13 @@ void dnsdist_ffi_dnsquestion_set_max_returned_ttl(dnsdist_ffi_dnsquestion_t* dq,
   }
 }
 
+void dnsdist_ffi_dnsquestion_add_type_to_max_returned_ttl(dnsdist_ffi_dnsquestion_t* dq, uint16_t type)
+{
+  if (dq != nullptr && dq->dq != nullptr) {
+    dq->dq->ids.ttlCapTypes.insert(type);
+  }
+}
+
 size_t dnsdist_ffi_servers_list_get_count(const dnsdist_ffi_servers_list_t* list)
 {
   return list->ffiServers.size();
@@ -665,6 +672,13 @@ void dnsdist_ffi_dnsresponse_set_max_returned_ttl(dnsdist_ffi_dnsresponse_t* dr,
   }
 }
 
+void dnsdist_ffi_dnsresponse_add_type_to_max_returned_ttl(dnsdist_ffi_dnsresponse_t* dr, uint16_t type)
+{
+  if (dr != nullptr && dr->dr != nullptr) {
+    dr->dr->ids.ttlCapTypes.insert(type);
+  }
+}
+
 void dnsdist_ffi_dnsresponse_clear_records_type(dnsdist_ffi_dnsresponse_t* dr, uint16_t qtype)
 {
   if (dr != nullptr && dr->dr != nullptr) {
@@ -739,11 +753,13 @@ bool dnsdist_ffi_dnsresponse_set_async(dnsdist_ffi_dnsquestion_t* dq, uint16_t a
 bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const char* tag, size_t tagSize, const char* tagValue, size_t tagValueSize)
 {
   if (!dnsdist::g_asyncHolder) {
+    vinfolog("Unable to resume, no asynchronous holder");
     return false;
   }
 
   auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
+    vinfolog("Unable to resume, no object found for asynchronous ID %d and query ID %d", asyncID, queryID);
     return false;
   }
 

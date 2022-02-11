@@ -478,7 +478,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dr, bool mut
 
   if (dr.ids.ttlCap > 0) {
     std::string result;
-    LimitTTLResponseAction ac(0, dr.ids.ttlCap);
+    LimitTTLResponseAction ac(0, dr.ids.ttlCap, dr.ids.ttlCapTypes);
     ac(&dr, &result);
   }
 
@@ -1203,7 +1203,7 @@ static bool prepareOutgoingResponse(LocalHolders& holders, const ClientState& cs
 
   if (dr.ids.ttlCap > 0) {
     std::string result;
-    LimitTTLResponseAction ac(0, dr.ids.ttlCap);
+    LimitTTLResponseAction ac(0, dr.ids.ttlCap, dr.ids.ttlCapTypes);
     ac(&dr, &result);
   }
 
