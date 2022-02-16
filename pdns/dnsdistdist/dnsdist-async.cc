@@ -256,7 +256,7 @@ bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t 
   gettimeofday(&ttd, nullptr);
   ttd.tv_sec += timeoutMs / 1000;
   ttd.tv_usec += (timeoutMs % 1000) * 1000;
-  if (ttd.tv_usec > 1000000) {
+  if (ttd.tv_usec >= 1000000) {
     ttd.tv_sec++;
     ttd.tv_usec -= 1000000;
   }
@@ -277,7 +277,7 @@ bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32
   gettimeofday(&ttd, nullptr);
   ttd.tv_sec += timeoutMs / 1000;
   ttd.tv_usec += (timeoutMs % 1000) * 1000;
-  if (ttd.tv_usec > 1000000) {
+  if (ttd.tv_usec >= 1000000) {
     ttd.tv_sec++;
     ttd.tv_usec -= 1000000;
   }
