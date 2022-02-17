@@ -68,7 +68,7 @@ void AsynchronousHolder::mainThread()
       gettimeofday(&now, nullptr);
       struct timeval next = getNextTTD(*content);
       next = next - now;
-      auto milli = uSec(next) / 1000;
+      uint64_t milli = std::round(uSec(next) / 1000.0);
       auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(milli);
 
       auto why = d_cond.wait_until(lock, until);
