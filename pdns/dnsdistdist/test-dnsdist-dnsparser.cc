@@ -276,25 +276,54 @@ BOOST_AUTO_TEST_CASE(test_Response)
     pwR.startRecord(target, QType::TXT, 7200, QClass::IN, DNSResourceRecord::ANSWER);
     pwR.xfrText("\"random text\"");
     pwR.commit();
+    pwR.startRecord(target, QType::SRV, 7200, QClass::IN, DNSResourceRecord::ANSWER);
+    pwR.xfr16BitInt(1);
+    pwR.xfr16BitInt(2);
+    pwR.xfr16BitInt(65535);
+    pwR.xfrName(DNSName("target.powerdns.com."));
+    pwR.commit();
     pwR.addOpt(4096, 0, 0);
     pwR.commit();
 
+    {
+      // before
+      MOADNSParser mdp(false, reinterpret_cast<const char*>(response.data()), response.size());
+      BOOST_CHECK_EQUAL(mdp.d_qname, target);
+      BOOST_CHECK_EQUAL(mdp.d_header.qdcount, 1U);
+      BOOST_CHECK_EQUAL(mdp.d_header.ancount, 7U);
+      BOOST_CHECK_EQUAL(mdp.d_header.nscount, 0U);
+      BOOST_CHECK_EQUAL(mdp.d_header.arcount, 1U);
+
+      BOOST_REQUIRE_EQUAL(mdp.d_answers.size(), 8U);
+      for (const auto& answer : mdp.d_answers) {
+        if (answer.first.d_type == QType::OPT) {
+          continue;
+        }
+        BOOST_CHECK_EQUAL(answer.first.d_class, QClass::IN);
+        BOOST_CHECK_EQUAL(answer.first.d_name, target);
+      }
+    }
+
+    // rebasing
     BOOST_CHECK(dnsdist::rebaseDNSPacket(response, target, newTarget));
 
-    MOADNSParser mdp(false, reinterpret_cast<const char*>(response.data()), response.size());
-    BOOST_CHECK_EQUAL(mdp.d_qname, newTarget);
-    BOOST_CHECK_EQUAL(mdp.d_header.qdcount, 1U);
-    BOOST_CHECK_EQUAL(mdp.d_header.ancount, 6U);
-    BOOST_CHECK_EQUAL(mdp.d_header.nscount, 0U);
-    BOOST_CHECK_EQUAL(mdp.d_header.arcount, 1U);
+    {
+      // after
+      MOADNSParser mdp(false, reinterpret_cast<const char*>(response.data()), response.size());
+      BOOST_CHECK_EQUAL(mdp.d_qname, newTarget);
+      BOOST_CHECK_EQUAL(mdp.d_header.qdcount, 1U);
+      BOOST_CHECK_EQUAL(mdp.d_header.ancount, 7U);
+      BOOST_CHECK_EQUAL(mdp.d_header.nscount, 0U);
+      BOOST_CHECK_EQUAL(mdp.d_header.arcount, 1U);
 
-    BOOST_REQUIRE_EQUAL(mdp.d_answers.size(), 7U);
-    for (const auto& answer : mdp.d_answers) {
-      if (answer.first.d_type == QType::OPT) {
-        continue;
+      BOOST_REQUIRE_EQUAL(mdp.d_answers.size(), 8U);
+      for (const auto& answer : mdp.d_answers) {
+        if (answer.first.d_type == QType::OPT) {
+          continue;
+        }
+        BOOST_CHECK_EQUAL(answer.first.d_class, QClass::IN);
+        BOOST_CHECK_EQUAL(answer.first.d_name, newTarget);
       }
-      BOOST_CHECK_EQUAL(answer.first.d_class, QClass::IN);
-      BOOST_CHECK_EQUAL(answer.first.d_name, newTarget);
     }
   }
 
@@ -368,6 +397,13 @@ BOOST_AUTO_TEST_CASE(test_Overlay)
     pwR.commit();
     pwR.addOpt(4096, 0, 0);
     pwR.commit();
+
+    {
+      // check packet smaller than dnsheader
+      BOOST_CHECK_THROW(dnsdist::DNSPacketOverlay(std::string_view(reinterpret_cast<const char*>(response.data()), 11U)), std::runtime_error);
+      // check corrupted packet
+      BOOST_CHECK_THROW(dnsdist::DNSPacketOverlay(std::string_view(reinterpret_cast<const char*>(response.data()), response.size() - 1)), std::runtime_error);
+    }
 
     dnsdist::DNSPacketOverlay overlay(std::string_view(reinterpret_cast<const char*>(response.data()), response.size()));
     BOOST_CHECK_EQUAL(overlay.d_qname, target);
