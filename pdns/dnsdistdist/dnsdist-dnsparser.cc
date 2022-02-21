@@ -175,14 +175,14 @@ bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNS
       pw.xfr32BitInt(pr.get32BitInt());
     }
     else if (ah.d_type == QType::SRV) {
+      /* preference */
+      pw.xfr16BitInt(pr.get16BitInt());
       /* weight */
       pw.xfr16BitInt(pr.get16BitInt());
       /* port */
       pw.xfr16BitInt(pr.get16BitInt());
       auto target = pr.getName();
       pw.xfrName(target);
-      /* preference */
-      pw.xfr16BitInt(pr.get16BitInt());
     }
     else {
       /* sorry, unsafe type */
