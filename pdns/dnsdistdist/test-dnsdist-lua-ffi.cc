@@ -179,7 +179,7 @@ BOOST_AUTO_TEST_CASE(test_Query)
   {
     // dnsdist_ffi_dnsquestion_get_protocol
     BOOST_CHECK(static_cast<uint8_t>(dnsdist_ffi_dnsquestion_get_protocol(&lightDQ)) == dnsdist::Protocol(dnsdist::Protocol::DoUDP).toNumber());
-    for (const auto protocol : { dnsdist::Protocol::DoUDP, dnsdist::Protocol::DoTCP, dnsdist::Protocol::DNSCryptUDP, dnsdist::Protocol::DNSCryptTCP, dnsdist::Protocol::DoT, dnsdist::Protocol::DoH}) {
+    for (const auto protocol : {dnsdist::Protocol::DoUDP, dnsdist::Protocol::DoTCP, dnsdist::Protocol::DNSCryptUDP, dnsdist::Protocol::DNSCryptTCP, dnsdist::Protocol::DoT, dnsdist::Protocol::DoH}) {
       dq.ids.protocol = protocol;
       BOOST_CHECK(static_cast<uint8_t>(dnsdist_ffi_dnsquestion_get_protocol(&lightDQ)) == protocol);
     }
@@ -229,7 +229,7 @@ BOOST_AUTO_TEST_CASE(test_Query)
   }
 
   {
-    const char *buffer = nullptr;
+    const char* buffer = nullptr;
     size_t bufferSize = 0;
     dnsdist_ffi_dnsquestion_get_sni(&lightDQ, &buffer, &bufferSize);
     BOOST_CHECK_EQUAL(bufferSize, 0U);
@@ -301,9 +301,14 @@ BOOST_AUTO_TEST_CASE(test_Query)
     const std::string tagName("my-tag");
     const std::string tagValue("my-value");
     const std::string tagRawValue("my-\0-binary-value");
+    std::string buffer;
+    buffer.resize(512);
     BOOST_CHECK(dnsdist_ffi_dnsquestion_get_tag(nullptr, nullptr) == nullptr);
     BOOST_CHECK(dnsdist_ffi_dnsquestion_get_tag(&lightDQ, nullptr) == nullptr);
     BOOST_CHECK(dnsdist_ffi_dnsquestion_get_tag(&lightDQ, tagName.c_str()) == nullptr);
+
+    BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_tag_raw(nullptr, nullptr, nullptr, 0), 0U);
+    BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_tag_raw(&lightDQ, tagName.c_str(), buffer.data(), buffer.size()), 0U);
 
     dnsdist_ffi_dnsquestion_set_tag(&lightDQ, tagName.c_str(), tagValue.c_str());
 
@@ -319,11 +324,8 @@ BOOST_AUTO_TEST_CASE(test_Query)
 
     dnsdist_ffi_dnsquestion_set_tag_raw(&lightDQ, tagName.c_str(), tagRawValue.c_str(), tagRawValue.size());
 
-    BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_tag_raw(nullptr, nullptr, nullptr, 0), 0U);
-    std::string buffer;
-    buffer.resize(1);
-
     // too small
+    buffer.resize(1);
     BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_tag_raw(&lightDQ, tagName.c_str(), buffer.data(), buffer.size()), 0U);
 
     buffer.resize(tagRawValue.size());
@@ -334,7 +336,6 @@ BOOST_AUTO_TEST_CASE(test_Query)
     // dnsdist_ffi_dnsquestion_get_tag
     // dnsdist_ffi_dnsquestion_get_tag_raw
     // dnsdist_ffi_dnsquestion_get_tag_array
-
   }
 }
 
@@ -397,7 +398,6 @@ BOOST_AUTO_TEST_CASE(test_Response)
     dnsdist_ffi_dnsresponse_clear_records_type(nullptr, QType::A);
     dnsdist_ffi_dnsresponse_clear_records_type(&lightDR, QType::A);
   }
-
 }
 
 BOOST_AUTO_TEST_CASE(test_Server)
@@ -413,7 +413,6 @@ BOOST_AUTO_TEST_CASE(test_Server)
   BOOST_CHECK_EQUAL(dnsdist_ffi_server_get_weight(&server), 1U);
   BOOST_CHECK_EQUAL(dnsdist_ffi_server_get_order(&server), 1U);
   BOOST_CHECK_EQUAL(dnsdist_ffi_server_get_latency(&server), 0.0);
-
 }
 
 BOOST_AUTO_TEST_CASE(test_PacketOverlay)
@@ -441,8 +440,8 @@ BOOST_AUTO_TEST_CASE(test_PacketOverlay)
 
   dnsdist_ffi_dnspacket_t* packet = nullptr;
   // invalid packet
-  BOOST_CHECK(!dnsdist_ffi_dnspacket_parse(reinterpret_cast<const char *>(response.data()), response.size() - 1, &packet));
-  BOOST_REQUIRE(dnsdist_ffi_dnspacket_parse(reinterpret_cast<const char *>(response.data()), response.size(), &packet));
+  BOOST_CHECK(!dnsdist_ffi_dnspacket_parse(reinterpret_cast<const char*>(response.data()), response.size() - 1, &packet));
+  BOOST_REQUIRE(dnsdist_ffi_dnspacket_parse(reinterpret_cast<const char*>(response.data()), response.size(), &packet));
   BOOST_REQUIRE(packet != nullptr);
 
   const char* qname = nullptr;
