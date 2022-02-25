@@ -300,6 +300,12 @@ static void LuaThread(const std::string code)
   }
 }
 
+#ifdef COVERAGE
+  extern "C" {
+    void __gcov_dump(void);
+  }
+#endif
+
 static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 {
   typedef LuaAssociativeTable<boost::variant<bool, std::string, LuaArray<std::string>, DownstreamState::checkfunc_t>> newserver_t;
@@ -888,7 +894,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       g_tlslocals.clear();
       g_rings.clear();
 #endif /* 0 */
-    _exit(0);
+#ifdef COVERAGE
+      __gcov_dump();
+#endif
+      _exit(0);
   });
 
   typedef LuaAssociativeTable<boost::variant<bool, std::string>> showserversopts_t;
