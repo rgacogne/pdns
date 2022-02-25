@@ -230,7 +230,7 @@ const char* dnsdist_ffi_dnsquestion_get_tag(const dnsdist_ffi_dnsquestion_t* dq,
 {
   const char * result = nullptr;
 
-  if (dq->dq->ids.qTag != nullptr) {
+  if (dq != nullptr && dq->dq != nullptr && dq->dq->ids.qTag != nullptr) {
     const auto it = dq->dq->ids.qTag->find(label);
     if (it != dq->dq->ids.qTag->cend()) {
       result = it->second.c_str();
@@ -396,7 +396,7 @@ size_t dnsdist_ffi_dnsquestion_get_http_headers(dnsdist_ffi_dnsquestion_t* dq, c
 
 size_t dnsdist_ffi_dnsquestion_get_tag_array(dnsdist_ffi_dnsquestion_t* dq, const dnsdist_ffi_tag_t** out)
 {
-  if (dq->dq->ids.qTag == nullptr || dq->dq->ids.qTag->size() == 0) {
+  if (dq == nullptr || dq->dq == nullptr || dq->dq->ids.qTag == nullptr || dq->dq->ids.qTag->size() == 0) {
     return 0;
   }
 
@@ -481,6 +481,11 @@ void dnsdist_ffi_dnsquestion_unset_temp_failure_ttl(dnsdist_ffi_dnsquestion_t* d
 void dnsdist_ffi_dnsquestion_set_tag(dnsdist_ffi_dnsquestion_t* dq, const char* label, const char* value)
 {
   dq->dq->setTag(label, value);
+}
+
+void dnsdist_ffi_dnsquestion_set_tag_raw(dnsdist_ffi_dnsquestion_t* dq, const char* label, const char* value, size_t valueSize)
+{
+  dq->dq->setTag(label, std::string(value, valueSize));
 }
 
 size_t dnsdist_ffi_dnsquestion_get_trailing_data(dnsdist_ffi_dnsquestion_t* dq, const char** out)
