@@ -1393,11 +1393,6 @@ public:
 
     static thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
 
-    double udiff = ids.sentTime.udiff();
-    if (d_ds && !response.d_selfGenerated) {
-      vinfolog("Got answer from %s, relayed to %s (UDP), took %f usec", d_ds->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff);
-    }
-
     handleResponseForUDPClient(ids, response.d_buffer, d_payloadSize, localRespRuleActions, d_ds, response.isAsync(), response.d_selfGenerated, std::nullopt);
   }
 
