@@ -771,6 +771,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   }
   else if (result == ProcessQueryResult::Asynchronous) {
     /* we are done for now */
+    ++state->d_currentQueriesCount;
     return;
   }
 

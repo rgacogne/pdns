@@ -26,6 +26,7 @@
 
 #include "dnswriter.hh"
 #include "dnsdist.hh"
+#include "dnsdist-async.hh"
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsdist-rings.hh"
 #include "dnsdist-tcp-downstream.hh"
@@ -1707,6 +1708,43 @@ BOOST_AUTO_TEST_CASE(test_IncomingConnection_BackendNoOOOR)
 #endif
   }
 
+  {
+    /* 2 queries on the same connection, asynchronously handled, check that we only read the first one (no OOOR as maxInFlight is 0) */
+    TEST_INIT("=> 2 queries on the same connection, async");
+
+    size_t count = 2;
+
+    s_readBuffer = query;
+
+    for (size_t idx = 0; idx < count; idx++) {
+      appendPayloadEditingID(s_readBuffer, query, idx);
+      appendPayloadEditingID(s_backendReadBuffer, query, idx);
+    }
+
+    s_steps = { { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
+                { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 2 },
+                { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, query.size() - 2 },
+                /* close the connection with the client */
+                { ExpectedStep::ExpectedRequest::closeClient, IOState::Done }
+    };
+
+    s_processQuery = [backend](DNSQuestion& dq, LocalHolders& holders, std::shared_ptr<DownstreamState>& selectedBackend) -> ProcessQueryResult {
+      selectedBackend = backend;
+      dq.asynchronous = true;
+      /* note that we do nothing with the query, we just tell the frontend it was dealt with */
+      return ProcessQueryResult::Asynchronous;
+    };
+    s_processResponse = [](PacketBuffer& response, LocalStateHolder<vector<DNSDistResponseRuleAction> >& localRespRuleActions, DNSResponse& dr, bool muted) -> bool {
+      return true;
+    };
+
+    auto state = std::make_shared<IncomingTCPConnectionState>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
+    IncomingTCPConnectionState::handleIO(state, now);
+    BOOST_CHECK_EQUAL(backend->outstanding.load(), 0U);
+
+    /* we need to clear them now, otherwise we end up with dangling pointers to the steps via the TLS context, etc */
+    IncomingTCPConnectionState::clearAllDownstreamConnections();
+  }
 }
 
 BOOST_AUTO_TEST_CASE(test_IncomingConnectionOOOR_BackendOOOR)
@@ -4067,6 +4105,65 @@ BOOST_AUTO_TEST_CASE(test_IncomingConnectionOOOR_BackendNotOOOR)
 
     /* we need to clear them now, otherwise we end up with dangling pointers to the steps via the TLS context, etc */
     BOOST_CHECK_EQUAL(IncomingTCPConnectionState::clearAllDownstreamConnections(), 5U);
+  }
+
+  {
+    /* 2 queries on the same connection, asynchronously handled, check that we only read all of them (OOOR as maxInFlight is 65535) */
+    TEST_INIT("=> 2 queries on the same connection, async with OOOR");
+
+    size_t count = 2;
+
+    s_readBuffer = queries.at(0);
+
+    for (size_t idx = 0; idx < count; idx++) {
+      appendPayloadEditingID(s_readBuffer, queries.at(idx), idx);
+      appendPayloadEditingID(s_backendReadBuffer, queries.at(idx), idx);
+    }
+
+    bool timeout = false;
+    s_steps = { { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
+                { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 2 },
+                { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, queries.at(0).size() - 2 },
+                { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 2 },
+                { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, queries.at(1).size() - 2 },
+                { ExpectedStep::ExpectedRequest::readFromClient, IOState::NeedRead, 0, [&timeout](int desc) {
+                  timeout = true;
+                }},
+                /* close the connection with the client */
+                { ExpectedStep::ExpectedRequest::closeClient, IOState::Done }
+    };
+
+    s_processQuery = [backend](DNSQuestion& dq, LocalHolders& holders, std::shared_ptr<DownstreamState>& selectedBackend) -> ProcessQueryResult {
+      selectedBackend = backend;
+      dq.asynchronous = true;
+      /* note that we do nothing with the query, we just tell the frontend it was dealt with */
+      return ProcessQueryResult::Asynchronous;
+    };
+    s_processResponse = [](PacketBuffer& response, LocalStateHolder<vector<DNSDistResponseRuleAction> >& localRespRuleActions, DNSResponse& dr, bool muted) -> bool {
+      return true;
+    };
+
+    auto state = std::make_shared<IncomingTCPConnectionState>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
+    IncomingTCPConnectionState::handleIO(state, now);
+    while (!timeout && (threadData.mplexer->getWatchedFDCount(false) != 0 || threadData.mplexer->getWatchedFDCount(true) != 0)) {
+      threadData.mplexer->run(&now);
+    }
+
+    struct timeval later = now;
+    later.tv_sec += g_tcpRecvTimeout + 1;
+    auto expiredConns = threadData.mplexer->getTimeouts(later);
+    BOOST_CHECK_EQUAL(expiredConns.size(), 1U);
+    for (const auto& cbData : expiredConns) {
+      if (cbData.second.type() == typeid(std::shared_ptr<IncomingTCPConnectionState>)) {
+        auto cbState = boost::any_cast<std::shared_ptr<IncomingTCPConnectionState>>(cbData.second);
+        cbState->handleTimeout(cbState, false);
+      }
+    }
+
+    BOOST_CHECK_EQUAL(backend->outstanding.load(), 0U);
+
+    /* we need to clear them now, otherwise we end up with dangling pointers to the steps via the TLS context, etc */
+    IncomingTCPConnectionState::clearAllDownstreamConnections();
   }
 }
 
