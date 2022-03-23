@@ -276,6 +276,8 @@ public:
 
   virtual uint16_t getType() const = 0;
 
+  virtual std::unique_ptr<DNSRecordContent> clone() const = 0;
+
 protected:
   typedef std::map<std::pair<uint16_t, uint16_t>, makerfunc_t* > typemap_t;
   typedef std::map<std::pair<uint16_t, uint16_t>, zmakerfunc_t* > zmakermap_t;
@@ -385,6 +387,11 @@ public:
   const vector<uint8_t>& getRawContent() const
   {
     return d_record;
+  }
+
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<UnknownRecordContent>(*this);
   }
 
 private:

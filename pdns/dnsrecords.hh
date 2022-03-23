@@ -41,7 +41,8 @@
   static std::shared_ptr<DNSRecordContent> make(const string& zonedata);                         \
   string getZoneRepresentation(bool noDot=false) const override;                                 \
   void toPacket(DNSPacketWriter& pw) override;                                                   \
-  uint16_t getType() const override { return QType::RNAME; }                                   \
+  uint16_t getType() const override { return QType::RNAME; }                                     \
+  std::unique_ptr<DNSRecordContent> clone() const override;                                      \
   template<class Convertor> void xfrPacket(Convertor& conv, bool noDot=false);
 
 class NAPTRRecordContent : public DNSRecordContent
@@ -720,6 +721,10 @@ public:
   {
     return d_bitmap.count();
   }
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<NSECRecordContent>(*this);
+  }
 
   DNSName d_next;
 private:
@@ -748,6 +753,11 @@ public:
   {
     return QType::NSEC3;
   }
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<NSEC3RecordContent>(*this);
+  }
+
   bool isSet(uint16_t type) const
   {
     return d_bitmap.isSet(type);
@@ -791,6 +801,11 @@ public:
     return QType::CSYNC;
   }
 
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<CSYNCRecordContent>(*this);
+  }
+
   void set(uint16_t type)
   {
     d_bitmap.set(type);
@@ -820,6 +835,10 @@ public:
     return QType::NSEC3PARAM;
   }
 
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<NSEC3PARAMRecordContent>(*this);
+  }
 
   uint8_t d_algorithm{0}, d_flags{0};
   uint16_t d_iterations{0};
@@ -839,6 +858,10 @@ public:
   static std::shared_ptr<DNSRecordContent> make(const string& content);
   string getZoneRepresentation(bool noDot=false) const override;
   void toPacket(DNSPacketWriter& pw) override;
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<LOCRecordContent>(*this);
+  }
 
   uint8_t d_version{0}, d_size{0}, d_horizpre{0}, d_vertpre{0};
   uint32_t d_latitude{0}, d_longitude{0}, d_altitude{0};
@@ -901,6 +924,11 @@ public:
   string getZoneRepresentation(bool noDot=false) const override;
   void toPacket(DNSPacketWriter& pw) override;
   uint16_t getType() const override { return QType::EUI48; }
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<EUI48RecordContent>(*this);
+  }
+
 private:
  // storage for the bytes
  uint8_t d_eui48[6]; 
@@ -916,6 +944,10 @@ public:
   string getZoneRepresentation(bool noDot=false) const override;
   void toPacket(DNSPacketWriter& pw) override;
   uint16_t getType() const override { return QType::EUI64; }
+  std::unique_ptr<DNSRecordContent> clone() const override
+  {
+    return std::make_unique<EUI64RecordContent>(*this);
+  }
 private:
  // storage for the bytes
  uint8_t d_eui64[8];
@@ -938,6 +970,7 @@ class APLRecordContent : public DNSRecordContent
 public:
   APLRecordContent() {};
   includeboilerplate(APL)
+
 private:
   std::vector<APLRDataElement> aplrdata;
   APLRDataElement parseAPLElement(const string &element);
@@ -1031,7 +1064,13 @@ string RNAME##RecordContent::getZoneRepresentation(bool noDot) const            
   RecordTextWriter rtw(ret, noDot);                                                                       \
   const_cast<RNAME##RecordContent*>(this)->xfrPacket(rtw);                                         \
   return ret;                                                                                      \
-}                                                                                                  
+}                                                                                                  \
+                                                                                                   \
+std::unique_ptr<DNSRecordContent> RNAME##RecordContent::clone() const                              \
+{                                                                                                  \
+  return std::make_unique<RNAME##RecordContent>(*this);                      \
+}
+
                                                                                            
 
 #define boilerplate_conv(RNAME, CONV)                             \

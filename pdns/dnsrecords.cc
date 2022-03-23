@@ -683,6 +683,10 @@ std::shared_ptr<DNSRecordContent> APLRecordContent::make(const string& zone) {
   return ret;
 }
 
+std::unique_ptr<DNSRecordContent> APLRecordContent::clone() const
+{
+  return std::make_unique<APLRecordContent>(*this);
+}
 
 // DNSRecord to Packet conversion
 void APLRecordContent::toPacket(DNSPacketWriter& pw) {
