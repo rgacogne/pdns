@@ -52,6 +52,18 @@ BOOST_AUTO_TEST_CASE(test_Query)
   }
 
   {
+    /* query smaller than a DNS header */
+    PacketBuffer query;
+    GenericDNSPacketWriter<PacketBuffer> pw(query, target, QType::A, QClass::IN, 0);
+    pw.getHeader()->rd = 1;
+    pw.getHeader()->id = htons(42);
+    pw.commit();
+
+    query.resize(sizeof(dnsheader) - 1);
+    BOOST_CHECK(!dnsdist::rebaseDNSPacket(query, target, newTarget));
+  }
+
+  {
     /* query for a different name than the target */
     PacketBuffer query;
     GenericDNSPacketWriter<PacketBuffer> pw(query, notTheTarget, QType::A, QClass::IN, 0);
@@ -221,6 +233,16 @@ BOOST_AUTO_TEST_CASE(test_Response)
     pwR.commit();
     pwR.addOpt(4096, 0, 0);
     pwR.commit();
+    pwR.startRecord(target, QType::RRSIG, 7200, QClass::IN, DNSResourceRecord::ANSWER);
+    pwR.xfrType(QType::TXT);
+    pwR.xfr8BitInt(13);
+    pwR.xfr8BitInt(2);
+    pwR.xfr32BitInt(42);
+    pwR.xfrTime(42);
+    pwR.xfrTime(42);
+    pwR.xfr16BitInt(42);
+    pwR.xfrName(DNSName("powerdns.com."));
+    pwR.xfrBlob(std::string());
 
     BOOST_CHECK(dnsdist::rebaseDNSPacket(response, target, newTarget));
 
