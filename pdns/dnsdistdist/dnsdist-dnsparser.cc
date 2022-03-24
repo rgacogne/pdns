@@ -138,9 +138,6 @@ bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNS
     pw.startRecord(rrname, ah.d_type, ah.d_ttl, ah.d_class, place, true);
     if (nameOnlyTypes.count(ah.d_type)) {
       rrname = pr.getName();
-      if (rrname == from) {
-        rrname = to;
-      }
       pw.xfrName(rrname);
     }
     else if (noNameTypes.count(ah.d_type)) {
