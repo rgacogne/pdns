@@ -303,6 +303,7 @@ testrunner_SOURCES = \
 	test-dnsdist-dnsparser.cc \
 	test-dnsdist-lua-ffi.cc \
 	test-dnsdist_cc.cc \
+	test-dnsdistasync.cc \
 	test-dnsdistdynblocks_hh.cc \
 	test-dnsdistkvs_cc.cc \
 	test-dnsdistlbpolicies_cc.cc \

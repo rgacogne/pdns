@@ -35,11 +35,12 @@ namespace dnsdist
 class AsynchronousHolder
 {
 public:
-  AsynchronousHolder();
+  AsynchronousHolder(bool failOpen = true);
   ~AsynchronousHolder();
   void push(uint16_t asyncID, uint16_t queryID, const struct timeval& ttd, std::unique_ptr<CrossProtocolQuery>&& query);
   std::unique_ptr<CrossProtocolQuery> get(uint16_t asyncID, uint16_t queryID);
   bool empty();
+  void stop();
 
 private:
   struct TTDTag

@@ -26,7 +26,7 @@
 namespace dnsdist
 {
 
-AsynchronousHolder::AsynchronousHolder()
+  AsynchronousHolder::AsynchronousHolder(bool failOpen): d_failOpen(failOpen)
 {
   std::thread main([this] { mainThread(); });
   main.detach();
@@ -35,14 +35,19 @@ AsynchronousHolder::AsynchronousHolder()
 AsynchronousHolder::~AsynchronousHolder()
 {
   try {
-    {
-      auto content = d_content.lock();
-      d_done = true;
-    }
-    d_cond.notify_one();
+    stop();
   }
   catch (...) {
   }
+}
+
+void AsynchronousHolder::stop()
+{
+  {
+    auto content = d_content.lock();
+    d_done = true;
+  }
+  d_cond.notify_one();
 }
 
 void AsynchronousHolder::mainThread()
