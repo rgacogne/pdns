@@ -330,7 +330,7 @@ class OPTRecordContent : public DNSRecordContent
 public:
   OPTRecordContent(){}
   includeboilerplate(OPT)
-  void getData(vector<pair<uint16_t, string> > &opts);
+  void getData(vector<pair<uint16_t, string> > &opts) const;
 private:
   string d_data;
 };

@@ -200,7 +200,7 @@ void AggressiveNSECCache::prune(time_t now)
   }
 }
 
-static bool isMinimallyCoveringNSEC(const DNSName& owner, const std::shared_ptr<NSECRecordContent>& nsec)
+static bool isMinimallyCoveringNSEC(const DNSName& owner, const std::unique_ptr<NSECRecordContent>& nsec)
 {
   /* this test only covers Cloudflare's ones (https://blog.cloudflare.com/black-lies/),
      we might need to cover more cases described in rfc4470 as well, but the name generation algorithm
@@ -232,7 +232,7 @@ static bool isMinimallyCoveringNSEC(const DNSName& owner, const std::shared_ptr<
 // can tell us what types are in the bitmap for that name. For those names, this function returns false.
 // This is on purpose because NODATA denials actually do contain useful information we can reuse later -
 // specifically, the type bitmap for a name that does exist.
-static bool isMinimallyCoveringNSEC3(const DNSName& owner, const std::shared_ptr<NSEC3RecordContent>& nsec)
+static bool isMinimallyCoveringNSEC3(const DNSName& owner, const std::unique_ptr<NSEC3RecordContent>& nsec)
 {
   std::string ownerHash(owner.getStorage().c_str(), owner.getStorage().size());
   const std::string& nextHash = nsec->d_nexthash;
@@ -243,7 +243,7 @@ static bool isMinimallyCoveringNSEC3(const DNSName& owner, const std::shared_ptr
   return ownerHash == nextHash;
 }
 
-void AggressiveNSECCache::insertNSEC(const DNSName& zone, const DNSName& owner, const DNSRecord& record, const std::vector<std::shared_ptr<RRSIGRecordContent>>& signatures, bool nsec3)
+void AggressiveNSECCache::insertNSEC(const DNSName& zone, const DNSName& owner, const DNSRecord& record, const std::vector<std::unique_ptr<RRSIGRecordContent>>& signatures, bool nsec3)
 {
   if (signatures.empty()) {
     return;
@@ -412,7 +412,7 @@ bool AggressiveNSECCache::getNSEC3(time_t now, std::shared_ptr<LockGuarded<Aggre
   return false;
 }
 
-static void addToRRSet(const time_t now, std::vector<DNSRecord>& recordSet, std::vector<std::shared_ptr<RRSIGRecordContent>> signatures, const DNSName& owner, bool doDNSSEC, std::vector<DNSRecord>& ret, DNSResourceRecord::Place place = DNSResourceRecord::AUTHORITY)
+static void addToRRSet(const time_t now, std::vector<DNSRecord>& recordSet, std::vector<std::unique_ptr<RRSIGRecordContent>> signatures, const DNSName& owner, bool doDNSSEC, std::vector<DNSRecord>& ret, DNSResourceRecord::Place place = DNSResourceRecord::AUTHORITY)
 {
   uint32_t ttl = 0;
 
@@ -442,7 +442,7 @@ static void addToRRSet(const time_t now, std::vector<DNSRecord>& recordSet, std:
   }
 }
 
-static void addRecordToRRSet(time_t now, const DNSName& owner, const QType& type, uint32_t ttl, std::shared_ptr<DNSRecordContent>& content, std::vector<std::shared_ptr<RRSIGRecordContent>> signatures, bool doDNSSEC, std::vector<DNSRecord>& ret)
+static void addRecordToRRSet(time_t now, const DNSName& owner, const QType& type, uint32_t ttl, std::unique_ptr<DNSRecordContent>& content, std::vector<std::unique_ptr<RRSIGRecordContent>>& signatures, bool doDNSSEC, std::vector<DNSRecord>& ret)
 {
   DNSRecord nsecRec;
   nsecRec.d_type = type.getCode();
@@ -477,7 +477,7 @@ bool AggressiveNSECCache::synthesizeFromNSEC3Wildcard(time_t now, const DNSName&
   vState cachedState;
 
   std::vector<DNSRecord> wcSet;
-  std::vector<std::shared_ptr<RRSIGRecordContent>> wcSignatures;
+  std::vector<std::unique_ptr<RRSIGRecordContent>> wcSignatures;
 
   if (g_recCache->get(now, wildcardName, type, true, &wcSet, ComboAddress("127.0.0.1"), false, boost::none, doDNSSEC ? &wcSignatures : nullptr, nullptr, nullptr, &cachedState) <= 0 || cachedState != vState::Secure) {
     LOG("Unfortunately we don't have a valid entry for " << wildcardName << ", so we cannot synthesize from that wildcard" << endl);

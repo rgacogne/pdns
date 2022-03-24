@@ -181,20 +181,21 @@ string LUARecordContent::getCode() const
 }
 #endif
 
-void OPTRecordContent::getData(vector<pair<uint16_t, string> >& options)
+void OPTRecordContent::getData(vector<pair<uint16_t, string> >& options) const
 {
   string::size_type pos=0;
   uint16_t code, len;
-  while(d_data.size() >= 4 + pos) {
-    code = 256 * (unsigned char)d_data[pos] + (unsigned char)d_data[pos+1];
-    len = 256 * (unsigned char)d_data[pos+2] + (unsigned char)d_data[pos+3];
-    pos+=4;
+  while (d_data.size() >= 4 + pos) {
+    code = 256 * (unsigned char)d_data.at(pos) + (unsigned char)d_data.at(pos+1);
+    len = 256 * (unsigned char)d_data.at(pos+2) + (unsigned char)d_data.at(pos+3);
+    pos += 4;
 
-    if(pos + len > d_data.size())
+    if (pos + len > d_data.size()) {
       break;
+    }
 
     string field(d_data.c_str() + pos, len);
-    pos+=len;
+    pos += len;
     options.emplace_back(code, std::move(field));
   }
 }
@@ -880,8 +881,9 @@ bool getEDNSOpts(const MOADNSParser& mdp, EDNSOpts* eo)
         eo->d_version=stuff.version;
         eo->d_extFlags = ntohs(stuff.extFlags);
         auto orc = getRR<OPTRecordContent>(val.first);
-        if(orc == nullptr)
+        if (orc == nullptr) {
           return false;
+        }
         orc->getData(eo->d_options);
         return true;
       }
@@ -904,7 +906,7 @@ DNSRecord makeOpt(const uint16_t udpsize, const uint16_t extRCode, const uint16_
   dr.d_type = QType::OPT;
   dr.d_class=udpsize;
   dr.d_place=DNSResourceRecord::ADDITIONAL;
-  dr.d_content = std::make_shared<OPTRecordContent>();
+  dr.d_content = std::make_unique<OPTRecordContent>();
   // if we ever do options, I think we stuff them into OPTRecordContent::data
   return dr;
 }

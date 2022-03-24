@@ -198,7 +198,7 @@ DNSRecord::DNSRecord(const DNSResourceRecord& rr): d_name(rr.qname)
   d_class = rr.qclass;
   d_place = DNSResourceRecord::ANSWER;
   d_clen = 0;
-  d_content = std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(d_type, rr.qclass, rr.content));
+  d_content = DNSRecordContent::mastermake(d_type, rr.qclass, rr.content);
 }
 
 // If you call this and you are not parsing a packet coming from a socket, you are doing it wrong.
@@ -275,11 +275,11 @@ void MOADNSParser::init(bool query, const pdns_string_view& packet)
           !(d_qtype == QType::IXFR && dr.d_place == DNSResourceRecord::AUTHORITY && dr.d_type == QType::SOA) && // IXFR queries have a SOA in their AUTHORITY section
           (dr.d_place == DNSResourceRecord::ANSWER || dr.d_place == DNSResourceRecord::AUTHORITY || (dr.d_type != QType::OPT && dr.d_type != QType::TSIG && dr.d_type != QType::SIG && dr.d_type != QType::TKEY) || ((dr.d_type == QType::TSIG || dr.d_type == QType::SIG || dr.d_type == QType::TKEY) && dr.d_class != QClass::ANY))) {
 //        cerr<<"discarding RR, query is "<<query<<", place is "<<dr.d_place<<", type is "<<dr.d_type<<", class is "<<dr.d_class<<endl;
-        dr.d_content=std::make_shared<UnknownRecordContent>(dr, pr);
+        dr.d_content=std::make_unique<UnknownRecordContent>(dr, pr);
       }
       else {
 //        cerr<<"parsing RR, query is "<<query<<", place is "<<dr.d_place<<", type is "<<dr.d_type<<", class is "<<dr.d_class<<endl;
-        dr.d_content=std::shared_ptr<DNSRecordContent>(DNSRecordContent::mastermake(dr, pr, d_header.opcode));
+        dr.d_content=DNSRecordContent::mastermake(dr, pr, d_header.opcode);
       }
 
       /* XXX: XPF records should be allowed after TSIG as soon as the actual XPF option code has been assigned:

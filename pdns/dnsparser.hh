@@ -295,7 +295,7 @@ struct DNSRecord
   {}
   explicit DNSRecord(const DNSResourceRecord& rr);
   DNSName d_name;
-  std::shared_ptr<DNSRecordContent> d_content;
+  std::unique_ptr<DNSRecordContent> d_content;
   uint16_t d_type;
   uint16_t d_class;
   uint32_t d_ttl;
@@ -370,7 +370,7 @@ class UnknownRecordContent : public DNSRecordContent
 {
 public:
   UnknownRecordContent(const DNSRecord& dr, PacketReader& pr)
-    : d_dr(dr)
+    : d_type(dr.d_type)
   {
     pr.copyRecord(d_record, dr.d_clen);
   }
@@ -381,7 +381,7 @@ public:
   void toPacket(DNSPacketWriter& pw) override;
   uint16_t getType() const override
   {
-    return d_dr.d_type;
+    return d_type;
   }
 
   const vector<uint8_t>& getRawContent() const
@@ -395,8 +395,8 @@ public:
   }
 
 private:
-  DNSRecord d_dr;
   vector<uint8_t> d_record;
+  uint16_t d_type{0};  
 };
 
 //! This class can be used to parse incoming packets, and is copyable
@@ -450,9 +450,9 @@ uint16_t getRecordsOfTypeCount(const char* packet, size_t length, uint8_t sectio
 bool getEDNSUDPPayloadSizeAndZ(const char* packet, size_t length, uint16_t* payloadSize, uint16_t* z);
 
 template<typename T>
-std::shared_ptr<T> getRR(const DNSRecord& dr)
+const T* getRR(const DNSRecord& dr)
 {
-  return std::dynamic_pointer_cast<T>(dr.d_content);
+  return dynamic_cast<const T*>(dr.d_content.get());
 }
 
 /** Simple DNSPacketMangler. Ritual is: get a pointer into the packet and moveOffset() to beyond your needs
