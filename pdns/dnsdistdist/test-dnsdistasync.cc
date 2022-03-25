@@ -88,7 +88,8 @@ BOOST_AUTO_TEST_CASE(test_Basic)
     uint16_t queryID = 42;
     struct timeval ttd;
     gettimeofday(&ttd, nullptr);
-    ttd.tv_sec += 1;
+    // timeout in 100 ms
+    ttd.tv_usec += 100000;
 
     holder->push(asyncID, queryID, ttd, std::make_unique<DummyCrossProtocolQuery>());
     BOOST_CHECK(!holder->empty());
@@ -101,6 +102,10 @@ BOOST_AUTO_TEST_CASE(test_Basic)
 
     query = holder->get(asyncID, queryID);
     BOOST_CHECK(query == nullptr);
+
+    // sleep for 200 ms, to be sure the main thread has
+    // been awakened
+    usleep(200000);
   }
 
   holder->stop();
