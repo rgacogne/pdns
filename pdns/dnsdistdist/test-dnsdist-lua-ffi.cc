@@ -480,7 +480,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCache)
   uint32_t key = 0;
   boost::optional<Netmask> subnet;
   struct timespec queryTime;
-  gettime(&queryTime);  // does not have to be accurate ("realTime") in tests
+  gettime(&queryTime); // does not have to be accurate ("realTime") in tests
   DNSQuestion dq(ids, query, queryTime);
   packetCache->get(dq, 0, &key, subnet, dnssecOK, receivedOverUDP);
   packetCache->insert(key, subnet, *(getFlagsFromDNSHeader(dq.getHeader())), dnssecOK, ids.qname, QType::A, QClass::IN, response, receivedOverUDP, 0, boost::none);
@@ -558,7 +558,7 @@ BOOST_AUTO_TEST_CASE(test_ProxyProtocol)
   ComboAddress v6("[2001:db8::42]");
 
   std::vector<dnsdist_ffi_proxy_protocol_value> values;
-  values.push_back({ "test-value", 10U, 1U });
+  values.push_back({"test-value", 10U, 1U});
 
   std::vector<uint8_t> output;
   output.resize(4096);

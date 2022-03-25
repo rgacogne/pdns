@@ -59,7 +59,8 @@ public:
 
 struct DummyCrossProtocolQuery : public CrossProtocolQuery
 {
-  DummyCrossProtocolQuery(): CrossProtocolQuery()
+  DummyCrossProtocolQuery() :
+    CrossProtocolQuery()
   {
     d_sender = std::make_shared<DummyQuerySender>();
   }
