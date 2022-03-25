@@ -231,8 +231,6 @@ BOOST_AUTO_TEST_CASE(test_Response)
     pwR.startRecord(target, QType::TXT, 7200, QClass::IN, DNSResourceRecord::ANSWER);
     pwR.xfrText("\"random text\"");
     pwR.commit();
-    pwR.addOpt(4096, 0, 0);
-    pwR.commit();
     pwR.startRecord(target, QType::RRSIG, 7200, QClass::IN, DNSResourceRecord::ANSWER);
     pwR.xfrType(QType::TXT);
     pwR.xfr8BitInt(13);
@@ -243,17 +241,20 @@ BOOST_AUTO_TEST_CASE(test_Response)
     pwR.xfr16BitInt(42);
     pwR.xfrName(DNSName("powerdns.com."));
     pwR.xfrBlob(std::string());
+    pwR.commit();
+    pwR.addOpt(4096, 0, 0);
+    pwR.commit();
 
     BOOST_CHECK(dnsdist::rebaseDNSPacket(response, target, newTarget));
 
     MOADNSParser mdp(false, reinterpret_cast<const char*>(response.data()), response.size());
     BOOST_CHECK_EQUAL(mdp.d_qname, newTarget);
     BOOST_CHECK_EQUAL(mdp.d_header.qdcount, 1U);
-    BOOST_CHECK_EQUAL(mdp.d_header.ancount, 5U);
+    BOOST_CHECK_EQUAL(mdp.d_header.ancount, 6U);
     BOOST_CHECK_EQUAL(mdp.d_header.nscount, 0U);
     BOOST_CHECK_EQUAL(mdp.d_header.arcount, 1U);
 
-    BOOST_REQUIRE_EQUAL(mdp.d_answers.size(), 6U);
+    BOOST_REQUIRE_EQUAL(mdp.d_answers.size(), 7U);
     for (const auto& answer : mdp.d_answers) {
       if (answer.first.d_type == QType::OPT) {
         continue;
