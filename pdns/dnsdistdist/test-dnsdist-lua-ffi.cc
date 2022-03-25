@@ -25,6 +25,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "dnsdist-lua-ffi.hh"
+#include "dnsdist-rings.hh"
 #include "dnsparser.hh"
 #include "dnswriter.hh"
 
@@ -487,12 +488,23 @@ BOOST_AUTO_TEST_CASE(test_PacketCache)
   std::string poolName("test-pool");
   auto testPool = std::make_shared<ServerPool>();
   testPool->packetCache = packetCache;
+  std::string poolWithNoCacheName("test-pool-without-cache");
+  auto testPoolWithNoCache = std::make_shared<ServerPool>();
   auto localPools = g_pools.getCopy();
   localPools.emplace(poolName, testPool);
+  localPools.emplace(poolWithNoCacheName, testPoolWithNoCache);
   g_pools.setState(localPools);
 
   {
     dnsdist_ffi_domain_list_t* list = nullptr;
+    {
+      // invalid parameters
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_domain_list_by_addr(nullptr, nullptr, nullptr), 0U);
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_domain_list_by_addr("not-existing-pool", ipv4.toString().c_str(), &list), 0U);
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_domain_list_by_addr(poolName.c_str(), "invalid-address", &list), 0U);
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_domain_list_by_addr(poolWithNoCacheName.c_str(), ipv4.toString().c_str(), &list), 0U);
+    }
+
     auto got = dnsdist_ffi_packetcache_get_domain_list_by_addr(poolName.c_str(), ipv4.toString().c_str(), &list);
     BOOST_REQUIRE_EQUAL(got, 1U);
     BOOST_REQUIRE(list != nullptr);
@@ -513,6 +525,14 @@ BOOST_AUTO_TEST_CASE(test_PacketCache)
 
   {
     dnsdist_ffi_address_list_t* addresses = nullptr;
+    {
+      // invalid parameters
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain(nullptr, nullptr, nullptr), 0U);
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain("not-existing-pool", ids.qname.toString().c_str(), &addresses), 0U);
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain(poolName.c_str(), "invalid-dns...name", &addresses), 0U);
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain(poolWithNoCacheName.c_str(), ipv4.toString().c_str(), &addresses), 0U);
+    }
+
     auto got = dnsdist_ffi_packetcache_get_address_list_by_domain(poolName.c_str(), ids.qname.toString().c_str(), &addresses);
     BOOST_REQUIRE_EQUAL(got, 1U);
     BOOST_REQUIRE(addresses != nullptr);
@@ -665,6 +685,80 @@ BOOST_AUTO_TEST_CASE(test_PacketOverlay)
   BOOST_CHECK_EQUAL(dnsdist_ffi_dnspacket_get_record_content_offset(packet, 1), 58U);
 
   dnsdist_ffi_dnspacket_free(packet);
+}
+
+BOOST_AUTO_TEST_CASE(test_RingBuffers)
+{
+  dnsheader dh;
+  memset(&dh, 0, sizeof(dh));
+  DNSName qname("rings.luaffi.powerdns.com.");
+  ComboAddress requestor1("192.0.2.1");
+  ComboAddress backend("192.0.2.42");
+  uint16_t qtype = QType::AAAA;
+  uint16_t size = 42;
+  dnsdist::Protocol protocol = dnsdist::Protocol::DoUDP;
+  dnsdist::Protocol outgoingProtocol = dnsdist::Protocol::DoUDP;
+  unsigned int responseTime = 0;
+  struct timespec now;
+  gettime(&now);
+
+  g_rings.reset();
+  g_rings.init();
+  BOOST_CHECK_EQUAL(g_rings.getNumberOfQueryEntries(), 0U);
+
+  g_rings.insertQuery(now, requestor1, qname, qtype, size, dh, protocol);
+  g_rings.insertResponse(now, requestor1, qname, qtype, responseTime, size, dh, backend, outgoingProtocol);
+
+  dnsdist_ffi_ring_entry_list_t* list = nullptr;
+
+  {
+    // invalid
+    BOOST_CHECK_EQUAL(dnsdist_ffi_ring_get_entries(nullptr), 0U);
+    BOOST_CHECK(list == nullptr);
+    BOOST_CHECK_EQUAL(dnsdist_ffi_ring_get_entries_by_addr(requestor1.toString().c_str(), nullptr), 0U);
+    BOOST_CHECK_EQUAL(dnsdist_ffi_ring_get_entries_by_addr(nullptr, &list), 0U);
+    BOOST_CHECK(list == nullptr);
+    BOOST_CHECK_EQUAL(dnsdist_ffi_ring_get_entries_by_addr("invalid-address", &list), 0U);
+    BOOST_CHECK(list == nullptr);
+    BOOST_CHECK_EQUAL(dnsdist_ffi_ring_get_entries_by_mac(nullptr, nullptr), 0U);
+    BOOST_CHECK(list == nullptr);
+    BOOST_CHECK(!dnsdist_ffi_ring_entry_is_response(nullptr, 0));
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_name(nullptr, 0) == nullptr);
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_type(nullptr, 0) == 0);
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_requestor(nullptr, 0) == nullptr);
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_protocol(nullptr, 0) == 0);
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_size(nullptr, 0) == 0);
+    BOOST_CHECK(!dnsdist_ffi_ring_entry_has_mac_address(nullptr, 0));
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_mac_address(nullptr, 0) == nullptr);
+  }
+
+  BOOST_REQUIRE_EQUAL(dnsdist_ffi_ring_get_entries(&list), 2U);
+  BOOST_CHECK(list != nullptr);
+
+  BOOST_CHECK(!dnsdist_ffi_ring_entry_is_response(list, 0));
+  BOOST_CHECK(dnsdist_ffi_ring_entry_is_response(list, 1));
+
+  for (size_t idx = 0; idx < 2; idx++) {
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_name(list, idx) == qname.toString());
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_type(list, idx) == qtype);
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_requestor(list, idx) == requestor1.toString());
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_protocol(list, idx) == protocol.toNumber());
+    BOOST_CHECK_EQUAL(dnsdist_ffi_ring_entry_get_size(list, idx), size);
+    BOOST_CHECK(!dnsdist_ffi_ring_entry_has_mac_address(list, idx));
+    BOOST_CHECK(dnsdist_ffi_ring_entry_get_mac_address(list, idx) == std::string());
+  }
+
+  dnsdist_ffi_ring_entry_list_free(list);
+  list = nullptr;
+
+  // no the right requestor
+  BOOST_REQUIRE_EQUAL(dnsdist_ffi_ring_get_entries_by_addr("192.0.2.2", &list), 0U);
+  BOOST_CHECK(list == nullptr);
+
+  BOOST_REQUIRE_EQUAL(dnsdist_ffi_ring_get_entries_by_addr(requestor1.toString().c_str(), &list), 2U);
+  BOOST_CHECK(list != nullptr);
+  dnsdist_ffi_ring_entry_list_free(list);
+  list = nullptr;
 }
 
 BOOST_AUTO_TEST_SUITE_END();

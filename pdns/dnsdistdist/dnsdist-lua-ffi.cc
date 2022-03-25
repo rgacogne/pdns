@@ -1230,6 +1230,10 @@ size_t dnsdist_ffi_packetcache_get_domain_list_by_addr(const char* poolName, con
     vinfolog("Error parsing address passed to dnsdist_ffi_packetcache_get_domain_list_by_addr: %s", e.what());
     return 0;
   }
+  catch (const PDNSException& e) {
+    vinfolog("Error parsing address passed to dnsdist_ffi_packetcache_get_domain_list_by_addr: %s", e.reason);
+    return 0;
+  }
 
   const auto localPools = g_pools.getCopy();
   auto it = localPools.find(poolName);
@@ -1468,6 +1472,10 @@ size_t dnsdist_ffi_ring_get_entries_by_addr(const char* addr, dnsdist_ffi_ring_e
   }
   catch (const std::exception& e) {
     vinfolog("Unable to convert address in dnsdist_ffi_ring_get_entries_by_addr: %s", e.what());
+    return 0;
+  }
+  catch (const PDNSException& e) {
+    vinfolog("Unable to convert address in dnsdist_ffi_ring_get_entries_by_addr: %s", e.reason);
     return 0;
   }
 
