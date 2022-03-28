@@ -26,10 +26,12 @@
 namespace dnsdist
 {
 
-AsynchronousHolder::AsynchronousHolder(bool failOpen) :
-  d_failOpen(failOpen)
+AsynchronousHolder::AsynchronousHolder(bool failOpen)
 {
-  std::thread main([this] { mainThread(); });
+  d_data = std::make_shared<Data>();
+  d_data->d_failOpen = failOpen;
+
+  std::thread main([data = this->d_data] { mainThread(data); });
   main.detach();
 }
 
@@ -45,29 +47,29 @@ AsynchronousHolder::~AsynchronousHolder()
 void AsynchronousHolder::stop()
 {
   {
-    auto content = d_content.lock();
-    d_done = true;
+    auto content = d_data->d_content.lock();
+    d_data->d_done = true;
   }
-  d_cond.notify_one();
+  d_data->d_cond.notify_one();
 }
 
-void AsynchronousHolder::mainThread()
+void AsynchronousHolder::mainThread(std::shared_ptr<Data> data)
 {
   while (true) {
     /* this construct is a bit weird but we need that
        to get a unique_lock below */
-    auto content = d_content.try_lock();
+    auto content = data->d_content.try_lock();
     if (!content.owns_lock()) {
       content.lock();
     }
 
     auto& lock = content.getUniqueLock();
-    if (d_done) {
+    if (data->d_done) {
       return;
     }
 
     if (content->empty()) {
-      d_cond.wait(lock, [&content, this] { return d_done || !content->empty(); });
+      data->d_cond.wait(lock, [&content, &data] { return data->d_done || !content->empty(); });
     }
     else {
       struct timeval now;
@@ -77,13 +79,13 @@ void AsynchronousHolder::mainThread()
       uint64_t milli = std::round(uSec(next) / 1000.0);
       auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(milli);
 
-      auto why = d_cond.wait_until(lock, until);
-      if (d_done) {
+      auto why = data->d_cond.wait_until(lock, until);
+      if (data->d_done) {
         return;
       }
 
       if (why == std::cv_status::timeout && !content->empty()) {
-        handleExpired(*content, d_failOpen);
+        handleExpired(*content, data->d_failOpen);
       }
     }
   }
@@ -92,16 +94,16 @@ void AsynchronousHolder::mainThread()
 void AsynchronousHolder::push(uint16_t asyncID, uint16_t queryID, const struct timeval& ttd, std::unique_ptr<CrossProtocolQuery>&& query)
 {
   {
-    auto content = d_content.lock();
+    auto content = d_data->d_content.lock();
     content->insert({std::move(query), ttd, asyncID, queryID});
   }
-  d_cond.notify_one();
+  d_data->d_cond.notify_one();
 }
 
 std::unique_ptr<CrossProtocolQuery> AsynchronousHolder::get(uint16_t asyncID, uint16_t queryID)
 {
   /* no need to notify, worst case the thread wakes up for nothing because this was the next TTD */
-  auto content = d_content.lock();
+  auto content = d_data->d_content.lock();
   auto it = content->find(std::tie(queryID, asyncID));
   if (it == content->end()) {
     return nullptr;
@@ -148,7 +150,7 @@ struct timeval AsynchronousHolder::getNextTTD(const content_t& content)
 
 bool AsynchronousHolder::empty()
 {
-  return d_content.read_only_lock()->empty();
+  return d_data->d_content.read_only_lock()->empty();
 }
 
 static bool resumeResponse(std::unique_ptr<CrossProtocolQuery>&& response)

@@ -73,12 +73,17 @@ private:
 
   static void handleExpired(content_t&, bool failOpen);
   static struct timeval getNextTTD(const content_t&);
-  void mainThread();
 
-  LockGuarded<content_t> d_content;
-  std::condition_variable d_cond;
-  bool d_failOpen{true};
-  bool d_done{false};
+  struct Data
+  {
+    LockGuarded<content_t> d_content;
+    std::condition_variable d_cond;
+    bool d_failOpen{true};
+    bool d_done{false};
+  };
+  std::shared_ptr<Data> d_data{nullptr};
+
+  static void mainThread(std::shared_ptr<Data> data);
 };
 
 bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs);
