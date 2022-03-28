@@ -426,34 +426,6 @@ BOOST_AUTO_TEST_CASE(test_Server)
   BOOST_CHECK_EQUAL(dnsdist_ffi_server_get_latency(&server), 0.0);
 }
 
-#warning FIXME!!
-#if 0
-BOOST_AUTO_TEST_CASE(test_DomainList)
-{
-  dnsdist_ffi_domain_list_t list;
-  list.d_domains = {
-    "powerdns.com.",
-    "dnsdist.org."
-  };
-
-  {
-    // invalid parameters
-    BOOST_CHECK(dnsdist_ffi_domain_list_get(nullptr, 1) == nullptr);
-    BOOST_CHECK(dnsdist_ffi_domain_list_get(&list, list.d_domains.size()) == nullptr);
-  }
-
-  {
-    const char* domain = dnsdist_ffi_domain_list_get(&list, 0);
-    BOOST_CHECK(domain == list.d_domains.at(0).c_str());
-  }
-
-  {
-    const char* domain = dnsdist_ffi_domain_list_get(&list, 1);
-    BOOST_CHECK(domain == list.d_domains.at(1).c_str());
-  }
-}
-#endif
-
 BOOST_AUTO_TEST_CASE(test_PacketCache)
 {
   auto packetCache = std::make_shared<DNSDistPacketCache>(10);
