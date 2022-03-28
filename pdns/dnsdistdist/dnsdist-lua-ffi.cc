@@ -787,6 +787,7 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
 
   auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
+    vinfolog("Unable to resume with an alternate name, no object found for asynchronous ID %d and query ID %d", asyncID, queryID);
     return false;
   }
 
@@ -852,6 +853,7 @@ bool dnsdist_ffi_drop_from_async(uint16_t asyncID, uint16_t queryID)
 
   auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
+    vinfolog("Unable to drop, no object found for asynchronous ID %d and query ID %d", asyncID, queryID);
     return false;
   }
 
@@ -878,6 +880,7 @@ bool dnsdist_ffi_set_answer_from_async(uint16_t asyncID, uint16_t queryID, const
 
   auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
+    vinfolog("Unable to resume with a custom answer, no object found for asynchronous ID %d and query ID %d", asyncID, queryID);
     return false;
   }
 
@@ -997,6 +1000,7 @@ bool dnsdist_ffi_set_rcode_from_async(uint16_t asyncID, uint16_t queryID, uint8_
 
   auto query = dnsdist::g_asyncHolder->get(asyncID, queryID);
   if (!query) {
+    vinfolog("Unable to resume with a custom response code, no object found for asynchronous ID %d and query ID %d", asyncID, queryID);
     return false;
   }
 

@@ -119,16 +119,19 @@ void AsynchronousHolder::handleExpired(content_t& content, bool failOpen)
 
   auto& idx = content.get<TTDTag>();
   for (auto it = idx.begin(); it != idx.end() && it->d_ttd < now;) {
+    auto queryID = it->d_queryID;
     auto query = std::move(it->d_query);
     it = idx.erase(it);
 
     if (!failOpen) {
+      vinfolog("Asynchronous query %d has expired, notifying the sender", queryID);
       auto sender = query->getTCPQuerySender();
       if (sender) {
         sender->notifyIOError(std::move(query->query.d_idstate), now);
       }
     }
     else {
+      vinfolog("Asynchronous query %d has expired, resuming", queryID);
       resumeQuery(std::move(query));
     }
   }
