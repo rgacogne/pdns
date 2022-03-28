@@ -265,7 +265,7 @@ void handleDOHTimeout(DOHUnitUniquePtr&& oldDU)
     return;
   }
 
-/* we are about to erase an existing DU */
+  /* we are about to erase an existing DU */
   oldDU->status_code = 502;
 
   sendDoHUnitToTheMainThread(std::move(oldDU), "DoH timeout");
@@ -462,7 +462,10 @@ public:
 
       dr.ids.du = std::move(du);
       if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false)) {
-#warning should we not notify the main thread?
+        if (dr.ids.du) {
+          dr.ids.du->status_code = 503;
+          sendDoHUnitToTheMainThread(std::move(dr.ids.du), "Response dropped by rules");
+        }
         return;
       }
 
@@ -1617,7 +1620,10 @@ void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, 
 
     dr.ids.du = std::move(du);
     if (!processResponse(dr.ids.du->response, localRespRuleActions, dr, false)) {
-      #warning should we not notify the main thread??
+      if (dr.ids.du) {
+        dr.ids.du->status_code = 503;
+        sendDoHUnitToTheMainThread(std::move(dr.ids.du), "Response dropped by rules");
+      }
       return;
     }
 
