@@ -354,12 +354,12 @@ try {
   string name = string(argv[3]);
   string type = string(argv[4]);
 
+  const size_t chr = 4;
+  const size_t qps = 20;
+
   uint64_t questionIdx = 0;
   vector<pair<string, string>> questions;
   if (name == "-" && type == "-") {
-    if (!tcp) {
-      throw PDNSException("multi-query from stdin only supported for tcp");
-    }
     string line;
     while (getline(std::cin, line)) {
       auto fields = splitField(line, ' ');
@@ -368,7 +368,6 @@ try {
     }
   } else {
     for (size_t count = 0; count < 1000; count++) {
-      const size_t chr = 8;
       for (size_t idx = 0; idx < chr; idx++) {
         questions.emplace_back(name, type);
       }
@@ -378,9 +377,9 @@ try {
     }
   }
 
+  DTime dt;
   if (doh) {
 #ifdef HAVE_LIBCURL
-    DTime dt;
     vector<uint8_t> packet;
     MiniCurl mc;
     MiniCurl::MiniCurlHeaders mch;
@@ -400,7 +399,7 @@ try {
       printReply(reply, showflags, hidesoadetails, dumpluaraw);
       auto elapsed = dt.udiffNoReset();
       //cerr<<std::to_string(elapsed)<<endl;
-      auto wait = 1000000/20;
+      unsigned int wait = 1000000/qps;
       if (elapsed < wait) {
         usleep(wait-elapsed);
       }
@@ -448,11 +447,10 @@ try {
     }
 
     while(true) {
-      
-    for (const auto& it : questions) {
+      dt.set();
       vector<uint8_t> packet;
       s_expectedIDs.insert(counter);
-      fillPacket(packet, it.first, it.second, dnssec, ednsnm, recurse, xpfcode,
+      fillPacket(packet, questions.at(counter % questions.size()).first, questions.at(counter % questions.size()).second, dnssec, ednsnm, recurse, xpfcode,
                  xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, counter);
       counter++;
 
@@ -466,9 +464,7 @@ try {
       if (handler.write(question.data(), question.size(), timeout) != question.size()) {
         throw PDNSException("tcp write failed");
       }
-    }
-    for (size_t i = 0; i < questions.size(); i++) {
-      uint16_t len;
+
       if (handler.read((char *)&len, sizeof(len), timeout) != sizeof(len)) {
         throw PDNSException("tcp read failed");
       }
@@ -478,19 +474,25 @@ try {
         throw PDNSException("tcp read failed");
       }
       printReply(reply, showflags, hidesoadetails, dumpluaraw);
-    }
-    usleep(1000000/10);
+      auto elapsed = dt.udiffNoReset();
+      //cerr<<std::to_string(elapsed)<<endl;
+      unsigned int wait = 1000000/qps;
+      if (elapsed < wait) {
+        usleep(wait-elapsed);
+      }
     }
   } else // udp
   {
-    vector<uint8_t> packet;
-    s_expectedIDs.insert(0);
-    fillPacket(packet, name, type, dnssec, ednsnm, recurse, xpfcode, xpfversion,
-               xpfproto, xpfsrc, xpfdst, qclass, opcode, 0);
-    string question(packet.begin(), packet.end());
     Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
-    question = proxyheader + question;
+    vector<uint8_t> packet;
     while(true) {
+      s_expectedIDs.insert(0);
+      dt.set();
+    fillPacket(packet, questions.at(questionIdx % questions.size()).first, questions.at(questionIdx % questions.size()).second, dnssec, ednsnm, recurse, xpfcode, xpfversion,
+               xpfproto, xpfsrc, xpfdst, qclass, opcode, 0);
+    questionIdx++;
+    string question(packet.begin(), packet.end());
+    question = proxyheader + question;
     sock.sendTo(question, dest);
     int result = waitForData(sock.getHandle(), timeout.tv_sec, timeout.tv_usec);
     if (result < 0)
@@ -499,7 +501,13 @@ try {
       throw std::runtime_error("Timeout waiting for data");
     sock.recvFrom(reply, dest);
     printReply(reply, showflags, hidesoadetails, dumpluaraw);
-    usleep(1000000/22);
+
+    auto elapsed = dt.udiffNoReset();
+    //cerr<<std::to_string(elapsed)<<endl;
+    unsigned int wait = 1000000/qps;
+    if (elapsed < wait) {
+      usleep(wait-elapsed);
+    }
     }
   }
 
