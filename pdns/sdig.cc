@@ -354,8 +354,13 @@ try {
   string name = string(argv[3]);
   string type = string(argv[4]);
 
-  const size_t chr = 4;
+  const size_t chr = 8;
   const size_t qps = 20;
+  const size_t runTime = 5;
+  const size_t totalNumberOfQueries = qps * runTime;
+  size_t numberOfQueriesSent = 0;
+  std::vector<int> latencies;
+  latencies.reserve(totalNumberOfQueries);
 
   uint64_t questionIdx = 0;
   vector<pair<string, string>> questions;
@@ -386,7 +391,7 @@ try {
     mch.emplace("Content-Type", "application/dns-message");
     mch.emplace("Accept", "application/dns-message");
     // FIXME: how do we use proxyheader here?
-    while(true) {
+    while (numberOfQueriesSent < totalNumberOfQueries) {
       dt.set();
       packet.clear();
       s_expectedIDs.insert(0);
@@ -397,8 +402,10 @@ try {
       string question(packet.begin(), packet.end());
       reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
       printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      numberOfQueriesSent++;
       auto elapsed = dt.udiffNoReset();
-      //cerr<<std::to_string(elapsed)<<endl;
+      latencies.push_back(elapsed);
+
       unsigned int wait = 1000000/qps;
       if (elapsed < wait) {
         usleep(wait-elapsed);
@@ -446,7 +453,7 @@ try {
       throw PDNSException("tcp write failed");
     }
 
-    while(true) {
+    while (numberOfQueriesSent < totalNumberOfQueries) {
       dt.set();
       vector<uint8_t> packet;
       s_expectedIDs.insert(counter);
@@ -474,8 +481,10 @@ try {
         throw PDNSException("tcp read failed");
       }
       printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      numberOfQueriesSent++;
       auto elapsed = dt.udiffNoReset();
-      //cerr<<std::to_string(elapsed)<<endl;
+      latencies.push_back(elapsed);
+
       unsigned int wait = 1000000/qps;
       if (elapsed < wait) {
         usleep(wait-elapsed);
@@ -485,7 +494,7 @@ try {
   {
     Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
     vector<uint8_t> packet;
-    while(true) {
+    while (numberOfQueriesSent < totalNumberOfQueries) {
       s_expectedIDs.insert(0);
       dt.set();
     fillPacket(packet, questions.at(questionIdx % questions.size()).first, questions.at(questionIdx % questions.size()).second, dnssec, ednsnm, recurse, xpfcode, xpfversion,
@@ -501,15 +510,28 @@ try {
       throw std::runtime_error("Timeout waiting for data");
     sock.recvFrom(reply, dest);
     printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    numberOfQueriesSent++;
 
     auto elapsed = dt.udiffNoReset();
-    //cerr<<std::to_string(elapsed)<<endl;
+    latencies.push_back(elapsed);
+
     unsigned int wait = 1000000/qps;
     if (elapsed < wait) {
       usleep(wait-elapsed);
     }
     }
   }
+
+  cerr<<"Got "<<latencies.size()<<" latencies"<<endl;
+  std::sort(latencies.begin(), latencies.end());
+  cerr<<"Min is "<<latencies.at(0)<<endl;
+  cerr<<"Max is "<<latencies.at(latencies.size()-1)<<endl;
+  cerr<<"Mean is "<<latencies.at((latencies.size()-1)/2)<<endl;
+  uint64_t total = 0;
+  for (const auto& value : latencies) {
+    total += (value);
+  }
+  cerr<<"Average is "<<(total/latencies.size())<<endl;
 
 } catch (std::exception& e) {
   cerr << "Fatal: " << e.what() << endl;
