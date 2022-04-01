@@ -2381,6 +2381,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     uint64_t tcpMaxConcurrentConnections = 0;
     std::string interface;
     std::set<int> cpus;
+    std::vector<std::pair<ComboAddress, int>> additionalAddresses;
 
     if (vars) {
       parseLocalBindVars(vars, reusePort, tcpFastOpenQueueSize, interface, cpus, tcpListenQueueSize, maxInFlightQueriesPerConn, tcpMaxConcurrentConnections);
@@ -2415,11 +2416,27 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         frontend->d_exactPathMatching = boost::get<bool>((*vars)["exactPathMatching"]);
       }
 
+      if (vars->count("additionalAddresses")) {
+        auto addresses = boost::get<LuaArray<std::string>>(vars->at("additionalAddresses"));
+        for (const auto& [_, add] : addresses) {
+          try {
+            ComboAddress address(add);
+            additionalAddresses.emplace_back(address, -1);
+          }
+          catch (const PDNSException& e) {
+            errlog("Unable to parse additional address %s for DOH bind: %s", add, e.reason);
+            return;
+          }
+        }
+      }
+
       parseTLSConfig(frontend->d_tlsConfig, "addDOHLocal", vars);
     }
     g_dohlocals.push_back(frontend);
     auto cs = std::make_unique<ClientState>(frontend->d_local, true, reusePort, tcpFastOpenQueueSize, interface, cpus);
     cs->dohFrontend = frontend;
+    cs->d_additionalAddresses = std::move(additionalAddresses);
+
     if (tcpListenQueueSize > 0) {
       cs->tcpListenQueueSize = tcpListenQueueSize;
     }
@@ -2591,6 +2608,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     uint64_t tcpMaxConcurrentConns = 0;
     std::string interface;
     std::set<int> cpus;
+    std::vector<std::pair<ComboAddress, int>> additionalAddresses;
 
     if (vars) {
       parseLocalBindVars(vars, reusePort, tcpFastOpenQueueSize, interface, cpus, tcpListenQueueSize, maxInFlightQueriesPerConn, tcpMaxConcurrentConns);
@@ -2598,6 +2616,20 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       if (vars->count("provider")) {
         frontend->d_provider = boost::get<const string>((*vars)["provider"]);
         boost::algorithm::to_lower(frontend->d_provider);
+      }
+
+      if (vars->count("additionalAddresses")) {
+        auto addresses = boost::get<LuaArray<std::string>>(vars->at("additionalAddresses"));
+        for (const auto& [_, add] : addresses) {
+          try {
+            ComboAddress address(add);
+            additionalAddresses.emplace_back(address, -1);
+          }
+          catch (const PDNSException& e) {
+            errlog("Unable to parse additional address %s for DoT bind: %s", add, e.reason);
+            return;
+          }
+        }
       }
 
       parseTLSConfig(frontend->d_tlsConfig, "addTLSLocal", vars);
@@ -2618,6 +2650,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       // only works pre-startup, so no sync necessary
       auto cs = std::make_unique<ClientState>(frontend->d_addr, true, reusePort, tcpFastOpenQueueSize, interface, cpus);
       cs->tlsFrontend = frontend;
+      cs->d_additionalAddresses = std::move(additionalAddresses);
       if (tcpListenQueueSize > 0) {
         cs->tcpListenQueueSize = tcpListenQueueSize;
       }
