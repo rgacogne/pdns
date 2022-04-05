@@ -1506,7 +1506,7 @@ void tcpAcceptorThread(std::vector<ClientState*> states)
       acceptNewConnection(*acceptorParam);
     };
 
-    auto mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent());
+    auto mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent(params.size()));
     for (size_t idx = 0; idx < params.size(); idx++) {
       const auto& param = params.at(idx);
       mplexer->addReadFD(param.socket, acceptCallback, &param);

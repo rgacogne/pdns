@@ -1829,7 +1829,7 @@ static void udpClientThread(std::vector<ClientState*> states)
           fillMSGHdr(&msgh, &iov, &cbuf, sizeof(cbuf), reinterpret_cast<char*>(&packet.at(0)), param->maxIncomingPacketSize, &remote);
           handleOnePacket(*param);
         };
-        auto mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent());
+        auto mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent(params.size()));
         for (size_t idx = 0; idx < params.size(); idx++) {
           const auto& param = params.at(idx);
           mplexer->addReadFD(param.socket, callback, &param);
@@ -1963,7 +1963,6 @@ static void healthChecksThread()
     sleep(interval);
 
     std::unique_ptr<FDMultiplexer> mplexer{nullptr};
-
     auto states = g_dstates.getLocal(); // this points to the actual shared_ptrs!
     for (auto& dss : *states) {
       auto delta = dss->sw.udiffAndSet()/1000000.0;
@@ -1983,7 +1982,7 @@ static void healthChecksThread()
 
       if (dss->d_config.availability == DownstreamState::Availability::Auto) {
         if (!mplexer) {
-          mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent());
+          mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent(states->size()));
         }
 
         if (!queueHealthCheck(mplexer, dss)) {

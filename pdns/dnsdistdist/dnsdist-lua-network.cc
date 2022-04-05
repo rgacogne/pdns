@@ -28,7 +28,7 @@
 namespace dnsdist
 {
 NetworkListener::NetworkListener() :
-  d_mplexer(std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent()))
+  d_mplexer(std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent(10)))
 {
 }
 
