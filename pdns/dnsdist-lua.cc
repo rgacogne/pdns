@@ -2418,7 +2418,8 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
       if (vars->count("additionalAddresses")) {
         auto addresses = boost::get<LuaArray<std::string>>(vars->at("additionalAddresses"));
-        for (const auto& [_, add] : addresses) {
+        for (const auto& [idx, add] : addresses) {
+          (void)idx;
           try {
             ComboAddress address(add);
             additionalAddresses.emplace_back(address, -1);
@@ -2620,7 +2621,8 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
       if (vars->count("additionalAddresses")) {
         auto addresses = boost::get<LuaArray<std::string>>(vars->at("additionalAddresses"));
-        for (const auto& [_, add] : addresses) {
+        for (const auto& [idx, add] : addresses) {
+          (void)idx;
           try {
             ComboAddress address(add);
             additionalAddresses.emplace_back(address, -1);

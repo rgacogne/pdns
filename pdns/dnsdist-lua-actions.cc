@@ -2303,6 +2303,7 @@ void setupLuaActions(LuaContext& luaCtx)
       std::set<QType> capTypes;
       if (types) {
         for (const auto& [idx, type] : *types) {
+          (void) idx;
           capTypes.insert(QType(type));
         }
       }
