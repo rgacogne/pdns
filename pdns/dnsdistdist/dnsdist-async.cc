@@ -106,6 +106,9 @@ std::unique_ptr<CrossProtocolQuery> AsynchronousHolder::get(uint16_t asyncID, ui
   auto content = d_data->d_content.lock();
   auto it = content->find(std::tie(queryID, asyncID));
   if (it == content->end()) {
+    struct timeval now;
+    gettimeofday(&now, nullptr);
+    vinfolog("Asynchronous object %d not found at %d.%d", queryID, now.tv_sec, now.tv_usec);
     return nullptr;
   }
 
@@ -126,14 +129,14 @@ void AsynchronousHolder::handleExpired(content_t& content, bool failOpen)
     it = idx.erase(it);
 
     if (!failOpen) {
-      vinfolog("Asynchronous query %d has expired, notifying the sender", queryID);
+      vinfolog("Asynchronous query %d has expired at %d.%d, notifying the sender", queryID, now.tv_sec, now.tv_usec);
       auto sender = query->getTCPQuerySender();
       if (sender) {
         sender->notifyIOError(std::move(query->query.d_idstate), now);
       }
     }
     else {
-      vinfolog("Asynchronous query %d has expired, resuming", queryID);
+      vinfolog("Asynchronous query %d has expired at %d.%d, resuming", queryID, now.tv_sec, now.tv_usec);
       resumeQuery(std::move(query));
     }
   }
@@ -263,8 +266,9 @@ bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t 
     return false;
   }
 
-  struct timeval ttd;
-  gettimeofday(&ttd, nullptr);
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+  struct timeval ttd = now;
   ttd.tv_sec += timeoutMs / 1000;
   ttd.tv_usec += (timeoutMs % 1000) * 1000;
   if (ttd.tv_usec >= 1000000) {
@@ -272,6 +276,7 @@ bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t 
     ttd.tv_usec -= 1000000;
   }
 
+  vinfolog("Suspending asynchronous query %d at %d.%d until %d.%d", queryID, now.tv_sec, now.tv_usec, ttd.tv_sec, ttd.tv_usec);
   auto query = getInternalQueryFromDQ(dq);
 
   g_asyncHolder->push(asyncID, queryID, ttd, std::move(query));
@@ -284,8 +289,9 @@ bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32
     return false;
   }
 
-  struct timeval ttd;
-  gettimeofday(&ttd, nullptr);
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+  struct timeval ttd = now;
   ttd.tv_sec += timeoutMs / 1000;
   ttd.tv_usec += (timeoutMs % 1000) * 1000;
   if (ttd.tv_usec >= 1000000) {
@@ -293,6 +299,7 @@ bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32
     ttd.tv_usec -= 1000000;
   }
 
+  vinfolog("Suspending asynchronous response %d at %d.%d until %d.%d", queryID, now.tv_sec, now.tv_usec, ttd.tv_sec, ttd.tv_usec);
   auto query = getInternalQueryFromDQ(dr);
   query->isResponse = true;
   query->downstream = dr.d_downstream;
