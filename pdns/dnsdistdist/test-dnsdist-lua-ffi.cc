@@ -179,6 +179,8 @@ BOOST_AUTO_TEST_CASE(test_Query)
 
   {
     // dnsdist_ffi_dnsquestion_get_protocol
+    BOOST_CHECK(static_cast<uint8_t>(dnsdist_ffi_dnsquestion_get_protocol(nullptr)) == dnsdist::Protocol(dnsdist::Protocol::DoUDP).toNumber());
+
     BOOST_CHECK(static_cast<uint8_t>(dnsdist_ffi_dnsquestion_get_protocol(&lightDQ)) == dnsdist::Protocol(dnsdist::Protocol::DoUDP).toNumber());
     for (const auto protocol : {dnsdist::Protocol::DoUDP, dnsdist::Protocol::DoTCP, dnsdist::Protocol::DNSCryptUDP, dnsdist::Protocol::DNSCryptTCP, dnsdist::Protocol::DoT, dnsdist::Protocol::DoH}) {
       dq.ids.protocol = protocol;
@@ -333,9 +335,8 @@ BOOST_AUTO_TEST_CASE(test_Query)
     BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_tag_raw(&lightDQ, tagName.c_str(), buffer.data(), buffer.size()), tagRawValue.size());
     BOOST_CHECK_EQUAL(buffer, tagRawValue);
 
-    // dnsdist_ffi_dnsquestion_set_tag
-    // dnsdist_ffi_dnsquestion_get_tag
-    // dnsdist_ffi_dnsquestion_get_tag_raw
+    BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_tag_raw(&lightDQ, "wrong tag name", buffer.data(), buffer.size()), 0U);
+
     // dnsdist_ffi_dnsquestion_get_tag_array
 
     {
@@ -477,6 +478,11 @@ BOOST_AUTO_TEST_CASE(test_PacketCache)
       BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_domain_list_by_addr(poolWithNoCacheName.c_str(), ipv4.toString().c_str(), &list), 0U);
     }
 
+    {
+      // no match
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_domain_list_by_addr(poolName.c_str(), ComboAddress("192.0.2.254").toString().c_str(), &list), 0U);
+    }
+
     auto got = dnsdist_ffi_packetcache_get_domain_list_by_addr(poolName.c_str(), ipv4.toString().c_str(), &list);
     BOOST_REQUIRE_EQUAL(got, 1U);
     BOOST_REQUIRE(list != nullptr);
@@ -503,6 +509,11 @@ BOOST_AUTO_TEST_CASE(test_PacketCache)
       BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain("not-existing-pool", ids.qname.toString().c_str(), &addresses), 0U);
       BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain(poolName.c_str(), "invalid-dns...name", &addresses), 0U);
       BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain(poolWithNoCacheName.c_str(), ipv4.toString().c_str(), &addresses), 0U);
+    }
+
+    {
+      // no match
+      BOOST_CHECK_EQUAL(dnsdist_ffi_packetcache_get_address_list_by_domain(poolName.c_str(), "wrong.name.", &addresses), 0U);
     }
 
     auto got = dnsdist_ffi_packetcache_get_address_list_by_domain(poolName.c_str(), ids.qname.toString().c_str(), &addresses);
