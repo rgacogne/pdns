@@ -744,4 +744,30 @@ BOOST_AUTO_TEST_CASE(test_RingBuffers)
   list = nullptr;
 }
 
+BOOST_AUTO_TEST_CASE(test_NetworkEndpoint)
+{
+  {
+    dnsdist_ffi_network_endpoint_t* endpoint = nullptr;
+    BOOST_CHECK(!dnsdist_ffi_network_endpoint_new("a", 1, nullptr));
+    BOOST_CHECK(!dnsdist_ffi_network_endpoint_new(nullptr, 1, &endpoint));
+    BOOST_CHECK(!dnsdist_ffi_network_endpoint_new("a", 0, &endpoint));
+    // the path does not exist
+    BOOST_CHECK(!dnsdist_ffi_network_endpoint_new("a", 1, &endpoint));
+  }
+
+  {
+    BOOST_CHECK(!dnsdist_ffi_network_endpoint_is_valid(nullptr));
+  }
+
+  {
+    dnsdist_ffi_network_endpoint_t* endpoint = nullptr;
+    BOOST_CHECK(!dnsdist_ffi_network_endpoint_send(nullptr, "a", 1));
+    BOOST_CHECK(!dnsdist_ffi_network_endpoint_send(endpoint, nullptr, 1));
+  }
+
+  {
+    dnsdist_ffi_network_endpoint_free(nullptr);
+  }
+}
+
 BOOST_AUTO_TEST_SUITE_END();
