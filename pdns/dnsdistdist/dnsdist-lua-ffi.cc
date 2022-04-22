@@ -756,7 +756,7 @@ bool dnsdist_ffi_dnsresponse_set_async(dnsdist_ffi_dnsquestion_t* dq, uint16_t a
   return false;
 }
 
-bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const char* tag, size_t tagSize, const char* tagValue, size_t tagValueSize)
+bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const char* tag, size_t tagSize, const char* tagValue, size_t tagValueSize, bool useCache)
 {
   if (!dnsdist::g_asyncHolder) {
     vinfolog("Unable to resume, no asynchronous holder");
@@ -769,13 +769,15 @@ bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const cha
     return false;
   }
 
+  auto& ids = query->query.d_idstate;
   if (tag != nullptr && tagSize > 0) {
-    auto& ids = query->query.d_idstate;
     if (!ids.qTag) {
       ids.qTag = std::make_unique<QTag>();
     }
     (*ids.qTag)[std::string(tag, tagSize)] = std::string(tagValue, tagValueSize);
   }
+
+  ids.skipCache = !useCache;
 
   return dnsdist::resumeQuery(std::move(query));
 }

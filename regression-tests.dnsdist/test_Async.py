@@ -106,7 +106,7 @@ class TestAsync(DNSDistTest):
       local queryID = tonumber(parts[1])
       if parts[2] == 'accept' then
         print('accepting')
-        C.dnsdist_ffi_resume_from_async(asyncID, queryID, filteringTagName, #filteringTagName, filteringTagValue, #filteringTagValue)
+        C.dnsdist_ffi_resume_from_async(asyncID, queryID, filteringTagName, #filteringTagName, filteringTagValue, #filteringTagValue, true)
         return
       end
       if parts[2] == 'refuse' then
