@@ -145,7 +145,7 @@ struct DNSQuestion
     return asynchronous;
   }
 
-  std::shared_ptr<IncomingTCPConnectionState> getIncomingTCPState()
+  std::shared_ptr<IncomingTCPConnectionState> getIncomingTCPState() const
   {
     return d_incomingTCPState;
   }

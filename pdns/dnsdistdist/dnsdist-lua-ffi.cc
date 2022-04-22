@@ -790,7 +790,7 @@ bool dnsdist_ffi_resume_from_async(uint16_t asyncID, uint16_t queryID, const cha
 
   ids.skipCache = !useCache;
 
-  return dnsdist::resumeQuery(std::move(query));
+  return dnsdist::queueQueryResumptionEvent(std::move(query));
 }
 
 bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_t queryID, const char* alternateName, size_t alternateNameSize, const char* tag, size_t tagSize, const char* tagValue, size_t tagValueSize, const char* formerNameTagName, size_t formerNameTagSize)
@@ -856,7 +856,7 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
   ids.skipCache = true;
 
   // resume as query
-  return dnsdist::resumeQuery(std::move(query));
+  return dnsdist::queueQueryResumptionEvent(std::move(query));
 }
 
 bool dnsdist_ffi_drop_from_async(uint16_t asyncID, uint16_t queryID)
@@ -905,7 +905,7 @@ bool dnsdist_ffi_set_answer_from_async(uint16_t asyncID, uint16_t queryID, const
 
   query->query.d_idstate.skipCache = true;
 
-  return dnsdist::resumeQuery(std::move(query));
+  return dnsdist::queueQueryResumptionEvent(std::move(query));
 }
 
 static constexpr char s_lua_ffi_code[] = R"FFICodeContent(
@@ -1051,7 +1051,7 @@ bool dnsdist_ffi_set_rcode_from_async(uint16_t asyncID, uint16_t queryID, uint8_
 
   query->query.d_idstate.skipCache = true;
 
-  return dnsdist::resumeQuery(std::move(query));
+  return dnsdist::queueQueryResumptionEvent(std::move(query));
 }
 
 struct dnsdist_ffi_dnspacket_t

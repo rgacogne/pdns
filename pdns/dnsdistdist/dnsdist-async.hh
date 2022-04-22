@@ -71,7 +71,7 @@ private:
                          member<Entry, struct timeval, &Entry::d_ttd>>>>
     content_t;
 
-  static void handleExpired(content_t&, bool failOpen);
+  static void pickupExpired(content_t&, const struct timeval& now, std::list<std::pair<uint16_t, std::unique_ptr<CrossProtocolQuery>>>& expiredEvents);
   static struct timeval getNextTTD(const content_t&);
 
   struct Data
@@ -88,7 +88,9 @@ private:
 
 bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs);
 bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32_t timeoutMs);
+bool queueQueryResumptionEvent(std::unique_ptr<CrossProtocolQuery>&& query);
 bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query);
+void handleQueuedAsynchronousEvents();
 
 extern std::unique_ptr<AsynchronousHolder> g_asyncHolder;
 }

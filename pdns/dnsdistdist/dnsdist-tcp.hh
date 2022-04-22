@@ -133,7 +133,6 @@ struct TCPResponse : public TCPQuery
   std::shared_ptr<ConnectionToBackend> d_connection{nullptr};
   std::shared_ptr<DownstreamState> d_ds{nullptr};
   dnsheader d_cleartextDH;
-  bool d_selfGenerated{false};
   bool d_async{false};
 };
 
@@ -173,6 +172,19 @@ struct CrossProtocolQuery
   }
 
   virtual std::shared_ptr<TCPQuerySender> getTCPQuerySender() = 0;
+  virtual DNSQuestion getDQ()
+  {
+    auto& ids = query.d_idstate;
+    DNSQuestion dq(ids, query.d_buffer);
+    return dq;
+  }
+
+  virtual DNSResponse getDR()
+  {
+    auto& ids = query.d_idstate;
+    DNSResponse dr(ids, query.d_buffer, downstream);
+    return dr;
+  }
 
   InternalQuery query;
   std::shared_ptr<DownstreamState> downstream{nullptr};

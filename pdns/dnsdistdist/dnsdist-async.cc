@@ -55,37 +55,59 @@ void AsynchronousHolder::stop()
 
 void AsynchronousHolder::mainThread(std::shared_ptr<Data> data)
 {
+  struct timeval now;
+  std::list<std::pair<uint16_t, std::unique_ptr<CrossProtocolQuery>>> expiredEvents;
+
   while (true) {
-    /* this construct is a bit weird but we need that
-       to get a unique_lock below */
-    auto content = data->d_content.try_lock();
-    if (!content.owns_lock()) {
-      content.lock();
-    }
+    {
+      /* this construct is a bit weird but we need that
+         to get a unique_lock below */
+      auto content = data->d_content.try_lock();
+      if (!content.owns_lock()) {
+        content.lock();
+      }
 
-    auto& lock = content.getUniqueLock();
-    if (data->d_done) {
-      return;
-    }
-
-    if (content->empty()) {
-      data->d_cond.wait(lock, [&content, &data] { return data->d_done || !content->empty(); });
-    }
-    else {
-      struct timeval now;
-      gettimeofday(&now, nullptr);
-      struct timeval next = getNextTTD(*content);
-      next = next - now;
-      uint64_t milli = std::round(uSec(next) / 1000.0);
-      auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(milli);
-
-      auto why = data->d_cond.wait_until(lock, until);
+      auto& lock = content.getUniqueLock();
       if (data->d_done) {
         return;
       }
 
-      if (why == std::cv_status::timeout && !content->empty()) {
-        handleExpired(*content, data->d_failOpen);
+      if (content->empty()) {
+        data->d_cond.wait(lock, [&content, &data] { return data->d_done || !content->empty(); });
+      }
+      else {
+        gettimeofday(&now, nullptr);
+        struct timeval next = getNextTTD(*content);
+        next = next - now;
+        uint64_t milli = std::round(uSec(next) / 1000.0);
+        auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(milli);
+
+        auto why = data->d_cond.wait_until(lock, until);
+        if (data->d_done) {
+          return;
+        }
+
+        if (why == std::cv_status::timeout && !content->empty()) {
+          gettimeofday(&now, nullptr);
+
+          pickupExpired(*content, now, expiredEvents);
+        }
+      }
+    }
+
+    while (!expiredEvents.empty()) {
+      auto [queryID, query] = std::move(expiredEvents.front());
+      expiredEvents.pop_front();
+      if (!data->d_failOpen) {
+        vinfolog("Asynchronous query %d has expired at %d.%d, notifying the sender", queryID, now.tv_sec, now.tv_usec);
+        auto sender = query->getTCPQuerySender();
+        if (sender) {
+          sender->notifyIOError(std::move(query->query.d_idstate), now);
+        }
+      }
+      else {
+        vinfolog("Asynchronous query %d has expired at %d.%d, resuming", queryID, now.tv_sec, now.tv_usec);
+        resumeQuery(std::move(query));
       }
     }
   }
@@ -117,28 +139,12 @@ std::unique_ptr<CrossProtocolQuery> AsynchronousHolder::get(uint16_t asyncID, ui
   return result;
 }
 
-void AsynchronousHolder::handleExpired(content_t& content, bool failOpen)
+void AsynchronousHolder::pickupExpired(content_t& content, const struct timeval& now, std::list<std::pair<uint16_t, std::unique_ptr<CrossProtocolQuery>>>& events)
 {
-  struct timeval now;
-  gettimeofday(&now, nullptr);
-
   auto& idx = content.get<TTDTag>();
   for (auto it = idx.begin(); it != idx.end() && it->d_ttd < now;) {
-    auto queryID = it->d_queryID;
-    auto query = std::move(it->d_query);
+    events.emplace_back(it->d_queryID, std::move(it->d_query));
     it = idx.erase(it);
-
-    if (!failOpen) {
-      vinfolog("Asynchronous query %d has expired at %d.%d, notifying the sender", queryID, now.tv_sec, now.tv_usec);
-      auto sender = query->getTCPQuerySender();
-      if (sender) {
-        sender->notifyIOError(std::move(query->query.d_idstate), now);
-      }
-    }
-    else {
-      vinfolog("Asynchronous query %d has expired at %d.%d, resuming", queryID, now.tv_sec, now.tv_usec);
-      resumeQuery(std::move(query));
-    }
   }
 }
 
@@ -160,12 +166,12 @@ static bool resumeResponse(std::unique_ptr<CrossProtocolQuery>&& response)
 {
   try {
     auto& ids = response->query.d_idstate;
-    DNSResponse dr(ids, response->query.d_buffer, response->downstream);
+    DNSResponse dr = response->getDR();
 
     auto result = processResponseAfterRules(response->query.d_buffer, dr, ids.cs->muted);
     if (!result) {
       /* easy */
-      return false;
+      return true;
     }
 
     auto sender = response->getTCPQuerySender();
@@ -187,6 +193,34 @@ static bool resumeResponse(std::unique_ptr<CrossProtocolQuery>&& response)
   return true;
 }
 
+static LockGuarded<std::list<std::unique_ptr<CrossProtocolQuery>>> s_asynchronousEventsQueue;
+
+bool queueQueryResumptionEvent(std::unique_ptr<CrossProtocolQuery>&& query)
+{
+  s_asynchronousEventsQueue.lock()->push_back(std::move(query));
+  return true;
+}
+
+void handleQueuedAsynchronousEvents()
+{
+  while (true) {
+    std::unique_ptr<CrossProtocolQuery> query;
+    {
+      // we do not want to hold the lock while resuming
+      auto queue = s_asynchronousEventsQueue.lock();
+      if (queue->empty()) {
+        return;
+      }
+
+      query = std::move(queue->front());
+      queue->pop_front();
+    }
+    if (query && !resumeQuery(std::move(query))) {
+      vinfolog("Unable to resume asynchronous query event");
+    }
+  }
+}
+
 bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
 {
   if (query->isResponse) {
@@ -194,13 +228,13 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
   }
 
   auto& ids = query->query.d_idstate;
-  DNSQuestion dq(ids, query->query.d_buffer);
+  DNSQuestion dq = query->getDQ();
   LocalHolders holders;
 
   auto result = processQueryAfterRules(dq, holders, query->downstream);
   if (result == ProcessQueryResult::Drop) {
     /* easy */
-    return false;
+    return true;
   }
   else if (result == ProcessQueryResult::PassToBackend) {
     if (query->downstream == nullptr) {
@@ -236,7 +270,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     TCPResponse response(std::move(query->query.d_buffer), std::move(query->query.d_idstate), nullptr);
     response.d_ds = query->downstream;
     response.d_async = true;
-    response.d_selfGenerated = true;
+    response.d_idstate.selfGenerated = true;
 
     try {
       sender->handleResponse(now, std::move(response));

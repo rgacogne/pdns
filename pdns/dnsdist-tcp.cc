@@ -252,7 +252,7 @@ static void handleResponseSent(std::shared_ptr<IncomingTCPConnectionState>& stat
   --state->d_currentQueriesCount;
 
   const auto& ds = currentResponse.d_connection ? currentResponse.d_connection->getDS() : currentResponse.d_ds;
-  if (currentResponse.d_selfGenerated == false && ds) {
+  if (currentResponse.d_idstate.selfGenerated == false && ds) {
     const auto& ids = currentResponse.d_idstate;
     double udiff = ids.queryRealTime.udiff();
     vinfolog("Got answer from %s, relayed to %s (%s, %d bytes), took %f usec", ds->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), (state->d_handler.isTLS() ? "DoT" : "TCP"), currentResponse.d_buffer.size(), udiff);
@@ -624,6 +624,11 @@ public:
     handleResponse(now, std::move(response));
   }
 
+  std::shared_ptr<IncomingTCPConnectionState> getInternalState() const
+  {
+    return d_state;
+  }
+
 private:
   std::shared_ptr<IncomingTCPConnectionState> d_state;
 };
@@ -645,6 +650,22 @@ public:
   std::shared_ptr<TCPQuerySender> getTCPQuerySender() override
   {
     return d_sender;
+  }
+
+  DNSQuestion getDQ() override
+  {
+    auto& ids = query.d_idstate;
+    DNSQuestion dq(ids, query.d_buffer);
+    dq.d_incomingTCPState = d_sender->getInternalState();
+    return dq;
+  }
+
+  DNSResponse getDR() override
+  {
+    auto& ids = query.d_idstate;
+    DNSResponse dr(ids, query.d_buffer, downstream);
+    dr.d_incomingTCPState = d_sender->getInternalState();
+    return dr;
   }
 
 private:
@@ -725,7 +746,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
       TCPResponse response;
       dh->rcode = RCode::NotImp;
       dh->qr = true;
-      response.d_selfGenerated = true;
+      response.d_idstate.selfGenerated = true;
       response.d_buffer = std::move(state->d_buffer);
       state->d_state = IncomingTCPConnectionState::State::idle;
       ++state->d_currentQueriesCount;
@@ -746,7 +767,6 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   DNSQuestion dq(ids, state->d_buffer);
   const uint16_t* flags = getFlagsFromDNSHeader(dq.getHeader());
   ids.origFlags = *flags;
-
   dq.sni = state->d_handler.getServerNameIndication();
   dq.d_incomingTCPState = state;
 
@@ -777,7 +797,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   const dnsheader* dh = dq.getHeader();
   if (result == ProcessQueryResult::SendAnswer) {
     TCPResponse response;
-    response.d_selfGenerated = true;
+    response.d_idstate.selfGenerated = true;
     response.d_buffer = std::move(state->d_buffer);
     state->d_state = IncomingTCPConnectionState::State::idle;
     ++state->d_currentQueriesCount;
@@ -1416,9 +1436,8 @@ static void acceptNewConnection(const TCPAcceptorParam& param)
 #else
     ci->fd = accept(socket, reinterpret_cast<struct sockaddr*>(&remote), &remlen);
 #endif
-    if (ci->fd < 0) {
-      throw std::runtime_error((boost::format("accepting new connection on socket: %s") % stringerror()).str());
-    }
+    // will be decremented when the ConnectionInfo object is destroyed, no matter the reason
+    auto concurrentConnections = ++cs.tcpCurrentConnections;
 
     if (!acl->match(remote)) {
       ++g_stats.aclDrops;
@@ -1426,9 +1445,12 @@ static void acceptNewConnection(const TCPAcceptorParam& param)
       return;
     }
 
-    // will be decremented when the ConnectionInfo object is destroyed, no matter the reason
-    auto concurrentConnections = ++cs.tcpCurrentConnections;
+    if (ci->fd < 0) {
+      throw std::runtime_error((boost::format("accepting new connection on socket: %s") % stringerror()).str());
+    }
+
     if (cs.d_tcpConcurrentConnectionsLimit > 0 && concurrentConnections > cs.d_tcpConcurrentConnectionsLimit) {
+      vinfolog("Dropped TCP connection from %s because of concurrent connections limit", remote.toStringWithPort());
       return;
     }
 
@@ -1438,6 +1460,7 @@ static void acceptNewConnection(const TCPAcceptorParam& param)
 
 #ifndef HAVE_ACCEPT4
     if (!setNonBlocking(ci->fd)) {
+      vinfolog("Dropped TCP connection from %s because of ACL", remote.toStringWithPort());
       return;
     }
 #endif
