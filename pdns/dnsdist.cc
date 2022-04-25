@@ -573,12 +573,12 @@ void handleResponseSent(const InternalQueryState& ids, double udiff, const Combo
   }
 }
 
-static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& response, uint16_t maxPayloadSize, LocalStateHolder<vector<DNSDistResponseRuleAction>>& localRespRuleActions, const std::shared_ptr<DownstreamState>& ds, bool isAsync, bool selfGenerated, std::optional<uint16_t> queryId)
+static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& response, LocalStateHolder<vector<DNSDistResponseRuleAction>>& localRespRuleActions, const std::shared_ptr<DownstreamState>& ds, bool isAsync, bool selfGenerated, std::optional<uint16_t> queryId)
 {
   DNSResponse dr(ids, response, ids.sentTime.d_start, ds);
 
-  if (maxPayloadSize > 0 && response.size() > maxPayloadSize) {
-    vinfolog("Got a response of size %d over TCP, while the initial UDP payload size was %d, truncating", response.size(), maxPayloadSize);
+  if (ids.udpPayloadSize > 0 && response.size() > ids.udpPayloadSize) {
+    vinfolog("Got a response of size %d while the initial UDP payload size was %d, truncating", response.size(), ids.udpPayloadSize);
     truncateTC(dr.getMutableData(), dr.getMaximumSize(), dr.ids.qname.wirelength());
     dr.getHeader()->tc = true;
   }
@@ -733,7 +733,7 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
           continue;
         }
 
-        handleResponseForUDPClient(ids->internal, response, 0, localRespRuleActions, dss, false, false, queryId);
+        handleResponseForUDPClient(ids->internal, response, localRespRuleActions, dss, false, false, queryId);
       }
     }
     catch (const std::exception& e){
@@ -1365,7 +1365,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
 class UDPTCPCrossQuerySender : public TCPQuerySender
 {
 public:
-  UDPTCPCrossQuerySender(const ClientState& cs, const std::shared_ptr<DownstreamState>& ds, uint16_t payloadSize): d_cs(cs), d_ds(ds), d_payloadSize(payloadSize)
+  UDPTCPCrossQuerySender(const ClientState& cs, const std::shared_ptr<DownstreamState>& ds): d_cs(cs), d_ds(ds)
   {
   }
 
@@ -1393,7 +1393,7 @@ public:
 
     static thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
 
-    handleResponseForUDPClient(ids, response.d_buffer, d_payloadSize, localRespRuleActions, d_ds, response.isAsync(), response.d_selfGenerated, std::nullopt);
+    handleResponseForUDPClient(ids, response.d_buffer, localRespRuleActions, d_ds, response.isAsync(), response.d_selfGenerated, std::nullopt);
   }
 
   void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override
@@ -1408,22 +1408,22 @@ public:
 private:
   const ClientState& d_cs;
   const std::shared_ptr<DownstreamState> d_ds{nullptr};
-  uint16_t d_payloadSize{0};
 };
 
 class UDPCrossProtocolQuery : public CrossProtocolQuery
 {
 public:
-  UDPCrossProtocolQuery(PacketBuffer&& buffer, InternalQueryState&& ids, std::shared_ptr<DownstreamState> ds): d_cs(*ids.cs)
+  UDPCrossProtocolQuery(PacketBuffer&& buffer, InternalQueryState&& ids, std::shared_ptr<DownstreamState> ds)
   {
-    uint16_t z = 0;
-    getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(buffer.data()), buffer.size(), &d_payloadSize, &z);
-    if (d_payloadSize < 512) {
-      d_payloadSize = 512;
+    if (ids.udpPayloadSize == 0) {
+      uint16_t z = 0;
+      getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(buffer.data()), buffer.size(), &ids.udpPayloadSize, &z);
+      if (ids.udpPayloadSize < 512) {
+        ids.udpPayloadSize = 512;
+      }
     }
     query = InternalQuery(std::move(buffer), std::move(ids));
     downstream = ds;
-    proxyProtocolPayloadSize = 0;
   }
 
   ~UDPCrossProtocolQuery()
@@ -1432,13 +1432,9 @@ public:
 
   std::shared_ptr<TCPQuerySender> getTCPQuerySender() override
   {
-    auto sender = std::make_shared<UDPTCPCrossQuerySender>(d_cs, downstream, d_payloadSize);
+    auto sender = std::make_shared<UDPTCPCrossQuerySender>(*query.d_idstate.cs, downstream);
     return sender;
   }
-
-private:
-  const ClientState& d_cs;
-  uint16_t d_payloadSize{0};
 };
 
 std::unique_ptr<CrossProtocolQuery> getUDPCrossProtocolQueryFromDQ(DNSQuestion& dq);
