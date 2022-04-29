@@ -33,9 +33,6 @@ BOOST_AUTO_TEST_SUITE(test_dnsdist_lua_ffi)
 
 BOOST_AUTO_TEST_CASE(test_Query)
 {
-  struct timespec queryTime;
-  gettime(&queryTime);
-
   InternalQueryState ids;
   ids.origRemote = ComboAddress("192.0.2.1:4242");
   ids.origDest = ComboAddress("192.0.2.255:53");
@@ -43,12 +40,13 @@ BOOST_AUTO_TEST_CASE(test_Query)
   ids.qclass = QClass::IN;
   ids.protocol = dnsdist::Protocol::DoUDP;
   ids.qname = DNSName("www.powerdns.com.");
+  ids.queryRealTime.start();
   PacketBuffer query;
   GenericDNSPacketWriter<PacketBuffer> pwQ(query, ids.qname, QType::A, QClass::IN, 0);
   pwQ.getHeader()->rd = 1;
   pwQ.getHeader()->id = htons(42);
 
-  DNSQuestion dq(ids, query, queryTime);
+  DNSQuestion dq(ids, query);
   dnsdist_ffi_dnsquestion_t lightDQ(&dq);
 
   {
@@ -353,9 +351,6 @@ BOOST_AUTO_TEST_CASE(test_Query)
 
 BOOST_AUTO_TEST_CASE(test_Response)
 {
-  struct timespec queryTime;
-  gettime(&queryTime);
-
   InternalQueryState ids;
   ids.origRemote = ComboAddress("192.0.2.1:4242");
   ids.origDest = ComboAddress("192.0.2.255:53");
@@ -363,6 +358,8 @@ BOOST_AUTO_TEST_CASE(test_Response)
   ids.qclass = QClass::IN;
   ids.protocol = dnsdist::Protocol::DoUDP;
   ids.qname = DNSName("www.powerdns.com.");
+  ids.queryRealTime.start();
+
   PacketBuffer response;
   GenericDNSPacketWriter<PacketBuffer> pwR(response, ids.qname, QType::A, QClass::IN, 0);
   pwR.getHeader()->qr = 1;
@@ -372,7 +369,7 @@ BOOST_AUTO_TEST_CASE(test_Response)
   ComboAddress dsAddr("192.0.2.1:53");
   auto ds = std::make_shared<DownstreamState>(dsAddr);
 
-  DNSResponse dr(ids, response, queryTime, ds);
+  DNSResponse dr(ids, response, ds);
   dnsdist_ffi_dnsresponse_t lightDR(&dr);
 
   {
@@ -452,9 +449,8 @@ BOOST_AUTO_TEST_CASE(test_PacketCache)
   bool receivedOverUDP = true;
   uint32_t key = 0;
   boost::optional<Netmask> subnet;
-  struct timespec queryTime;
-  gettime(&queryTime); // does not have to be accurate ("realTime") in tests
-  DNSQuestion dq(ids, query, queryTime);
+  ids.queryRealTime.start();
+  DNSQuestion dq(ids, query);
   packetCache->get(dq, 0, &key, subnet, dnssecOK, receivedOverUDP);
   packetCache->insert(key, subnet, *(getFlagsFromDNSHeader(dq.getHeader())), dnssecOK, ids.qname, QType::A, QClass::IN, response, receivedOverUDP, 0, boost::none);
 

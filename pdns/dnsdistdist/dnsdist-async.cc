@@ -158,12 +158,9 @@ bool AsynchronousHolder::empty()
 
 static bool resumeResponse(std::unique_ptr<CrossProtocolQuery>&& response)
 {
-  struct timespec queryRealTime;
-  gettime(&queryRealTime, true);
-
   try {
     auto& ids = response->query.d_idstate;
-    DNSResponse dr(ids, response->query.d_buffer, ids.sentTime.d_start, response->downstream);
+    DNSResponse dr(ids, response->query.d_buffer, response->downstream);
 
     auto result = processResponseAfterRules(response->query.d_buffer, dr, ids.cs->muted);
     if (!result) {
@@ -195,11 +192,8 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     return resumeResponse(std::move(query));
   }
 
-  struct timespec queryRealTime;
-  gettime(&queryRealTime, true);
-
   auto& ids = query->query.d_idstate;
-  DNSQuestion dq(ids, query->query.d_buffer, queryRealTime);
+  DNSQuestion dq(ids, query->query.d_buffer);
   LocalHolders holders;
 
   auto result = processQueryAfterRules(dq, holders, query->downstream);

@@ -443,7 +443,8 @@ void setupLuaRules(LuaContext& luaCtx)
       sw.start();
       for (unsigned int n = 0; n < times; ++n) {
         item& i = items[n % items.size()];
-        DNSQuestion dq(i.ids, i.packet, sw.d_start);
+        i.ids.queryRealTime = sw;
+        DNSQuestion dq(i.ids, i.packet);
         if (rule->matches(&dq)) {
           matches++;
         }

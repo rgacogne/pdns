@@ -575,7 +575,7 @@ void handleResponseSent(const InternalQueryState& ids, double udiff, const Combo
 
 static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& response, LocalStateHolder<vector<DNSDistResponseRuleAction>>& localRespRuleActions, const std::shared_ptr<DownstreamState>& ds, bool isAsync, bool selfGenerated, std::optional<uint16_t> queryId)
 {
-  DNSResponse dr(ids, response, ids.sentTime.d_start, ds);
+  DNSResponse dr(ids, response, ds);
 
   if (ids.udpPayloadSize > 0 && response.size() > ids.udpPayloadSize) {
     vinfolog("Got a response of size %d while the initial UDP payload size was %d, truncating", response.size(), ids.udpPayloadSize);
@@ -621,7 +621,7 @@ static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& re
   }
 
   if (!selfGenerated) {
-    double udiff = ids.sentTime.udiff();
+    double udiff = ids.queryRealTime.udiff();
     if (!muted) {
       vinfolog("Got answer from %s, relayed to %s (UDP), took %f usec", ds->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff);
     }
@@ -1196,7 +1196,7 @@ static bool prepareOutgoingResponse(LocalHolders& holders, const ClientState& cs
 {
   std::shared_ptr<DownstreamState> ds{nullptr};
 
-  DNSResponse dr(dq.ids, dq.getMutableData(), dq.queryTime, ds);
+  DNSResponse dr(dq.ids, dq.getMutableData(), ds);
   if (!applyRulesToResponse(cacheHit ? holders.cacheHitRespRuleactions : holders.selfAnsweredRespRuleactions, dr)) {
     return false;
   }
@@ -1568,10 +1568,9 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
     /* we need an accurate ("real") value for the response and
        to store into the IDS, but not for insertion into the
        rings for example */
-    struct timespec queryRealTime;
-    gettime(&queryRealTime, true);
+    ids.queryRealTime.start();
 
-    auto dnsCryptResponse = checkDNSCryptQuery(cs, query, ids.dnsCryptQuery, queryRealTime.tv_sec, false);
+    auto dnsCryptResponse = checkDNSCryptQuery(cs, query, ids.dnsCryptQuery, ids.queryRealTime.d_start.tv_sec, false);
     if (dnsCryptResponse) {
       sendUDPResponse(cs.udpFD, query, 0, dest, remote);
       return;
@@ -1602,7 +1601,7 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
       ids.protocol = dnsdist::Protocol::DNSCryptUDP;
     }
 
-    DNSQuestion dq(ids, query, queryRealTime);
+    DNSQuestion dq(ids, query);
     const uint16_t* flags = getFlagsFromDNSHeader(dq.getHeader());
     ids.origFlags = *flags;
 
