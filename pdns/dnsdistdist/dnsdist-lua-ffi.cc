@@ -83,6 +83,17 @@ size_t dnsdist_ffi_dnsquestion_get_mac_addr(const dnsdist_ffi_dnsquestion_t* dq,
   return 6;
 }
 
+uint64_t dnsdist_ffi_dnsquestion_get_elapsed_us(const dnsdist_ffi_dnsquestion_t* dq)
+{
+  if (dq == nullptr) {
+    return 0;
+  }
+
+  const auto now = dq->dq->ids.queryRealTime.getCurrentTime();
+  const auto& ts = dq->dq->ids.queryRealTime.d_start;
+  return (now.tv_sec - ts.tv_sec) * 1000 * 1000 + (now.tv_nsec - ts.tv_nsec) / 1000;
+}
+
 void dnsdist_ffi_dnsquestion_get_masked_remoteaddr(dnsdist_ffi_dnsquestion_t* dq, const void** addr, size_t* addrSize, uint8_t bits)
 {
   dq->maskedRemote = Netmask(dq->dq->ids.origRemote, bits).getMaskedNetwork();

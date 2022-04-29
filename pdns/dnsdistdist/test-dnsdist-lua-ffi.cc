@@ -187,6 +187,11 @@ BOOST_AUTO_TEST_CASE(test_Query)
   }
 
   {
+    BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_elapsed_us(nullptr), 0U);
+    BOOST_CHECK_GT(dnsdist_ffi_dnsquestion_get_elapsed_us(&lightDQ), 0U);
+  }
+
+  {
     BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_skip_cache(&lightDQ), false);
     dnsdist_ffi_dnsquestion_set_skip_cache(&lightDQ, true);
     BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_skip_cache(&lightDQ), true);
