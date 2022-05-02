@@ -59,7 +59,12 @@ class DNSCryptoKeyEngine
     }
     virtual bool verify(const std::string& msg, const std::string& signature) const =0;
 
-    virtual std::string getPubKeyHash()const =0;
+    virtual std::string getPubKeyHash() const = 0;
+    virtual std::string getPubKeyHashFromPubKey(const std::string& pubKey) const
+    {
+      /* worst case, we need to compute the public key again */
+      return getPubKeyHash();
+    };
     virtual std::string getPublicKeyString()const =0;
     virtual int getBits() const =0;
     virtual unsigned int getAlgorithm() const

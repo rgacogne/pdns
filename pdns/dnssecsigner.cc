@@ -61,7 +61,7 @@ static void fillOutRRSIG(DNSSECPrivateKey& dpk, const DNSName& signQName, RRSIGR
   rrc.d_algorithm = drc.d_algorithm;
 
   string msg=getMessageForRRSET(signQName, rrc, toSign); // this is what we will hash & sign
-  pair<string, string> lookup(rc->getPubKeyHash(), getLookupKey(msg));  // this hash is a memory saving exercise
+  pair<string, string> lookup(rc->getPubKeyHashFromPubKey(drc.d_key), getLookupKey(msg));  // this hash is a memory saving exercise
 
   bool doCache=true;
   if(doCache)
