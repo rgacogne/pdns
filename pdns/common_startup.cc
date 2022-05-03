@@ -591,7 +591,7 @@ try
       }
 
       try {
-        distributor->question(question, &sendout); // otherwise, give to the distributor
+        distributor->question(std::move(question), &sendout); // otherwise, give to the distributor
       }
       catch(DistributorFatal& df) { // when this happens, we have leaked loads of memory. Bailing out time.
         _exit(1);

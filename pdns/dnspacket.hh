@@ -55,6 +55,8 @@ public:
   DNSPacket(bool isQuery);
   DNSPacket(const DNSPacket &orig) = default;
   DNSPacket & operator=(const DNSPacket &) = default;
+  DNSPacket(DNSPacket&& rhs) = default;
+  DNSPacket& operator=(DNSPacket&& rhs) = default;
 
   int noparse(const char *mesg, size_t len); //!< just suck the data inward
   int parse(const char *mesg, size_t len); //!< parse a raw UDP or TCP packet and suck the data inward

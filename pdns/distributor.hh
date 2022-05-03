@@ -52,7 +52,7 @@ template<class Answer, class Question, class Backend> class Distributor
 public:
   static Distributor* Create(int n=1); //!< Create a new Distributor with \param n threads
   typedef std::function<void(std::unique_ptr<Answer>&, int)> callback_t;
-  virtual int question(Question&, callback_t callback) =0; //!< Submit a question to the Distributor
+  virtual int question(Question&&, callback_t callback) =0; //!< Submit a question to the Distributor
   virtual int getQueueSize() =0; //!< Returns length of question queue
   virtual bool isOverloaded() =0;
   virtual ~Distributor() { cerr<<__func__<<endl;}
@@ -66,7 +66,7 @@ public:
   void operator=(const SingleThreadDistributor&) = delete;
   SingleThreadDistributor();
   typedef std::function<void(std::unique_ptr<Answer>&, int)> callback_t;
-  int question(Question&, callback_t callback) override; //!< Submit a question to the Distributor
+  int question(Question&&, callback_t callback) override; //!< Submit a question to the Distributor
   int getQueueSize() override {
     return 0;
   }
@@ -88,7 +88,7 @@ public:
   void operator=(const MultiThreadDistributor&) = delete;
   MultiThreadDistributor(int n);
   typedef std::function<void(std::unique_ptr<Answer>&, int)> callback_t;
-  int question(Question&, callback_t callback) override; //!< Submit a question to the Distributor
+  int question(Question&&, callback_t callback) override; //!< Submit a question to the Distributor
   void distribute(int n);
   int getQueueSize() override {
     return d_queued;
@@ -96,7 +96,7 @@ public:
 
   struct QuestionData
   {
-    QuestionData(const Question& query): Q(query)
+    QuestionData(Question&& query): Q(std::move(query))
     {
       start = Q.d_dt.udiff();
     }
@@ -264,7 +264,7 @@ retry:
   }
 }
 
-template<class Answer, class Question, class Backend>int SingleThreadDistributor<Answer,Question,Backend>::question(Question& q, callback_t callback)
+template<class Answer, class Question, class Backend>int SingleThreadDistributor<Answer,Question,Backend>::question(Question&& q, callback_t callback)
 {
   int start = q.d_dt.udiff();
   std::unique_ptr<Answer> a = nullptr;
@@ -311,10 +311,10 @@ retry:
 
 struct DistributorFatal{};
 
-template<class Answer, class Question, class Backend>int MultiThreadDistributor<Answer,Question,Backend>::question(Question& q, callback_t callback)
+template<class Answer, class Question, class Backend>int MultiThreadDistributor<Answer,Question,Backend>::question(Question&& q, callback_t callback)
 {
   // this is passed to other process over pipe and released there
-  auto QD=new QuestionData(q);
+  auto QD=new QuestionData(std::move(q));
   auto ret = QD->id = nextid++; // might be deleted after write!
   QD->callback=callback;
 
