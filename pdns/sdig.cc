@@ -2,6 +2,8 @@
 #include "config.h"
 #endif
 #include <cmath>
+#include <thread>
+
 #include "dnsparser.hh"
 #include "dnsrecords.hh"
 #include "dnswriter.hh"
@@ -11,7 +13,6 @@
 #include "proxy-protocol.hh"
 #include "sstuff.hh"
 #include "statbag.hh"
-#include <boost/array.hpp>
 
 #ifdef HAVE_LIBCURL
 #include "minicurl.hh"
@@ -55,7 +56,7 @@ static const string nameForClass(QClass qclass, uint16_t qtype)
   return qclass.toString();
 }
 
-static std::unordered_set<uint16_t> s_expectedIDs;
+static LockGuarded<std::unordered_set<uint16_t>> s_expectedIDs;
 
 static void fillPacket(vector<uint8_t>& packet, const string& q, const string& t,
                        bool dnssec, const boost::optional<Netmask> ednsnm,
@@ -106,10 +107,15 @@ static void fillPacket(vector<uint8_t>& packet, const string& q, const string& t
 static void printReply(const string& reply, bool showflags, bool hidesoadetails, bool dumpluaraw)
 {
   MOADNSParser mdp(false, reply);
-  if (!s_expectedIDs.count(ntohs(mdp.d_header.id))) {
-    cout << "ID " << ntohs(mdp.d_header.id) << " was not expected, this response was not meant for us!"<<endl;
+  {
+    auto expectedIDs = s_expectedIDs.lock();
+    if (!expectedIDs->count(ntohs(mdp.d_header.id))) {
+      cout << "ID " << ntohs(mdp.d_header.id) << " was not expected, this response was not meant for us!"<<endl;
+    }
+    else {
+      expectedIDs->erase(ntohs(mdp.d_header.id));
+    }
   }
-  s_expectedIDs.erase(ntohs(mdp.d_header.id));
 
   cout << "Reply to question for qname='" << mdp.d_qname.toString()
        << "', qtype=" << DNSRecordContent::NumberToType(mdp.d_qtype) << endl;
@@ -205,6 +211,7 @@ static bool getNextQuery(std::vector<uint8_t>& packet, const std::vector<std::pa
 
   packet.clear();
   fillPacket(packet, questions.at(idx).first, questions.at(idx).second, dnssec, ednsnm, recurse, xpfCode, xpfVersion, xpfProto, xpfSrc, xpfDst, qclass, opcode, queryID);
+  s_expectedIDs.lock()->insert(queryID);
   return true;
 }
 
@@ -249,6 +256,7 @@ try {
   size_t chr = 0;
   size_t qps = 0;
   size_t runTime = 0;
+  size_t clients = 1;
   boost::optional<bool> verbose;
 
   for (int i = 1; i < argc; i++) {
@@ -389,6 +397,17 @@ try {
           exit(EXIT_FAILURE);
         }
       }
+      else if (strcmp(argv[i], "clients") == 0) {
+        if (argc < i+2) {
+          cerr << "clients needs an argument"<<endl;
+          exit(EXIT_FAILURE);
+        }
+        clients = atoi(argv[++i]);
+        if (clients == 0) {
+          cerr<<"the clients value needs to be greater than 0"<<endl;
+          exit(EXIT_FAILURE);
+        }
+      }
       else if (strcmp(argv[i], "verbose") == 0) {
         verbose = true;
       }
@@ -410,7 +429,6 @@ try {
   }
 #endif
 
-  string reply;
   ComboAddress dest;
   if (*argv[1] == 'h') {
     doh = true;
@@ -420,12 +438,12 @@ try {
     dest = ComboAddress(argv[1] + (*argv[1] == '@'), atoi(argv[2]));
   }
 
-  string name = string(argv[3]);
-  string type = string(argv[4]);
+  const string name = string(argv[3]);
+  const string type = string(argv[4]);
 
   size_t totalNumberOfQueries = 1;
   if (qps > 0 && runTime > 0) {
-    totalNumberOfQueries = qps * runTime;
+    totalNumberOfQueries = qps * runTime * clients;
     if (!verbose) {
       verbose = false;
     }
@@ -452,8 +470,8 @@ try {
     if (runTime > 0) {
       for (size_t secondsCounter = 0; secondsCounter < runTime; secondsCounter++) {
         double hitRate = chr / 100.0;
-        unsigned int misses = std::round(static_cast<double>(qps) * (1.0 - hitRate));
-        unsigned int total = qps;
+        unsigned int misses = std::round(static_cast<double>(qps * clients) * (1.0 - hitRate));
+        unsigned int total = qps * clients;
         size_t idx = 0;
         for (idx = 0; idx < misses; idx++) {
           questions.emplace_back(std::to_string(rand()) + "." + name, type);
@@ -468,11 +486,13 @@ try {
     }
   }
 
+  auto clientFunc = [&]() {
   /* time to prepare, send, receive and process */
   DTime dt;
   /* actual time waiting to get a response */
   DTime latencyTimer;
   const unsigned int wait = qps > 0 ? 1000000/qps : 0;
+  string reply;
 
   if (doh) {
 #ifdef HAVE_LIBCURL
@@ -488,7 +508,6 @@ try {
       if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
         break;
       }
-      s_expectedIDs.insert(0);
       string question(packet.begin(), packet.end());
       latencyTimer.set();
       reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
@@ -553,7 +572,6 @@ try {
       if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, counter)) {
         break;
       }
-      s_expectedIDs.insert(counter);
       counter++;
 
       // Prefer to do a single write, so that fastopen can send all the data on SYN
@@ -595,7 +613,6 @@ try {
       if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
         break;
       }
-      s_expectedIDs.insert(0);
 
       string question(packet.begin(), packet.end());
       question = proxyheader + question;
@@ -621,10 +638,27 @@ try {
       waitUntilNext(wait, elapsed);
     }
   }
+  };
+
+  if (clients > 1) {
+    std::vector<std::thread> threads;
+    threads.reserve(clients);
+    for (size_t idx = 0; idx < clients; idx++) {
+      threads.push_back(std::thread(clientFunc));
+    }
+    for (auto& thr : threads) {
+      thr.join();
+      --s_queryIdx;
+    }
+  }
+  else {
+    clientFunc();
+    --s_queryIdx;
+  }
 
   if (runTime > 0) {
     auto latencies = *s_latencies.lock();
-    auto numberOfQueriesSent = s_queryIdx - 1;
+    auto numberOfQueriesSent = s_queryIdx.load();
     
     cout<<"========================="<<endl;
     cout<<"=        SUMMARY        ="<<endl;
