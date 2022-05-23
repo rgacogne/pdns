@@ -422,12 +422,18 @@ try {
       questions.emplace_back(fields.first, fields.second);
     }
   } else {
-    for (size_t count = 0; count < totalNumberOfQueries; count++) {
-      for (size_t idx = 0; idx < chr; idx++) {
-        questions.emplace_back(name, type);
-      }
-      for (size_t idx = 0; idx < (10 - chr); idx++) {
+    questions.reserve(totalNumberOfQueries);
+
+    for (size_t secondsCounter = 0; secondsCounter < runTime; secondsCounter++) {
+      double hitRate = chr / 100.0;
+      unsigned int misses = std::round(static_cast<double>(qps) * (1.0 - hitRate));
+      unsigned int total = qps;
+      size_t idx = 0;
+      for (idx = 0; idx < misses; idx++) {
         questions.emplace_back(std::to_string(rand()) + "." + name, type);
+      }
+      for (; idx < total; idx++) {
+        questions.emplace_back(name, type);
       }
     }
   }
