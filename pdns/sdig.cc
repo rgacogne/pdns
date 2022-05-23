@@ -1,6 +1,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <cmath>
 #include "dnsparser.hh"
 #include "dnsrecords.hh"
 #include "dnswriter.hh"
@@ -217,6 +218,10 @@ try {
   string caStore;
   string tlsProvider = "openssl";
   bool dumpluaraw = false;
+  size_t chr = 0;
+  size_t qps = 0;
+  size_t runTime = 0;
+  boost::optional<bool> verbose;
 
   for (int i = 1; i < argc; i++) {
     if ((string)argv[i] == "--help") {
@@ -323,6 +328,42 @@ try {
       else if (strcmp(argv[i], "dumpluaraw") == 0) {
         dumpluaraw = true;
       }
+      else if (strcmp(argv[i], "chr") == 0) {
+        if (argc < i+2) {
+          cerr << "chr needs an argument"<<endl;
+          exit(EXIT_FAILURE);
+        }
+        chr = atoi(argv[++i]);
+        if (chr > 100) {
+          cerr<<"the chr value needs to be between 0 and 100"<<endl;
+          exit(EXIT_FAILURE);
+        }
+      }
+      else if (strcmp(argv[i], "qps") == 0) {
+        if (argc < i+2) {
+          cerr << "qps needs an argument"<<endl;
+          exit(EXIT_FAILURE);
+        }
+        qps = atoi(argv[++i]);
+        if (qps == 0) {
+          cerr<<"the qps value needs to be greater than 0"<<endl;
+          exit(EXIT_FAILURE);
+        }
+      }
+      else if (strcmp(argv[i], "runtime") == 0) {
+        if (argc < i+2) {
+          cerr << "runtime needs an argument"<<endl;
+          exit(EXIT_FAILURE);
+        }
+        runTime = atoi(argv[++i]);
+        if (runTime == 0) {
+          cerr<<"the runtime value needs to be greater than 0"<<endl;
+          exit(EXIT_FAILURE);
+        }
+      }
+      else if (strcmp(argv[i], "verbose") == 0) {
+        verbose = true;
+      }
       else {
         cerr << argv[i] << ": unknown argument" << endl;
         exit(EXIT_FAILURE);
@@ -354,10 +395,19 @@ try {
   string name = string(argv[3]);
   string type = string(argv[4]);
 
-  const size_t chr = 8;
-  const size_t qps = 20;
-  const size_t runTime = 5;
-  const size_t totalNumberOfQueries = qps * runTime;
+  size_t totalNumberOfQueries = 1;
+  if (qps > 0 && runTime > 0) {
+    totalNumberOfQueries = qps * runTime;
+    if (!verbose) {
+      verbose = false;
+    }
+  }
+  else {
+    if (!verbose) {
+      verbose = true;
+    }
+  }
+
   size_t numberOfQueriesSent = 0;
   std::vector<int> latencies;
   latencies.reserve(totalNumberOfQueries);
@@ -372,7 +422,7 @@ try {
       questions.emplace_back(fields.first, fields.second);
     }
   } else {
-    for (size_t count = 0; count < 1000; count++) {
+    for (size_t count = 0; count < totalNumberOfQueries; count++) {
       for (size_t idx = 0; idx < chr; idx++) {
         questions.emplace_back(name, type);
       }
@@ -395,20 +445,24 @@ try {
       dt.set();
       packet.clear();
       s_expectedIDs.insert(0);
-      cerr<<"preparing to send "<<questions.at(questionIdx % questions.size()).first<<endl;
+      //cerr<<"preparing to send "<<questions.at(questionIdx % questions.size()).first<<endl;
       fillPacket(packet, questions.at(questionIdx % questions.size()).first, questions.at(questionIdx % questions.size()).second, dnssec, ednsnm, recurse, xpfcode, xpfversion,
                  xpfproto, xpfsrc, xpfdst, qclass, opcode, 0);
       ++questionIdx;
       string question(packet.begin(), packet.end());
       reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
-      printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      if (*verbose) {
+        printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      }
       numberOfQueriesSent++;
       auto elapsed = dt.udiffNoReset();
       latencies.push_back(elapsed);
 
-      unsigned int wait = 1000000/qps;
-      if (elapsed < wait) {
-        usleep(wait-elapsed);
+      if (qps) {
+        unsigned int wait = 1000000/qps;
+        if (elapsed > 0 && static_cast<unsigned int>(elapsed) < wait) {
+          usleep(wait-elapsed);
+        }
       }
     }
 #else
@@ -432,7 +486,9 @@ try {
       reply = reply.substr(2);
     }
 
-    printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    if (*verbose) {
+      printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    }
   } else if (tcp) {
     std::shared_ptr<TLSCtx> tlsCtx{nullptr};
     if (dot) {
@@ -480,14 +536,19 @@ try {
       if (handler.read(&reply[0], len, timeout) != len) {
         throw PDNSException("tcp read failed");
       }
-      printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      if (*verbose) {
+        printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      }
       numberOfQueriesSent++;
+
       auto elapsed = dt.udiffNoReset();
       latencies.push_back(elapsed);
 
-      unsigned int wait = 1000000/qps;
-      if (elapsed < wait) {
-        usleep(wait-elapsed);
+      if (qps > 0) {
+        unsigned int wait = 1000000/qps;
+        if (elapsed > 0 && static_cast<unsigned int>(elapsed) < wait) {
+          usleep(wait-elapsed);
+        }
       }
     }
   } else // udp
@@ -509,29 +570,47 @@ try {
     if (!result)
       throw std::runtime_error("Timeout waiting for data");
     sock.recvFrom(reply, dest);
-    printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    if (verbose) {
+      printReply(reply, showflags, hidesoadetails, dumpluaraw);
+    }
     numberOfQueriesSent++;
 
     auto elapsed = dt.udiffNoReset();
     latencies.push_back(elapsed);
 
-    unsigned int wait = 1000000/qps;
-    if (elapsed < wait) {
-      usleep(wait-elapsed);
+    if (qps > 0) {
+      unsigned int wait = 1000000/qps;
+      if (elapsed > 0 && static_cast<unsigned int>(elapsed) < wait) {
+        usleep(wait-elapsed);
+      }
     }
     }
   }
 
-  cerr<<"Got "<<latencies.size()<<" latencies"<<endl;
-  std::sort(latencies.begin(), latencies.end());
-  cerr<<"Min is "<<latencies.at(0)<<endl;
-  cerr<<"Max is "<<latencies.at(latencies.size()-1)<<endl;
-  cerr<<"Mean is "<<latencies.at((latencies.size()-1)/2)<<endl;
-  uint64_t total = 0;
-  for (const auto& value : latencies) {
-    total += (value);
+  if (runTime > 0) {
+    cout<<"========================="<<endl;
+    cout<<"=        SUMMARY        ="<<endl;
+    cout<<"========================="<<endl;
+    cerr<<"Sent "<<numberOfQueriesSent<<" queries over "<<runTime<<" seconds at "<<qps<<" queries per second, using a "<<chr<<" cache hit ratio target"<<endl;
+    cerr<<"Received "<<latencies.size()<<" responses over "<<numberOfQueriesSent<<", success rate is "<<((100.0*latencies.size()/numberOfQueriesSent))<<"%"<<endl;
+    std::sort(latencies.begin(), latencies.end());
+    cerr<<"Minimum latency is "<<latencies.at(0)<<" µs"<<endl;
+    cerr<<"Maxixmum latency is "<<latencies.at(latencies.size()-1)<<" µs"<<endl;
+    cerr<<"Mean latency is "<<latencies.at((latencies.size()-1)/2)<<" µs"<<endl;
+    uint64_t total = 0;
+    for (const auto& value : latencies) {
+      total += value;
+    }
+    cerr<<"Average latency is "<<(total/latencies.size())<<" µs"<<endl;
+
+    auto percentileIndex = static_cast<size_t>(std::floor((latencies.size() * 95.0) / 100.0)) - 1;
+    percentileIndex = std::min(percentileIndex, latencies.size() - 1);
+    cerr<<"95 percentile latency is "<<latencies.at(percentileIndex)<<" µs"<<endl;
+
+    percentileIndex = static_cast<size_t>(std::floor((latencies.size() * 99.0) / 100.0)) - 1;
+    percentileIndex = std::min(percentileIndex, latencies.size() - 1);
+    cerr<<"99 percentile latency is "<<latencies.at(percentileIndex)<<" µs"<<endl;
   }
-  cerr<<"Average is "<<(total/latencies.size())<<endl;
 
 } catch (std::exception& e) {
   cerr << "Fatal: " << e.what() << endl;
