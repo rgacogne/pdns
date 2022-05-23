@@ -408,6 +408,17 @@ try {
           exit(EXIT_FAILURE);
         }
       }
+      else if (strcmp(argv[i], "timeout") == 0) {
+        if (argc < i+2) {
+          cerr << "timeout needs an argument"<<endl;
+          exit(EXIT_FAILURE);
+        }
+        timeout.tv_sec = atoi(argv[++i]);
+        if (timeout.tv_sec <= 0) {
+          cerr<<"the timeout value needs to be greater than 0"<<endl;
+          exit(EXIT_FAILURE);
+        }
+      }
       else if (strcmp(argv[i], "verbose") == 0) {
         verbose = true;
       }
@@ -486,158 +497,192 @@ try {
     }
   }
 
+  std::atomic<uint64_t> failures{0};
   auto clientFunc = [&]() {
-  /* time to prepare, send, receive and process */
-  DTime dt;
-  /* actual time waiting to get a response */
-  DTime latencyTimer;
-  const unsigned int wait = qps > 0 ? 1000000/qps : 0;
-  string reply;
+    /* time to prepare, send, receive and process */
+    DTime dt;
+    /* actual time waiting to get a response */
+    DTime latencyTimer;
+    const unsigned int wait = qps > 0 ? 1000000/qps : 0;
+    string reply;
+    bool done = false;
 
-  if (doh) {
+    if (doh) {
 #ifdef HAVE_LIBCURL
-    vector<uint8_t> packet;
-    MiniCurl mc;
-    MiniCurl::MiniCurlHeaders mch;
-    mch.emplace("Content-Type", "application/dns-message");
-    mch.emplace("Accept", "application/dns-message");
-    // FIXME: how do we use proxyheader here?
+      while (!done) {
+        try {
+          vector<uint8_t> packet;
+          MiniCurl mc;
+          MiniCurl::MiniCurlHeaders mch;
+          mch.emplace("Content-Type", "application/dns-message");
+          mch.emplace("Accept", "application/dns-message");
+          // FIXME: how do we use proxyheader here?
 
-    while (true) {
-      dt.set();
-      if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
-        break;
+          while (!done) {
+            dt.set();
+            if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
+              done = true;
+              break;
+            }
+            string question(packet.begin(), packet.end());
+            latencyTimer.set();
+            reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
+            auto latency = latencyTimer.udiffNoReset();
+            handleLatency(latency);
+
+            if (*verbose) {
+              printReply(reply, showflags, hidesoadetails, dumpluaraw);
+            }
+
+            auto elapsed = dt.udiffNoReset();
+            waitUntilNext(wait, elapsed);
+          }
+        }
+        catch (const std::exception& e) {
+          ++failures;
+        }
       }
-      string question(packet.begin(), packet.end());
-      latencyTimer.set();
-      reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
-      auto latency = latencyTimer.udiffNoReset();
-      handleLatency(latency);
-
-      if (*verbose) {
-        printReply(reply, showflags, hidesoadetails, dumpluaraw);
-      }
-
-      auto elapsed = dt.udiffNoReset();
-      waitUntilNext(wait, elapsed);
-    }
 #else
-    throw PDNSException("please link sdig against libcurl for DoH support");
+      throw PDNSException("please link sdig against libcurl for DoH support");
 #endif
-  } else if (fromstdin) {
-    std::istreambuf_iterator<char> begin(std::cin), end;
-    reply = string(begin, end);
-
-    ComboAddress source, destination;
-    bool wastcp;
-    bool proxy = false;
-    std::vector<ProxyProtocolValue> ignoredValues;
-    ssize_t offset = parseProxyHeader(reply, proxy, source, destination, wastcp, ignoredValues);
-    if (offset && proxy) {
-      cout<<"proxy "<<(wastcp ? "tcp" : "udp")<<" headersize="<<offset<<" source="<<source.toStringWithPort()<<" destination="<<destination.toStringWithPort()<<endl;
-      reply = reply.substr(offset);
     }
-
-    if (tcp) {
-      reply = reply.substr(2);
-    }
-
-    if (*verbose) {
-      printReply(reply, showflags, hidesoadetails, dumpluaraw);
-    }
-  } else if (tcp) {
-    std::shared_ptr<TLSCtx> tlsCtx{nullptr};
-    if (dot) {
-      TLSContextParameters tlsParams;
-      tlsParams.d_provider = tlsProvider;
-      tlsParams.d_validateCertificates = !insecureDoT;
-      tlsParams.d_caStore = caStore;
-      tlsCtx = getTLSContext(tlsParams);
-    }
-    uint16_t counter = 0;
-    Socket sock(dest.sin4.sin_family, SOCK_STREAM);
-    sock.setNonBlocking();
-    setTCPNoDelay(sock.getHandle()); // disable NAGLE, which does not play nicely with delayed ACKs
-    TCPIOHandler handler(subjectName, false, sock.releaseHandle(), timeout, tlsCtx, time(nullptr));
-    handler.connect(fastOpen, dest, timeout);
-    // we are writing the proxyheader inside the TLS connection. Is that right?
-    if (proxyheader.size() > 0 && handler.write(proxyheader.data(), proxyheader.size(), timeout) != proxyheader.size()) {
-      throw PDNSException("tcp write failed");
-    }
-
-    vector<uint8_t> packet;
-    string question;
-    while (true) {
-      dt.set();
-      if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, counter)) {
-        break;
+    else if (tcp) {
+      std::shared_ptr<TLSCtx> tlsCtx{nullptr};
+      bool connected = false;
+      if (dot) {
+        TLSContextParameters tlsParams;
+        tlsParams.d_provider = tlsProvider;
+        tlsParams.d_validateCertificates = !insecureDoT;
+        tlsParams.d_caStore = caStore;
+        tlsCtx = getTLSContext(tlsParams);
       }
-      counter++;
+      while (!done) {
+        try {
+          uint16_t counter = 0;
+          Socket sock(dest.sin4.sin_family, SOCK_STREAM);
+          sock.setNonBlocking();
+          setTCPNoDelay(sock.getHandle()); // disable NAGLE, which does not play nicely with delayed ACKs
+          TCPIOHandler handler(subjectName, false, sock.releaseHandle(), timeout, tlsCtx, time(nullptr));
+          handler.connect(fastOpen, dest, timeout);
+          connected = true;
+          // we are writing the proxyheader inside the TLS connection. Is that right?
+          if (proxyheader.size() > 0 && handler.write(proxyheader.data(), proxyheader.size(), timeout) != proxyheader.size()) {
+            throw PDNSException("tcp write failed");
+          }
 
-      // Prefer to do a single write, so that fastopen can send all the data on SYN
-      uint16_t len = packet.size();
-      question.clear();
-      question.reserve(sizeof(len) + packet.size());
-      question.push_back(static_cast<char>(len >> 8));
-      question.push_back(static_cast<char>(len & 0xff));
-      question.append(packet.begin(), packet.end());
-      latencyTimer.set();
-      if (handler.write(question.data(), question.size(), timeout) != question.size()) {
-        throw PDNSException("tcp write failed");
+          vector<uint8_t> packet;
+          string question;
+          while (true) {
+            dt.set();
+            if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, counter)) {
+              done = true;
+              break;
+            }
+            counter++;
+
+            // Prefer to do a single write, so that fastopen can send all the data on SYN
+            uint16_t len = packet.size();
+            question.clear();
+            question.reserve(sizeof(len) + packet.size());
+            question.push_back(static_cast<char>(len >> 8));
+            question.push_back(static_cast<char>(len & 0xff));
+            question.append(packet.begin(), packet.end());
+            latencyTimer.set();
+            if (handler.write(question.data(), question.size(), timeout) != question.size()) {
+              throw PDNSException("tcp write failed");
+            }
+
+            if (handler.read((char *)&len, sizeof(len), timeout) != sizeof(len)) {
+              throw PDNSException("tcp read failed");
+            }
+            len = ntohs(len);
+            reply.resize(len);
+            if (handler.read(&reply[0], len, timeout) != len) {
+              throw PDNSException("tcp read failed");
+            }
+            auto latency = latencyTimer.udiffNoReset();
+            handleLatency(latency);
+
+            if (*verbose) {
+              printReply(reply, showflags, hidesoadetails, dumpluaraw);
+            }
+
+            auto elapsed = dt.udiffNoReset();
+            waitUntilNext(wait, elapsed);
+          }
+        }
+        catch (const std::exception& e) {
+          ++failures;
+          if (!connected) {
+            cerr<<e.what()<<endl;
+            done = true;
+            ++s_queryIdx;
+          }
+        }
+      }
+    } else if (fromstdin) {
+      std::istreambuf_iterator<char> begin(std::cin), end;
+      reply = string(begin, end);
+
+      ComboAddress source, destination;
+      bool wastcp;
+      bool proxy = false;
+      std::vector<ProxyProtocolValue> ignoredValues;
+      ssize_t offset = parseProxyHeader(reply, proxy, source, destination, wastcp, ignoredValues);
+      if (offset && proxy) {
+        cout<<"proxy "<<(wastcp ? "tcp" : "udp")<<" headersize="<<offset<<" source="<<source.toStringWithPort()<<" destination="<<destination.toStringWithPort()<<endl;
+        reply = reply.substr(offset);
       }
 
-      if (handler.read((char *)&len, sizeof(len), timeout) != sizeof(len)) {
-        throw PDNSException("tcp read failed");
+      if (tcp) {
+        reply = reply.substr(2);
       }
-      len = ntohs(len);
-      reply.resize(len);
-      if (handler.read(&reply[0], len, timeout) != len) {
-        throw PDNSException("tcp read failed");
-      }
-      auto latency = latencyTimer.udiffNoReset();
-      handleLatency(latency);
 
       if (*verbose) {
         printReply(reply, showflags, hidesoadetails, dumpluaraw);
       }
+    } else // udp
+    {
+      while (!done) {
+        try {
+          Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
+          vector<uint8_t> packet;
+          while (true) {
+            dt.set();
+            if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
+              done = true;
+              break;
+            }
 
-      auto elapsed = dt.udiffNoReset();
-      waitUntilNext(wait, elapsed);
+            string question(packet.begin(), packet.end());
+            question = proxyheader + question;
+            latencyTimer.set();
+            sock.sendTo(question, dest);
+            int result = waitForData(sock.getHandle(), timeout.tv_sec, timeout.tv_usec);
+            if (result < 0) {
+              throw std::runtime_error("Error waiting for data: " + stringerror());
+            }
+            if (!result) {
+              throw std::runtime_error("Timeout waiting for data");
+            }
+
+            sock.recvFrom(reply, dest);
+            auto latency = latencyTimer.udiffNoReset();
+            handleLatency(latency);
+
+            if (*verbose) {
+              printReply(reply, showflags, hidesoadetails, dumpluaraw);
+            }
+
+            auto elapsed = dt.udiffNoReset();
+            waitUntilNext(wait, elapsed);
+          }
+        }
+        catch (const std::exception& e) {
+          ++failures;
+        }
+      }
     }
-  } else // udp
-  {
-    Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
-    vector<uint8_t> packet;
-    while (true) {
-      dt.set();
-      if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
-        break;
-      }
-
-      string question(packet.begin(), packet.end());
-      question = proxyheader + question;
-      latencyTimer.set();
-      sock.sendTo(question, dest);
-      int result = waitForData(sock.getHandle(), timeout.tv_sec, timeout.tv_usec);
-      if (result < 0) {
-        throw std::runtime_error("Error waiting for data: " + stringerror());
-      }
-      if (!result) {
-        throw std::runtime_error("Timeout waiting for data");
-      }
-
-      sock.recvFrom(reply, dest);
-      auto latency = latencyTimer.udiffNoReset();
-      handleLatency(latency);
-
-      if (*verbose) {
-        printReply(reply, showflags, hidesoadetails, dumpluaraw);
-      }
-
-      auto elapsed = dt.udiffNoReset();
-      waitUntilNext(wait, elapsed);
-    }
-  }
   };
 
   if (clients > 1) {
@@ -659,33 +704,36 @@ try {
   if (runTime > 0) {
     auto latencies = *s_latencies.lock();
     auto numberOfQueriesSent = s_queryIdx.load();
-    
+    auto numberOfResponses = latencies.size();
+
     cout<<"========================="<<endl;
     cout<<"=        SUMMARY        ="<<endl;
     cout<<"========================="<<endl;
-    cerr<<"Sent "<<numberOfQueriesSent<<" queries over "<<runTime<<" seconds at "<<qps<<" queries per second, using a "<<chr<<" cache hit ratio target"<<endl;
-    cerr<<"Received "<<latencies.size()<<" responses over "<<numberOfQueriesSent<<", success rate is "<<((100.0*latencies.size()/numberOfQueriesSent))<<"%"<<endl;
-    std::sort(latencies.begin(), latencies.end());
-    cerr<<"Minimum latency is "<<latencies.at(0)<<" µs"<<endl;
-    cerr<<"Maxixmum latency is "<<latencies.at(latencies.size()-1)<<" µs"<<endl;
-    cerr<<"Mean latency is "<<latencies.at((latencies.size()-1)/2)<<" µs"<<endl;
-    uint64_t total = 0;
-    for (const auto& value : latencies) {
-      total += value;
+    cout<<"Sent "<<numberOfQueriesSent<<" queries over "<<clients<<" connections, during "<<runTime<<" seconds at "<<qps<<" queries per second, using a "<<chr<<" cache hit ratio target"<<endl;
+    cerr<<"Received "<<numberOfResponses<<" responses over "<<numberOfQueriesSent<<", "<<failures<<" errors, success rate is "<<((100.0*numberOfResponses/numberOfQueriesSent))<<"%"<<endl;
+    if (numberOfResponses > 0) {
+      std::sort(latencies.begin(), latencies.end());
+      cout<<"Minimum latency is "<<latencies.at(0)<<" µs"<<endl;
+      cout<<"Maxixmum latency is "<<latencies.at(numberOfResponses-1)<<" µs"<<endl;
+      cout<<"Mean latency is "<<latencies.at((numberOfResponses-1)/2)<<" µs"<<endl;
+      uint64_t total = 0;
+      for (const auto& value : latencies) {
+        total += value;
+      }
+      cout<<"Average latency is "<<(total/numberOfResponses)<<" µs"<<endl;
+
+      auto percentileIndex = static_cast<size_t>(std::floor((numberOfResponses * 95.0) / 100.0)) - 1;
+      percentileIndex = std::min(percentileIndex, numberOfResponses - 1);
+      cout<<"95 percentile latency is "<<latencies.at(percentileIndex)<<" µs"<<endl;
+
+      percentileIndex = static_cast<size_t>(std::floor((numberOfResponses * 99.0) / 100.0)) - 1;
+      percentileIndex = std::min(percentileIndex, numberOfResponses - 1);
+      cout<<"99 percentile latency is "<<latencies.at(percentileIndex)<<" µs"<<endl;
     }
-    cerr<<"Average latency is "<<(total/latencies.size())<<" µs"<<endl;
-
-    auto percentileIndex = static_cast<size_t>(std::floor((latencies.size() * 95.0) / 100.0)) - 1;
-    percentileIndex = std::min(percentileIndex, latencies.size() - 1);
-    cerr<<"95 percentile latency is "<<latencies.at(percentileIndex)<<" µs"<<endl;
-
-    percentileIndex = static_cast<size_t>(std::floor((latencies.size() * 99.0) / 100.0)) - 1;
-    percentileIndex = std::min(percentileIndex, latencies.size() - 1);
-    cerr<<"99 percentile latency is "<<latencies.at(percentileIndex)<<" µs"<<endl;
   }
 
-} catch (std::exception& e) {
+} catch (const std::exception& e) {
   cerr << "Fatal: " << e.what() << endl;
-} catch (PDNSException& e) {
+} catch (const PDNSException& e) {
   cerr << "Fatal: " << e.reason << endl;
 }
