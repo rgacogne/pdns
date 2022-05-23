@@ -60,7 +60,7 @@ static std::unordered_set<uint16_t> s_expectedIDs;
 static void fillPacket(vector<uint8_t>& packet, const string& q, const string& t,
                        bool dnssec, const boost::optional<Netmask> ednsnm,
                        bool recurse, uint16_t xpfcode, uint16_t xpfversion,
-                       uint64_t xpfproto, char* xpfsrc, char* xpfdst,
+                       uint64_t xpfproto, const char* xpfsrc, const char* xpfdst,
                        QClass qclass, uint8_t opcode, uint16_t qid)
 {
   DNSPacketWriter pw(packet, DNSName(q), DNSRecordContent::TypeToNumber(t), qclass, opcode);
@@ -191,6 +191,34 @@ static void printReply(const string& reply, bool showflags, bool hidesoadetails,
         cerr << "Have unknown option " << (int)iter->first << endl;
       }
     }
+  }
+}
+
+static std::atomic<uint64_t> s_queryIdx{0};
+
+static bool getNextQuery(std::vector<uint8_t>& packet, const std::vector<std::pair<std::string, std::string>>& questions, bool dnssec, const boost::optional<Netmask>& ednsnm, bool recurse, uint16_t xpfCode, uint16_t xpfVersion, uint16_t xpfProto, const char* xpfSrc, const char* xpfDst, const QClass& qclass, uint8_t opcode, uint16_t queryID)
+{
+  auto idx = s_queryIdx++;
+  if (idx >= questions.size()) {
+    return false;
+  }
+
+  packet.clear();
+  fillPacket(packet, questions.at(idx).first, questions.at(idx).second, dnssec, ednsnm, recurse, xpfCode, xpfVersion, xpfProto, xpfSrc, xpfDst, qclass, opcode, queryID);
+  return true;
+}
+
+static LockGuarded<std::vector<int>> s_latencies;
+
+static void handleLatency(int latency)
+{
+  s_latencies.lock()->push_back(latency);
+}
+
+static void waitUntilNext(unsigned int wait, int elapsed)
+{
+  if (wait > 0 && elapsed > 0 && static_cast<unsigned int>(elapsed) < wait) {
+    usleep(wait-elapsed);
   }
 }
 
@@ -408,11 +436,8 @@ try {
     }
   }
 
-  size_t numberOfQueriesSent = 0;
-  std::vector<int> latencies;
-  latencies.reserve(totalNumberOfQueries);
+  s_latencies.lock()->reserve(totalNumberOfQueries);
 
-  uint64_t questionIdx = 0;
   vector<pair<string, string>> questions;
   if (name == "-" && type == "-") {
     string line;
@@ -424,21 +449,31 @@ try {
   } else {
     questions.reserve(totalNumberOfQueries);
 
-    for (size_t secondsCounter = 0; secondsCounter < runTime; secondsCounter++) {
-      double hitRate = chr / 100.0;
-      unsigned int misses = std::round(static_cast<double>(qps) * (1.0 - hitRate));
-      unsigned int total = qps;
-      size_t idx = 0;
-      for (idx = 0; idx < misses; idx++) {
-        questions.emplace_back(std::to_string(rand()) + "." + name, type);
+    if (runTime > 0) {
+      for (size_t secondsCounter = 0; secondsCounter < runTime; secondsCounter++) {
+        double hitRate = chr / 100.0;
+        unsigned int misses = std::round(static_cast<double>(qps) * (1.0 - hitRate));
+        unsigned int total = qps;
+        size_t idx = 0;
+        for (idx = 0; idx < misses; idx++) {
+          questions.emplace_back(std::to_string(rand()) + "." + name, type);
+        }
+        for (; idx < total; idx++) {
+          questions.emplace_back(name, type);
+        }
       }
-      for (; idx < total; idx++) {
-        questions.emplace_back(name, type);
-      }
+    }
+    else {
+      questions.emplace_back(name, type);
     }
   }
 
+  /* time to prepare, send, receive and process */
   DTime dt;
+  /* actual time waiting to get a response */
+  DTime latencyTimer;
+  const unsigned int wait = qps > 0 ? 1000000/qps : 0;
+
   if (doh) {
 #ifdef HAVE_LIBCURL
     vector<uint8_t> packet;
@@ -447,29 +482,25 @@ try {
     mch.emplace("Content-Type", "application/dns-message");
     mch.emplace("Accept", "application/dns-message");
     // FIXME: how do we use proxyheader here?
-    while (numberOfQueriesSent < totalNumberOfQueries) {
+
+    while (true) {
       dt.set();
-      packet.clear();
+      if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
+        break;
+      }
       s_expectedIDs.insert(0);
-      //cerr<<"preparing to send "<<questions.at(questionIdx % questions.size()).first<<endl;
-      fillPacket(packet, questions.at(questionIdx % questions.size()).first, questions.at(questionIdx % questions.size()).second, dnssec, ednsnm, recurse, xpfcode, xpfversion,
-                 xpfproto, xpfsrc, xpfdst, qclass, opcode, 0);
-      ++questionIdx;
       string question(packet.begin(), packet.end());
+      latencyTimer.set();
       reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
+      auto latency = latencyTimer.udiffNoReset();
+      handleLatency(latency);
+
       if (*verbose) {
         printReply(reply, showflags, hidesoadetails, dumpluaraw);
       }
-      numberOfQueriesSent++;
-      auto elapsed = dt.udiffNoReset();
-      latencies.push_back(elapsed);
 
-      if (qps) {
-        unsigned int wait = 1000000/qps;
-        if (elapsed > 0 && static_cast<unsigned int>(elapsed) < wait) {
-          usleep(wait-elapsed);
-        }
-      }
+      auto elapsed = dt.udiffNoReset();
+      waitUntilNext(wait, elapsed);
     }
 #else
     throw PDNSException("please link sdig against libcurl for DoH support");
@@ -515,21 +546,24 @@ try {
       throw PDNSException("tcp write failed");
     }
 
-    while (numberOfQueriesSent < totalNumberOfQueries) {
+    vector<uint8_t> packet;
+    string question;
+    while (true) {
       dt.set();
-      vector<uint8_t> packet;
+      if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, counter)) {
+        break;
+      }
       s_expectedIDs.insert(counter);
-      fillPacket(packet, questions.at(counter % questions.size()).first, questions.at(counter % questions.size()).second, dnssec, ednsnm, recurse, xpfcode,
-                 xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, counter);
       counter++;
 
       // Prefer to do a single write, so that fastopen can send all the data on SYN
       uint16_t len = packet.size();
-      string question;
+      question.clear();
       question.reserve(sizeof(len) + packet.size());
       question.push_back(static_cast<char>(len >> 8));
       question.push_back(static_cast<char>(len & 0xff));
       question.append(packet.begin(), packet.end());
+      latencyTimer.set();
       if (handler.write(question.data(), question.size(), timeout) != question.size()) {
         throw PDNSException("tcp write failed");
       }
@@ -542,58 +576,56 @@ try {
       if (handler.read(&reply[0], len, timeout) != len) {
         throw PDNSException("tcp read failed");
       }
+      auto latency = latencyTimer.udiffNoReset();
+      handleLatency(latency);
+
       if (*verbose) {
         printReply(reply, showflags, hidesoadetails, dumpluaraw);
       }
-      numberOfQueriesSent++;
 
       auto elapsed = dt.udiffNoReset();
-      latencies.push_back(elapsed);
-
-      if (qps > 0) {
-        unsigned int wait = 1000000/qps;
-        if (elapsed > 0 && static_cast<unsigned int>(elapsed) < wait) {
-          usleep(wait-elapsed);
-        }
-      }
+      waitUntilNext(wait, elapsed);
     }
   } else // udp
   {
     Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
     vector<uint8_t> packet;
-    while (numberOfQueriesSent < totalNumberOfQueries) {
-      s_expectedIDs.insert(0);
+    while (true) {
       dt.set();
-    fillPacket(packet, questions.at(questionIdx % questions.size()).first, questions.at(questionIdx % questions.size()).second, dnssec, ednsnm, recurse, xpfcode, xpfversion,
-               xpfproto, xpfsrc, xpfdst, qclass, opcode, 0);
-    questionIdx++;
-    string question(packet.begin(), packet.end());
-    question = proxyheader + question;
-    sock.sendTo(question, dest);
-    int result = waitForData(sock.getHandle(), timeout.tv_sec, timeout.tv_usec);
-    if (result < 0)
-      throw std::runtime_error("Error waiting for data: " + stringerror());
-    if (!result)
-      throw std::runtime_error("Timeout waiting for data");
-    sock.recvFrom(reply, dest);
-    if (verbose) {
-      printReply(reply, showflags, hidesoadetails, dumpluaraw);
-    }
-    numberOfQueriesSent++;
-
-    auto elapsed = dt.udiffNoReset();
-    latencies.push_back(elapsed);
-
-    if (qps > 0) {
-      unsigned int wait = 1000000/qps;
-      if (elapsed > 0 && static_cast<unsigned int>(elapsed) < wait) {
-        usleep(wait-elapsed);
+      if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
+        break;
       }
-    }
+      s_expectedIDs.insert(0);
+
+      string question(packet.begin(), packet.end());
+      question = proxyheader + question;
+      latencyTimer.set();
+      sock.sendTo(question, dest);
+      int result = waitForData(sock.getHandle(), timeout.tv_sec, timeout.tv_usec);
+      if (result < 0) {
+        throw std::runtime_error("Error waiting for data: " + stringerror());
+      }
+      if (!result) {
+        throw std::runtime_error("Timeout waiting for data");
+      }
+
+      sock.recvFrom(reply, dest);
+      auto latency = latencyTimer.udiffNoReset();
+      handleLatency(latency);
+
+      if (*verbose) {
+        printReply(reply, showflags, hidesoadetails, dumpluaraw);
+      }
+
+      auto elapsed = dt.udiffNoReset();
+      waitUntilNext(wait, elapsed);
     }
   }
 
   if (runTime > 0) {
+    auto latencies = *s_latencies.lock();
+    auto numberOfQueriesSent = s_queryIdx - 1;
+    
     cout<<"========================="<<endl;
     cout<<"=        SUMMARY        ="<<endl;
     cout<<"========================="<<endl;
