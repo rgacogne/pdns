@@ -58,21 +58,24 @@ static const string nameForClass(QClass qclass, uint16_t qtype)
 
 static LockGuarded<std::unordered_set<uint16_t>> s_expectedIDs;
 
-static void fillPacket(vector<uint8_t>& packet, const string& q, const string& t,
+static void fillPacket(vector<uint8_t>& packet, const DNSName& q, uint16_t t,
                        bool dnssec, const boost::optional<Netmask> ednsnm,
                        bool recurse, uint16_t xpfcode, uint16_t xpfversion,
                        uint64_t xpfproto, const char* xpfsrc, const char* xpfdst,
                        QClass qclass, uint8_t opcode, uint16_t qid)
 {
-  DNSPacketWriter pw(packet, DNSName(q), DNSRecordContent::TypeToNumber(t), qclass, opcode);
+  static char * sdigbufsize = getenv("SDIGBUFSIZE");
+  DNSPacketWriter pw(packet, q, t, qclass, opcode);
 
-  if (dnssec || ednsnm || getenv("SDIGBUFSIZE")) {
-    char* sbuf = getenv("SDIGBUFSIZE");
+  if (dnssec || ednsnm || sdigbufsize) {
+    const char* sbuf = sdigbufsize;
     int bufsize;
-    if (sbuf)
+    if (sbuf) {
       bufsize = atoi(sbuf);
-    else
+    }
+    else {
       bufsize = 2800;
+    }
     DNSPacketWriter::optvect_t opts;
     if (ednsnm) {
       EDNSSubnetOpts eo;
@@ -202,7 +205,7 @@ static void printReply(const string& reply, bool showflags, bool hidesoadetails,
 
 static std::atomic<uint64_t> s_queryIdx{0};
 
-static bool getNextQuery(std::vector<uint8_t>& packet, const std::vector<std::pair<std::string, std::string>>& questions, bool dnssec, const boost::optional<Netmask>& ednsnm, bool recurse, uint16_t xpfCode, uint16_t xpfVersion, uint16_t xpfProto, const char* xpfSrc, const char* xpfDst, const QClass& qclass, uint8_t opcode, uint16_t queryID)
+static bool getNextQuery(std::vector<uint8_t>& packet, const std::vector<std::pair<DNSName, uint16_t>>& questions, bool dnssec, const boost::optional<Netmask>& ednsnm, bool recurse, uint16_t xpfCode, uint16_t xpfVersion, uint16_t xpfProto, const char* xpfSrc, const char* xpfDst, const QClass& qclass, uint8_t opcode, uint16_t queryID)
 {
   auto idx = s_queryIdx++;
   if (idx >= questions.size()) {
@@ -467,15 +470,16 @@ try {
 
   s_latencies.lock()->reserve(totalNumberOfQueries);
 
-  vector<pair<string, string>> questions;
+  vector<pair<DNSName, uint16_t>> questions;
   if (name == "-" && type == "-") {
     string line;
     while (getline(std::cin, line)) {
       auto fields = splitField(line, ' ');
 
-      questions.emplace_back(fields.first, fields.second);
+      questions.emplace_back(fields.first, DNSRecordContent::TypeToNumber(fields.second));
     }
   } else {
+    uint16_t qtype = DNSRecordContent::TypeToNumber(type);
     questions.reserve(totalNumberOfQueries);
 
     if (runTime > 0) {
@@ -485,15 +489,15 @@ try {
         unsigned int total = qps * clients;
         size_t idx = 0;
         for (idx = 0; idx < misses; idx++) {
-          questions.emplace_back(std::to_string(rand()) + "." + name, type);
+          questions.emplace_back(std::to_string(rand()) + "." + name, qtype);
         }
         for (; idx < total; idx++) {
-          questions.emplace_back(name, type);
+          questions.emplace_back(name, qtype);
         }
       }
     }
     else {
-      questions.emplace_back(name, type);
+      questions.emplace_back(name, qtype);
     }
   }
 
@@ -511,6 +515,7 @@ try {
 #ifdef HAVE_LIBCURL
       while (!done) {
         try {
+          std::string question;
           vector<uint8_t> packet;
           MiniCurl mc;
           MiniCurl::MiniCurlHeaders mch;
@@ -524,7 +529,7 @@ try {
               done = true;
               break;
             }
-            string question(packet.begin(), packet.end());
+            question.assign(packet.begin(), packet.end());
             latencyTimer.set();
             reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
             auto latency = latencyTimer.udiffNoReset();
@@ -647,6 +652,7 @@ try {
         try {
           Socket sock(dest.sin4.sin_family, SOCK_DGRAM);
           vector<uint8_t> packet;
+          std::string question;
           while (true) {
             dt.set();
             if (!getNextQuery(packet, questions, dnssec, ednsnm, recurse, xpfcode, xpfversion, xpfproto, xpfsrc, xpfdst, qclass, opcode, 0)) {
@@ -654,8 +660,8 @@ try {
               break;
             }
 
-            string question(packet.begin(), packet.end());
-            question = proxyheader + question;
+            question.assign(proxyheader.begin(), proxyheader.end());
+            question.append(packet.begin(), packet.end());
             latencyTimer.set();
             sock.sendTo(question, dest);
             int result = waitForData(sock.getHandle(), timeout.tv_sec, timeout.tv_usec);
@@ -685,9 +691,12 @@ try {
     }
   };
 
+  DTime executionTimer;
+  int totalExecutionTime = 0;
   if (clients > 1) {
     std::vector<std::thread> threads;
     threads.reserve(clients);
+    executionTimer.set();
     for (size_t idx = 0; idx < clients; idx++) {
       threads.push_back(std::thread(clientFunc));
     }
@@ -695,9 +704,12 @@ try {
       thr.join();
       --s_queryIdx;
     }
+    totalExecutionTime = executionTimer.udiffNoReset();
   }
   else {
+    executionTimer.set();
     clientFunc();
+    totalExecutionTime = executionTimer.udiffNoReset();
     --s_queryIdx;
   }
 
@@ -711,10 +723,11 @@ try {
     cout<<"========================="<<endl;
     cout<<"Sent "<<numberOfQueriesSent<<" queries over "<<clients<<" connections, during "<<runTime<<" seconds at "<<qps<<" queries per second, using a "<<chr<<" cache hit ratio target"<<endl;
     cerr<<"Received "<<numberOfResponses<<" responses over "<<numberOfQueriesSent<<", "<<failures<<" errors, success rate is "<<((100.0*numberOfResponses/numberOfQueriesSent))<<"%"<<endl;
+    cerr<<"Final execution time: "<<(totalExecutionTime/1000000.0)<<" seconds, actual responses per second rate: "<<(numberOfResponses/(totalExecutionTime/1000000.0))<<endl;
     if (numberOfResponses > 0) {
       std::sort(latencies.begin(), latencies.end());
       cout<<"Minimum latency is "<<latencies.at(0)<<" µs"<<endl;
-      cout<<"Maxixmum latency is "<<latencies.at(numberOfResponses-1)<<" µs"<<endl;
+      cout<<"Maximum latency is "<<latencies.at(numberOfResponses-1)<<" µs"<<endl;
       cout<<"Mean latency is "<<latencies.at((numberOfResponses-1)/2)<<" µs"<<endl;
       uint64_t total = 0;
       for (const auto& value : latencies) {
