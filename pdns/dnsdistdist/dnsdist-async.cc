@@ -174,6 +174,7 @@ static bool resumeResponse(std::unique_ptr<CrossProtocolQuery>&& response)
       gettimeofday(&now, nullptr);
 
       TCPResponse resp(std::move(response->query.d_buffer), std::move(response->query.d_idstate), nullptr);
+      resp.d_ds = response->downstream;
       resp.d_async = true;
       sender->handleResponse(now, std::move(resp));
     }
@@ -233,6 +234,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     gettimeofday(&now, nullptr);
 
     TCPResponse response(std::move(query->query.d_buffer), std::move(query->query.d_idstate), nullptr);
+    response.d_ds = query->downstream;
     response.d_async = true;
     response.d_selfGenerated = true;
 

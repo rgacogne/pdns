@@ -251,8 +251,8 @@ static void handleResponseSent(std::shared_ptr<IncomingTCPConnectionState>& stat
 
   --state->d_currentQueriesCount;
 
-  if (currentResponse.d_selfGenerated == false && currentResponse.d_connection && currentResponse.d_connection->getDS()) {
-    const auto& ds = currentResponse.d_connection->getDS();
+  const auto& ds = currentResponse.d_connection ? currentResponse.d_connection->getDS() : currentResponse.d_ds;
+  if (currentResponse.d_selfGenerated == false && ds) {
     const auto& ids = currentResponse.d_idstate;
     double udiff = ids.queryRealTime.udiff();
     vinfolog("Got answer from %s, relayed to %s (%s, %d bytes), took %f usec", ds->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), (state->d_handler.isTLS() ? "DoT" : "TCP"), currentResponse.d_buffer.size(), udiff);
@@ -796,7 +796,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
 
   std::string proxyProtocolPayload;
   if (ds->isDoH()) {
-    vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", ids.qname.toLogString(), QType(ids.qtype).toString(), state->d_proxiedRemote.toStringWithPort(), (state->d_handler.isTLS() ? "DoT" : "TCP"), state->d_buffer.size(), ds->getName());
+    vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", ids.qname.toLogString(), QType(ids.qtype).toString(), state->d_proxiedRemote.toStringWithPort(), (state->d_handler.isTLS() ? "DoT" : "TCP"), state->d_buffer.size(), ds->getNameWithAddr());
 
     /* we need to do this _before_ creating the cross protocol query because
        after that the buffer will have been moved */
@@ -832,7 +832,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   TCPQuery query(std::move(state->d_buffer), std::move(ids));
   query.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
 
-  vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", query.d_idstate.qname.toLogString(), QType(query.d_idstate.qtype).toString(), state->d_proxiedRemote.toStringWithPort(), (state->d_handler.isTLS() ? "DoT" : "TCP"), query.d_buffer.size(), ds->getName());
+  vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", query.d_idstate.qname.toLogString(), QType(query.d_idstate.qtype).toString(), state->d_proxiedRemote.toStringWithPort(), (state->d_handler.isTLS() ? "DoT" : "TCP"), query.d_buffer.size(), ds->getNameWithAddr());
   std::shared_ptr<TCPQuerySender> incoming = state;
   downstreamConnection->queueQuery(incoming, std::move(query));
 }
@@ -1231,6 +1231,9 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
 
       prependSizeToTCPQuery(query.d_buffer, proxyProtocolPayloadSize);
       query.d_proxyProtocolPayloadAddedSize = proxyProtocolPayloadSize;
+
+      vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", query.d_idstate.qname.toLogString(), QType(query.d_idstate.qtype).toString(), query.d_idstate.origRemote.toStringWithPort(), query.d_idstate.protocol.toString(), query.d_buffer.size(), downstreamServer->getNameWithAddr());
+
       downstream->queueQuery(tqs, std::move(query));
     }
     catch (...) {
