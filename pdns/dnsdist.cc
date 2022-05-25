@@ -1272,6 +1272,8 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
       if (dq.ids.packetCache && !dq.ids.skipCache && (!selectedBackend || !selectedBackend->d_config.disableZeroScope) && dq.ids.packetCache->isECSParsingEnabled()) {
         if (dq.ids.packetCache->get(dq, dq.getHeader()->id, &dq.ids.cacheKeyNoECS, dq.ids.subnet, dq.ids.dnssecOK, !dq.overTCP(), allowExpired)) {
 
+          vinfolog("Packet cache hit for query for %s|%s from %s (%s, %d bytes)", dq.ids.qname.toLogString(), QType(dq.ids.qtype).toString(), dq.ids.origRemote.toStringWithPort(), dq.ids.protocol.toString(), dq.getData().size());
+
           if (!prepareOutgoingResponse(holders, *dq.ids.cs, dq, true)) {
             return ProcessQueryResult::Drop;
           }
@@ -1301,6 +1303,8 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
 
         restoreFlags(dq.getHeader(), dq.ids.origFlags);
 
+        vinfolog("Packet cache hit for query for %s|%s from %s (%s, %d bytes)", dq.ids.qname.toLogString(), QType(dq.ids.qtype).toString(), dq.ids.origRemote.toStringWithPort(), dq.ids.protocol.toString(), dq.getData().size());
+
         if (!prepareOutgoingResponse(holders, *dq.ids.cs, dq, true)) {
           return ProcessQueryResult::Drop;
         }
@@ -1313,7 +1317,10 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
         PacketBuffer initialQuery(dq.getData());
         if (dq.ids.packetCache->get(dq, dq.getHeader()->id, &dq.ids.cacheKeyUDP, dq.ids.subnet, dq.ids.dnssecOK, true, allowExpired)) {
           if (dq.getHeader()->tc == 0) {
-            if (!prepareOutgoingResponse(holders, *dq.ids.cs, dq, true)) {
+
+            vinfolog("Packet cache hit for query for %s|%s from %s (%s, %d bytes)", dq.ids.qname.toLogString(), QType(dq.ids.qtype).toString(), dq.ids.origRemote.toStringWithPort(), dq.ids.protocol.toString(), dq.getData().size());
+
+          if (!prepareOutgoingResponse(holders, *dq.ids.cs, dq, true)) {
               return ProcessQueryResult::Drop;
             }
 
@@ -1322,6 +1329,8 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dq, LocalHolders& holders
           dq.getMutableData() = std::move(initialQuery);
         }
       }
+
+      vinfolog("Packet cache miss for query for %s|%s from %s (%s, %d bytes)", dq.ids.qname.toLogString(), QType(dq.ids.qtype).toString(), dq.ids.origRemote.toStringWithPort(), dq.ids.protocol.toString(), dq.getData().size());
 
       ++g_stats.cacheMisses;
     }
