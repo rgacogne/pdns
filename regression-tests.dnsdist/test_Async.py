@@ -154,8 +154,11 @@ class TestAsync(DNSDistTest):
       local queryPtr = C.dnsdist_ffi_dnsquestion_get_header(dq)
       local querySize = C.dnsdist_ffi_dnsquestion_get_len(dq)
 
+      -- we need to take a copy, as we can no longer touch that data after calling set_async
+      local buffer = ffi.string(queryPtr, querySize)
+
       print(C.dnsdist_ffi_dnsquestion_set_async(dq, asyncID, C.dnsdist_ffi_dnsquestion_get_id(dq), timeout))
-      asyncResponderEndpoint:send(ffi.string(queryPtr, querySize))
+      asyncResponderEndpoint:send(buffer)
 
       return DNSAction.Allow
     end
@@ -167,8 +170,11 @@ class TestAsync(DNSDistTest):
       local responsePtr = C.dnsdist_ffi_dnsquestion_get_header(dr)
       local responseSize = C.dnsdist_ffi_dnsquestion_get_len(dr)
 
+      -- we need to take a copy, as we can no longer touch that data after calling set_async
+      local buffer = ffi.string(responsePtr, responseSize)
+
       print(C.dnsdist_ffi_dnsresponse_set_async(dr, asyncID, C.dnsdist_ffi_dnsquestion_get_id(dr), timeout))
-      asyncResponderEndpoint:send(ffi.string(responsePtr, responseSize))
+      asyncResponderEndpoint:send(buffer)
 
       return DNSResponseAction.Allow
     end
