@@ -256,7 +256,7 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     /* at this point 'du', if it is not nullptr, is owned by the DoHCrossProtocolQuery
        which will stop existing when we return, so we need to increment the reference count
     */
-    return assignOutgoingUDPQueryToBackend(query->downstream, queryID, dq, std::move(query->query.d_buffer), ids.origDest);
+    return assignOutgoingUDPQueryToBackend(query->downstream, queryID, dq, query->query.d_buffer, ids.origDest);
   }
   else if (result == ProcessQueryResult::SendAnswer) {
     auto sender = query->getTCPQuerySender();

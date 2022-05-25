@@ -529,7 +529,9 @@ public:
       query = InternalQuery(std::move(du->response), std::move(du->ids));
     }
     else {
-      query = InternalQuery(std::move(du->query), std::move(du->ids));
+      /* we need to duplicate the query here because we might need
+         the existing query later if we get a truncated answer */
+      query = InternalQuery(PacketBuffer(du->query), std::move(du->ids));
     }
 
     /* it might have been moved when we moved du->ids */
@@ -718,7 +720,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
     }
 
     ComboAddress dest = dq.ids.origDest;
-    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, std::move(du->query), dest)) {
+    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, du->query, dest)) {
       sendDoHUnitToTheMainThread(std::move(du), "DoH internal error");
       return;
     }

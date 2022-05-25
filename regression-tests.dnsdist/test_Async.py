@@ -45,6 +45,18 @@ def AsyncResponder(listenPath, responsePath):
                 reply = reply + 'custom'
             else:
                 reply = reply + 'accept'
+        elif str(request.question[0].name).startswith('timeout-then-accept'):
+            if request.flags & dns.flags.QR:
+                reply = reply + 'accept'
+            else:
+                # no response
+                continue
+        elif str(request.question[0].name).startswith('accept-then-timeout'):
+            if request.flags & dns.flags.QR:
+                # no response
+                continue
+            else:
+                reply = reply + 'accept'
         elif str(request.question[0].name).startswith('accept'):
             reply = reply + 'accept'
         elif str(request.question[0].name).startswith('refuse'):
@@ -53,6 +65,9 @@ def AsyncResponder(listenPath, responsePath):
             reply = reply + 'drop'
         elif str(request.question[0].name).startswith('custom'):
             reply = reply + 'custom'
+        elif str(request.question[0].name).startswith('timeout'):
+            # no response
+            continue
         else:
             reply = reply + 'invalid'
 
@@ -134,7 +149,7 @@ class TestAsync(DNSDistTest):
 
     function passQueryToAsyncFilter(dq)
       print('in passQueryToAsyncFilter')
-      local timeout = 2000 -- 2000 ms
+      local timeout = 500 -- 500 ms
 
       local queryPtr = C.dnsdist_ffi_dnsquestion_get_header(dq)
       local querySize = C.dnsdist_ffi_dnsquestion_get_len(dq)
@@ -147,7 +162,7 @@ class TestAsync(DNSDistTest):
 
     function passResponseToAsyncFilter(dr)
       print('in passResponseToAsyncFilter')
-      local timeout = 2000 -- 2000 ms
+      local timeout = 500 -- 500 ms
 
       local responsePtr = C.dnsdist_ffi_dnsquestion_get_header(dr)
       local responseSize = C.dnsdist_ffi_dnsquestion_get_len(dr)
@@ -173,6 +188,70 @@ class TestAsync(DNSDistTest):
         Async: Accept
         """
         for name in ['accept.async.tests.powerdns.com.', 'accept.tcp-only.async.tests.powerdns.com.']:
+            query = dns.message.make_query(name, 'A', 'IN')
+
+            response = dns.message.make_response(query)
+            rrset = dns.rrset.from_text(name,
+                                        60,
+                                        dns.rdataclass.IN,
+                                        dns.rdatatype.A,
+                                        '192.0.2.1')
+            response.answer.append(rrset)
+
+            for method in ("sendUDPQuery", "sendTCPQuery"):
+                sender = getattr(self, method)
+                (receivedQuery, receivedResponse) = sender(query, response)
+                receivedQuery.id = query.id
+                self.assertEqual(query, receivedQuery)
+                self.assertEqual(response, receivedResponse)
+
+            (receivedQuery, receivedResponse) = self.sendDOTQuery(self._tlsServerPort, self._serverName, query, response=response, caFile=self._caCert)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
+            self.assertEqual(response, receivedResponse)
+
+            (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
+            self.assertEqual(response, receivedResponse)
+
+    def testTimeoutThenAccept(self):
+        """
+        Async: Timeout then accept
+        """
+        for name in ['timeout-then-accept.async.tests.powerdns.com.', 'timeout-then-accept.tcp-only.async.tests.powerdns.com.']:
+            query = dns.message.make_query(name, 'A', 'IN')
+
+            response = dns.message.make_response(query)
+            rrset = dns.rrset.from_text(name,
+                                        60,
+                                        dns.rdataclass.IN,
+                                        dns.rdatatype.A,
+                                        '192.0.2.1')
+            response.answer.append(rrset)
+
+            for method in ("sendUDPQuery", "sendTCPQuery"):
+                sender = getattr(self, method)
+                (receivedQuery, receivedResponse) = sender(query, response)
+                receivedQuery.id = query.id
+                self.assertEqual(query, receivedQuery)
+                self.assertEqual(response, receivedResponse)
+
+            (receivedQuery, receivedResponse) = self.sendDOTQuery(self._tlsServerPort, self._serverName, query, response=response, caFile=self._caCert)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
+            self.assertEqual(response, receivedResponse)
+
+            (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
+            self.assertEqual(response, receivedResponse)
+
+    def testAcceptThenTimeout(self):
+        """
+        Async: Accept then timeout
+        """
+        for name in ['accept-then-timeout.async.tests.powerdns.com.', 'accept-then-timeout.tcp-only.async.tests.powerdns.com.']:
             query = dns.message.make_query(name, 'A', 'IN')
 
             response = dns.message.make_response(query)
@@ -372,3 +451,47 @@ class TestAsync(DNSDistTest):
 
         (_, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=None, caFile=self._caCert, useQueue=False)
         self.assertEqual(expectedResponse, receivedResponse)
+
+    def testTruncation(self):
+        """
+        Async: DoH query, timeout then truncated answer over UDP, then valid over TCP and accept
+        """
+        # the query is first forwarded over UDP, leading to a TC=1 answer from the
+        # backend, then over TCP
+        name = 'timeout-then-accept.async.tests.powerdns.com.'
+        query = dns.message.make_query(name, 'A', 'IN')
+        query.id = 42
+        expectedQuery = dns.message.make_query(name, 'A', 'IN', use_edns=True, payload=4096)
+        expectedQuery.id = 42
+        response = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    3600,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.A,
+                                    '127.0.0.1')
+        response.answer.append(rrset)
+
+        # first response is a TC=1
+        tcResponse = dns.message.make_response(query)
+        tcResponse.flags |= dns.flags.TC
+        self._toResponderQueue.put(tcResponse, True, 2.0)
+
+        (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, caFile=self._caCert, response=response)
+        # first query, received by the responder over UDP
+        self.assertTrue(receivedQuery)
+        receivedQuery.id = expectedQuery.id
+        self.assertEqual(expectedQuery, receivedQuery)
+        self.checkQueryEDNSWithoutECS(expectedQuery, receivedQuery)
+
+        # check the response
+        self.assertTrue(receivedResponse)
+        print(response)
+        print(receivedResponse)
+        self.assertEqual(response, receivedResponse)
+
+        # check the second query, received by the responder over TCP
+        receivedQuery = self._fromResponderQueue.get(True, 2.0)
+        self.assertTrue(receivedQuery)
+        receivedQuery.id = expectedQuery.id
+        self.assertEqual(expectedQuery, receivedQuery)
+        self.checkQueryEDNSWithoutECS(expectedQuery, receivedQuery)

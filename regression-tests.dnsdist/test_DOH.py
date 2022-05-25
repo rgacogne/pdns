@@ -889,7 +889,7 @@ class TestDOHWithCache(DNSDistDOHTest):
         self._toResponderQueue.put(tcResponse, True, 2.0)
 
         (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, caFile=self._caCert, response=response)
-        # first query, received by dnsdist over UDP
+        # first query, received by the responder over UDP
         self.assertTrue(receivedQuery)
         receivedQuery.id = expectedQuery.id
         self.assertEqual(expectedQuery, receivedQuery)
@@ -899,7 +899,7 @@ class TestDOHWithCache(DNSDistDOHTest):
         self.assertTrue(receivedResponse)
         self.assertEqual(response, receivedResponse)
 
-        # check the second query, received by dnsdist over TCP
+        # check the second query, received by the responder over TCP
         receivedQuery = self._fromResponderQueue.get(True, 2.0)
         self.assertTrue(receivedQuery)
         receivedQuery.id = expectedQuery.id
