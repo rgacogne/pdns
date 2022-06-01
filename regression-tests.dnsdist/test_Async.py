@@ -96,7 +96,7 @@ class TestAsync(DNSDistTest):
     _dohBaseURL = ("https://%s:%d/" % (_serverName, _dohServerPort))
 
     _config_template = """
-    newServer{address="127.0.0.1:%s"}
+    newServer{address="127.0.0.1:%s", pool={'', 'cache'}}
     newServer{address="127.0.0.1:%s", pool="tcp-only", tcpOnly=true }
 
     addTLSLocal("127.0.0.1:%s", "%s", "%s", { provider="openssl" })
@@ -108,6 +108,9 @@ class TestAsync(DNSDistTest):
     local filteringTagName = 'filtering'
     local filteringTagValue = 'pass'
     local asyncID = 0
+
+    pc = newPacketCache(100)
+    getPool('cache'):setCache(pc)
 
     function gotAsyncResponse(endpointID, message, from)
 
@@ -181,7 +184,9 @@ class TestAsync(DNSDistTest):
 
     -- this only matters for tests actually reaching the backend
     addAction('tcp-only.async.tests.powerdns.com', PoolAction('tcp-only', false))
+    addAction('cache.async.tests.powerdns.com', PoolAction('cache', false))
     addAction(AllRule(), LuaFFIAction(passQueryToAsyncFilter))
+    addCacheHitResponseAction(AllRule(), LuaFFIResponseAction(passResponseToAsyncFilter))
     addResponseAction(AllRule(), LuaFFIResponseAction(passResponseToAsyncFilter))
     """
     _asyncResponderSocketPath = asyncResponderSocketPath
@@ -220,6 +225,46 @@ class TestAsync(DNSDistTest):
             receivedQuery.id = query.id
             self.assertEqual(query, receivedQuery)
             self.assertEqual(response, receivedResponse)
+
+    def testPassCached(self):
+        """
+        Async: Accept (cached)
+        """
+        name = 'accept.cache.async.tests.powerdns.com.'
+        query = dns.message.make_query(name, 'A', 'IN')
+
+        response = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.A,
+                                    '192.0.2.1')
+        response.answer.append(rrset)
+
+        for method in ("sendUDPQuery", "sendTCPQuery"):
+            # first time to fill the cache
+            sender = getattr(self, method)
+            (receivedQuery, receivedResponse) = sender(query, response)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
+            self.assertEqual(response, receivedResponse)
+            # second time from the cache
+            sender = getattr(self, method)
+            (_, receivedResponse) = sender(query, response=None, useQueue=False)
+            self.assertEqual(response, receivedResponse)
+
+        (_, receivedResponse) = self.sendDOTQuery(self._tlsServerPort, self._serverName, query, response=None, useQueue=False, caFile=self._caCert)
+        self.assertEqual(response, receivedResponse)
+
+        (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert)
+        receivedQuery.id = query.id
+        self.assertEqual(query, receivedQuery)
+        self.assertEqual(response, receivedResponse)
+
+        (_, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=None, useQueue=False, caFile=self._caCert)
+        print(response)
+        print(receivedResponse)
+        self.assertEqual(response, receivedResponse)
 
     def testTimeoutThenAccept(self):
         """
@@ -464,7 +509,7 @@ class TestAsync(DNSDistTest):
         """
         # the query is first forwarded over UDP, leading to a TC=1 answer from the
         # backend, then over TCP
-        name = 'timeout-then-accept.async.tests.powerdns.com.'
+        name = 'timeout-then-accept.tc.async.tests.powerdns.com.'
         query = dns.message.make_query(name, 'A', 'IN')
         query.id = 42
         expectedQuery = dns.message.make_query(name, 'A', 'IN', use_edns=True, payload=4096)

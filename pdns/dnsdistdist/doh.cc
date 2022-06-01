@@ -522,9 +522,9 @@ protected:
 class DoHCrossProtocolQuery : public CrossProtocolQuery
 {
 public:
-  DoHCrossProtocolQuery(DOHUnitUniquePtr&& du)
+  DoHCrossProtocolQuery(DOHUnitUniquePtr&& du, bool isResponse)
   {
-    if (!du->response.empty()) {
+    if (isResponse) {
       /* happens when a response becomes async */
       query = InternalQuery(std::move(du->response), std::move(du->ids));
     }
@@ -576,20 +576,31 @@ public:
   }
 };
 
-std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq)
+std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq, bool isResponse)
 {
   if (!dq.ids.du) {
     throw std::runtime_error("Trying to create a DoH cross protocol query without a valid DoH unit");
   }
 
   auto du = std::move(dq.ids.du);
-  du->ids = std::move(dq.ids);
-  du->ids.origID = dq.getHeader()->id;
-  if (du->query.empty()) {
-    du->query = std::move(dq.getMutableData());
+  if (&dq.ids != &du->ids) {
+    du->ids = std::move(dq.ids);
   }
 
-  return std::make_unique<DoHCrossProtocolQuery>(std::move(du));
+  du->ids.origID = dq.getHeader()->id;
+
+  if (!isResponse) {
+    if (du->query.data() != dq.getMutableData().data()) {
+      du->query = std::move(dq.getMutableData());
+    }
+  }
+  else {
+    if (du->response.data() != dq.getMutableData().data()) {
+      du->response = std::move(dq.getMutableData());
+    }
+  }
+
+  return std::make_unique<DoHCrossProtocolQuery>(std::move(du), isResponse);
 }
 
 /*
@@ -707,7 +718,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
       du->tcp = true;
 
       /* this moves du->ids, careful! */
-      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du));
+      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du), false);
       cpq->query.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
 
       if (downstream->passCrossProtocolQuery(std::move(cpq))) {
@@ -1305,7 +1316,7 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
       du->truncated = false;
       du->response.clear();
 
-      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du));
+      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du), false);
 
       if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
         continue;

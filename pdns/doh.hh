@@ -275,7 +275,7 @@ void handleUDPResponseForDoH(std::unique_ptr<DOHUnit, void(*)(DOHUnit*)>&&, Pack
 struct CrossProtocolQuery;
 struct DNSQuestion;
 
-std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq);
+std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq, bool isResponse);
 
 #endif /* HAVE_DNS_OVER_HTTPS  */
 

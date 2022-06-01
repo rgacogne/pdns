@@ -307,7 +307,7 @@ bool suspendQuery(DNSQuestion& dq, uint16_t asyncID, uint16_t queryID, uint32_t 
   }
 
   vinfolog("Suspending asynchronous query %d at %d.%d until %d.%d", queryID, now.tv_sec, now.tv_usec, ttd.tv_sec, ttd.tv_usec);
-  auto query = getInternalQueryFromDQ(dq);
+  auto query = getInternalQueryFromDQ(dq, false);
 
   g_asyncHolder->push(asyncID, queryID, ttd, std::move(query));
   return true;
@@ -330,7 +330,7 @@ bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32
   }
 
   vinfolog("Suspending asynchronous response %d at %d.%d until %d.%d", queryID, now.tv_sec, now.tv_usec, ttd.tv_sec, ttd.tv_usec);
-  auto query = getInternalQueryFromDQ(dr);
+  auto query = getInternalQueryFromDQ(dr, true);
   query->isResponse = true;
   query->downstream = dr.d_downstream;
 
