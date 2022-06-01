@@ -111,7 +111,7 @@ unsigned int RecThreadInfo::s_numDistributorThreads;
 unsigned int RecThreadInfo::s_numWorkerThreads;
 thread_local unsigned int RecThreadInfo::t_id;
 
-static std::map<unsigned int, std::set<int>> parseCPUMap(std::shared_ptr<Logr::Logger>& log)
+static std::map<unsigned int, std::set<int>> parseCPUMap(Logr::log_t log)
 {
   std::map<unsigned int, std::set<int>> result;
 
@@ -156,7 +156,7 @@ static std::map<unsigned int, std::set<int>> parseCPUMap(std::shared_ptr<Logr::L
   return result;
 }
 
-static void setCPUMap(const std::map<unsigned int, std::set<int>>& cpusMap, unsigned int n, pthread_t tid, std::shared_ptr<Logr::Logger>& log)
+static void setCPUMap(const std::map<unsigned int, std::set<int>>& cpusMap, unsigned int n, pthread_t tid, Logr::log_t log)
 {
   const auto& cpuMapping = cpusMap.find(n);
   if (cpuMapping == cpusMap.cend()) {
@@ -191,7 +191,7 @@ static void setCPUMap(const std::map<unsigned int, std::set<int>>& cpusMap, unsi
 
 static void recursorThread();
 
-void RecThreadInfo::start(unsigned int id, const string& tname, const std::map<unsigned int, std::set<int>>& cpusMap, std::shared_ptr<Logr::Logger>& log)
+void RecThreadInfo::start(unsigned int id, const string& tname, const std::map<unsigned int, std::set<int>>& cpusMap, Logr::log_t log)
 {
   name = tname;
   thread = std::thread([id, tname] {
@@ -203,7 +203,7 @@ void RecThreadInfo::start(unsigned int id, const string& tname, const std::map<u
   setCPUMap(cpusMap, id, thread.native_handle(), log);
 }
 
-int RecThreadInfo::runThreads(std::shared_ptr<Logr::Logger>& log)
+int RecThreadInfo::runThreads(Logr::log_t log)
 {
   int ret = EXIT_SUCCESS;
   unsigned int currentThreadId = 1;
@@ -291,7 +291,7 @@ int RecThreadInfo::runThreads(std::shared_ptr<Logr::Logger>& log)
   return ret;
 }
 
-void RecThreadInfo::makeThreadPipes(std::shared_ptr<Logr::Logger>& log)
+void RecThreadInfo::makeThreadPipes(Logr::log_t log)
 {
   auto pipeBufferSize = ::arg().asNum("distribution-pipe-buffer-size");
   if (pipeBufferSize > 0) {
@@ -352,7 +352,7 @@ ArgvMap& arg()
   return theArg;
 }
 
-static FDMultiplexer* getMultiplexer(std::shared_ptr<Logr::Logger>& log)
+static FDMultiplexer* getMultiplexer(Logr::log_t log)
 {
   FDMultiplexer* ret;
   for (const auto& i : FDMultiplexer::getMultiplexerMap()) {
@@ -670,7 +670,7 @@ static void makeControlChannelSocket(int processNum = -1)
   }
 }
 
-static void writePid(std::shared_ptr<Logr::Logger>& log)
+static void writePid(Logr::log_t log)
 {
   if (!::arg().mustDo("write-pid"))
     return;
@@ -684,7 +684,7 @@ static void writePid(std::shared_ptr<Logr::Logger>& log)
   }
 }
 
-static void checkSocketDir(std::shared_ptr<Logr::Logger>& log)
+static void checkSocketDir(Logr::log_t log)
 {
   struct stat st;
   string dir(::arg()["socket-dir"]);
@@ -708,7 +708,7 @@ static void checkSocketDir(std::shared_ptr<Logr::Logger>& log)
 }
 
 #ifdef NOD_ENABLED
-static void setupNODThread(std::shared_ptr<Logr::Logger>& log)
+static void setupNODThread(Logr::log_t log)
 {
   if (g_nodEnabled) {
     uint32_t num_cells = ::arg().asNum("new-domain-db-size");
@@ -776,7 +776,7 @@ static void setupNODGlobal()
 }
 #endif /* NOD_ENABLED */
 
-static void daemonize(std::shared_ptr<Logr::Logger>& log)
+static void daemonize(Logr::log_t log)
 {
   if (fork())
     exit(0); // bye bye
@@ -814,7 +814,7 @@ static void usr2Handler(int)
   ::arg().set("quiet") = g_quiet ? "" : "no";
 }
 
-static void checkLinuxIPv6Limits(std::shared_ptr<Logr::Logger>& log)
+static void checkLinuxIPv6Limits(Logr::log_t log)
 {
 #ifdef __linux__
   string line;
@@ -828,7 +828,7 @@ static void checkLinuxIPv6Limits(std::shared_ptr<Logr::Logger>& log)
 #endif
 }
 
-static void checkOrFixFDS(std::shared_ptr<Logr::Logger>& log)
+static void checkOrFixFDS(Logr::log_t log)
 {
   unsigned int availFDs = getFilenumLimit();
   unsigned int wantFDs = g_maxMThreads * RecThreadInfo::numWorkers() + 25; // even healthier margin then before
@@ -921,50 +921,90 @@ static void doStats(void)
   auto taskPushes = getTaskPushes();
   auto taskExpired = getTaskExpired();
   auto taskSize = getTaskSize();
+  uint64_t pcSize = broadcastAccFunction<uint64_t>(pleaseGetPacketCacheSize);
+  uint64_t pcHits = broadcastAccFunction<uint64_t>(pleaseGetPacketCacheHits);
+
+  auto log = g_slog->withName("stats");
 
   if (g_stats.qcounter && (cacheHits + cacheMisses) && SyncRes::s_queries && SyncRes::s_outqueries) {
-    g_log << Logger::Notice << "stats: " << g_stats.qcounter << " questions, " << cacheSize << " cache entries, " << negCacheSize << " negative entries, " << ratePercentage(cacheHits, cacheHits + cacheMisses) << "% cache hits" << endl;
-    g_log << Logger::Notice << "stats: cache contended/acquired " << rc_stats.first << '/' << rc_stats.second << " = " << r << '%' << endl;
+    if (!g_slogStructured) {
+      g_log << Logger::Notice << "stats: " << g_stats.qcounter << " questions, " << cacheSize << " cache entries, " << negCacheSize << " negative entries, " << ratePercentage(cacheHits, cacheHits + cacheMisses) << "% cache hits" << endl;
+      g_log << Logger::Notice << "stats: cache contended/acquired " << rc_stats.first << '/' << rc_stats.second << " = " << r << '%' << endl;
 
-    g_log << Logger::Notice << "stats: throttle map: "
-          << SyncRes::getThrottledServersSize() << ", ns speeds: "
-          << SyncRes::getNSSpeedsSize() << ", failed ns: "
-          << SyncRes::getFailedServersSize() << ", ednsmap: "
-          << broadcastAccFunction<uint64_t>(pleaseGetEDNSStatusesSize) << ", non-resolving: "
-          << SyncRes::getNonResolvingNSSize() << ", saved-parentsets: "
-          << SyncRes::getSaveParentsNSSetsSize()
-          << endl;
-    g_log << Logger::Notice << "stats: outpacket/query ratio " << ratePercentage(SyncRes::s_outqueries, SyncRes::s_queries) << "%";
-    g_log << Logger::Notice << ", " << ratePercentage(SyncRes::s_throttledqueries, SyncRes::s_outqueries + SyncRes::s_throttledqueries) << "% throttled" << endl;
-    g_log << Logger::Notice << "stats: " << SyncRes::s_tcpoutqueries << "/" << SyncRes::s_dotoutqueries << "/" << getCurrentIdleTCPConnections() << " outgoing tcp/dot/idle connections, " << broadcastAccFunction<uint64_t>(pleaseGetConcurrentQueries) << " queries running, " << SyncRes::s_outgoingtimeouts << " outgoing timeouts " << endl;
+      g_log << Logger::Notice << "stats: throttle map: "
+            << SyncRes::getThrottledServersSize() << ", ns speeds: "
+            << SyncRes::getNSSpeedsSize() << ", failed ns: "
+            << SyncRes::getFailedServersSize() << ", ednsmap: "
+            << broadcastAccFunction<uint64_t>(pleaseGetEDNSStatusesSize) << ", non-resolving: "
+            << SyncRes::getNonResolvingNSSize() << ", saved-parentsets: "
+            << SyncRes::getSaveParentsNSSetsSize()
+            << endl;
+      g_log << Logger::Notice << "stats: outpacket/query ratio " << ratePercentage(SyncRes::s_outqueries, SyncRes::s_queries) << "%";
+      g_log << Logger::Notice << ", " << ratePercentage(SyncRes::s_throttledqueries, SyncRes::s_outqueries + SyncRes::s_throttledqueries) << "% throttled" << endl;
+      g_log << Logger::Notice << "stats: " << SyncRes::s_tcpoutqueries << "/" << SyncRes::s_dotoutqueries << "/" << getCurrentIdleTCPConnections() << " outgoing tcp/dot/idle connections, " << broadcastAccFunction<uint64_t>(pleaseGetConcurrentQueries) << " queries running, " << SyncRes::s_outgoingtimeouts << " outgoing timeouts " << endl;
 
-    uint64_t pcSize = broadcastAccFunction<uint64_t>(pleaseGetPacketCacheSize);
-    uint64_t pcHits = broadcastAccFunction<uint64_t>(pleaseGetPacketCacheHits);
-    g_log << Logger::Notice << "stats: " << pcSize << " packet cache entries, " << ratePercentage(pcHits, g_stats.qcounter) << "% packet cache hits" << endl;
+      g_log << Logger::Notice << "stats: " << pcSize << " packet cache entries, " << ratePercentage(pcHits, g_stats.qcounter) << "% packet cache hits" << endl;
 
+      g_log << Logger::Notice << "stats: tasks pushed/expired/queuesize: " << taskPushes << '/' << taskExpired << '/' << taskSize << endl;
+    }
+    else {
+      const string m = "Periodic statistics report";
+      log->info(Logr::Info, m,
+                "questions", Logging::Loggable(g_stats.qcounter),
+                "cache-entries", Logging::Loggable(cacheSize),
+                "negcache-entries", Logging::Loggable(negCacheSize),
+                "record-cache-hitratio-perc", Logging::Loggable(ratePercentage(cacheHits, cacheHits + cacheMisses)),
+                "record-cache-contended", Logging::Loggable(rc_stats.first),
+                "record-cache-acquired", Logging::Loggable(rc_stats.second),
+                "record-cache-contended-perc", Logging::Loggable(r));
+      log->info(Logr::Info, m,
+                "trottle-entries", Logging::Loggable(SyncRes::getThrottledServersSize()),
+                "nsspeed-entries", Logging::Loggable(SyncRes::getNSSpeedsSize()),
+                "failed-host-entries", Logging::Loggable(SyncRes::getFailedServersSize()),
+                "edns-entries", Logging::Loggable(broadcastAccFunction<uint64_t>(pleaseGetEDNSStatusesSize)),
+                "non-resolving-nameserver-entries", Logging::Loggable(SyncRes::getNonResolvingNSSize()),
+                "saved-parent-ns-sets-entries", Logging::Loggable(SyncRes::getSaveParentsNSSetsSize()),
+                "outqueries-per-qeuery", Logging::Loggable(ratePercentage(SyncRes::s_outqueries, SyncRes::s_queries)));
+      log->info(Logr::Info, m,
+                "throttled-queries-perc", Logging::Loggable(ratePercentage(SyncRes::s_throttledqueries, SyncRes::s_outqueries + SyncRes::s_throttledqueries)),
+                "tcp-outqueries", Logging::Loggable(SyncRes::s_tcpoutqueries),
+                "dot-outqueries", Logging::Loggable(SyncRes::s_dotoutqueries),
+                "idle-tcpout-connections", Logging::Loggable(getCurrentIdleTCPConnections()),
+                "concurrent-queries", Logging::Loggable(broadcastAccFunction<uint64_t>(pleaseGetConcurrentQueries)),
+                "outgoing-timesouts", Logging::Loggable(SyncRes::s_outgoingtimeouts));
+      log->info(Logr::Info, m,
+                "packetcache-entries", Logging::Loggable(pcSize),
+                "packetcache-hitratio-perc", Logging::Loggable(ratePercentage(pcHits, g_stats.qcounter)),
+                "taskqueue-pushed", Logging::Loggable(taskPushes),
+                "taskqueue-expired", Logging::Loggable(taskExpired),
+                "taskqueue-size", Logging::Loggable(taskSize));
+    }
     size_t idx = 0;
     for (const auto& threadInfo : RecThreadInfo::infos()) {
       if (threadInfo.isWorker()) {
-        g_log << Logger::Notice << "stats: thread " << idx << " has been distributed " << threadInfo.numberOfDistributedQueries << " queries" << endl;
+        SLOG(g_log << Logger::Notice << "stats: thread " << idx << " has been distributed " << threadInfo.numberOfDistributedQueries << " queries" << endl,
+             log->info(Logr::Info, "Queries handled by thread", "thread", Logging::Loggable(idx), "count", Logging::Loggable(threadInfo.numberOfDistributedQueries)));
         ++idx;
       }
     }
-
-    g_log << Logger::Notice << "stats: tasks pushed/expired/queuesize: " << taskPushes << '/' << taskExpired << '/' << taskSize << endl;
     time_t now = time(0);
     if (lastOutputTime && lastQueryCount && now != lastOutputTime) {
-      g_log << Logger::Notice << "stats: " << (g_stats.qcounter - lastQueryCount) / (now - lastOutputTime) << " qps (average over " << (now - lastOutputTime) << " seconds)" << endl;
+      SLOG(g_log << Logger::Notice << "stats: " << (g_stats.qcounter - lastQueryCount) / (now - lastOutputTime) << " qps (average over " << (now - lastOutputTime) << " seconds)" << endl,
+           log->info(Logr::Info, "Periodic QPS report", "qps", Logging::Loggable((g_stats.qcounter - lastQueryCount) / (now - lastOutputTime)),
+                     "averagedOver", Logging::Loggable(now - lastOutputTime)));
     }
     lastOutputTime = now;
     lastQueryCount = g_stats.qcounter;
   }
-  else if (statsWanted)
-    g_log << Logger::Notice << "stats: no stats yet!" << endl;
+  else if (statsWanted) {
+    SLOG(g_log << Logger::Notice << "stats: no stats yet!" << endl,
+         log->info(Logr::Notice, "No stats yet"));
+  }
 
   statsWanted = false;
 }
 
-static std::shared_ptr<NetmaskGroup> parseACL(const std::string& aclFile, const std::string& aclSetting, std::shared_ptr<Logr::Logger>& log)
+static std::shared_ptr<NetmaskGroup> parseACL(const std::string& aclFile, const std::string& aclSetting, Logr::log_t log)
 {
   auto result = std::make_shared<NetmaskGroup>();
 
@@ -1212,7 +1252,7 @@ template vector<ComboAddress> broadcastAccFunction(const std::function<vector<Co
 template vector<pair<DNSName, uint16_t>> broadcastAccFunction(const std::function<vector<pair<DNSName, uint16_t>>*()>& fun); // explicit instantiation
 template ThreadTimes broadcastAccFunction(const std::function<ThreadTimes*()>& fun);
 
-static int serviceMain(int argc, char* argv[], std::shared_ptr<Logr::Logger>& log)
+static int serviceMain(int argc, char* argv[], Logr::log_t log)
 {
   g_log.setName(g_programname);
   g_log.disableSyslog(::arg().mustDo("disable-syslog"));
@@ -1949,6 +1989,7 @@ private:
 
 static void houseKeeping(void*)
 {
+  auto log = g_slog->withName("housekeeping");
   static thread_local bool t_running; // houseKeeping can get suspended in secpoll, and be restarted, which makes us do duplicate work
 
   try {
@@ -2051,8 +2092,8 @@ static void houseKeeping(void*)
       // By default, refresh at 80% of max-cache-ttl with a minimum period of 10s
       const unsigned int minRootRefreshInterval = 10;
       static PeriodicTask rootUpdateTask{"rootUpdateTask", std::max(SyncRes::s_maxcachettl * 8 / 10, minRootRefreshInterval)};
-      rootUpdateTask.runIfDue(now, [=]() {
-        int res = SyncRes::getRootNS(now, nullptr, 0);
+      rootUpdateTask.runIfDue(now, [now, &log, minRootRefreshInterval]() {
+        int res = SyncRes::getRootNS(now, nullptr, 0, log);
         if (res == 0) {
           // Success, go back to the defaut period
           rootUpdateTask.setPeriod(std::max(SyncRes::s_maxcachettl * 8 / 10, minRootRefreshInterval));
@@ -2060,19 +2101,24 @@ static void houseKeeping(void*)
             primeRootNSZones(g_dnssecmode, 0);
           }
           catch (const std::exception& e) {
-            g_log << Logger::Error << "Exception while priming the root NS zones: " << e.what() << endl;
+            SLOG(g_log << Logger::Error << "Exception while priming the root NS zones: " << e.what() << endl,
+                 log->error(Logr::Error, e.what(), "Exception while priming the root NS zones"));
           }
           catch (const PDNSException& e) {
-            g_log << Logger::Error << "Exception while priming the root NS zones: " << e.reason << endl;
+            SLOG(g_log << Logger::Error << "Exception while priming the root NS zones: " << e.reason << endl,
+                 log->error(Logr::Error, e.reason, "Exception while priming the root NS zones"));
           }
           catch (const ImmediateServFailException& e) {
-            g_log << Logger::Error << "Exception while priming the root NS zones: " << e.reason << endl;
+            SLOG(g_log << Logger::Error << "Exception while priming the root NS zones: " << e.reason << endl,
+                 log->error(Logr::Error, e.reason, "Exception while priming the root NS zones"));
           }
           catch (const PolicyHitException& e) {
-            g_log << Logger::Error << "Policy hit while priming the root NS zones" << endl;
+            SLOG(g_log << Logger::Error << "Policy hit while priming the root NS zones" << endl,
+                 log->info(Logr::Error, "Policy hit while priming the root NS zones"));
           }
           catch (...) {
-            g_log << Logger::Error << "Exception while priming the root NS zones" << endl;
+            SLOG(g_log << Logger::Error << "Exception while priming the root NS zones" << endl,
+                 log->info(Logr::Error, "Exception while priming the root NS zones"));
           }
         }
         else {
@@ -2085,24 +2131,29 @@ static void houseKeeping(void*)
 
       static PeriodicTask secpollTask{"secpollTask", 3600};
       static time_t t_last_secpoll;
-      secpollTask.runIfDue(now, []() {
+      secpollTask.runIfDue(now, [&log]() {
         try {
-          doSecPoll(&t_last_secpoll);
+          doSecPoll(&t_last_secpoll, log);
         }
         catch (const std::exception& e) {
-          g_log << Logger::Error << "Exception while performing security poll: " << e.what() << endl;
+          SLOG(g_log << Logger::Error << "Exception while performing security poll: " << e.what() << endl,
+               log->error(Logr::Error, e.what(), "Exception while performing security poll"));
         }
         catch (const PDNSException& e) {
-          g_log << Logger::Error << "Exception while performing security poll: " << e.reason << endl;
+          SLOG(g_log << Logger::Error << "Exception while performing security poll: " << e.reason << endl,
+               log->error(Logr::Error, e.reason, "Exception while performing security poll"));
         }
         catch (const ImmediateServFailException& e) {
-          g_log << Logger::Error << "Exception while performing security poll: " << e.reason << endl;
+          SLOG(g_log << Logger::Error << "Exception while performing security poll: " << e.reason << endl,
+               log->error(Logr::Error, e.reason, "Exception while performing security poll"));
         }
         catch (const PolicyHitException& e) {
-          g_log << Logger::Error << "Policy hit while performing security poll" << endl;
+          SLOG(g_log << Logger::Error << "Policy hit while performing security poll" << endl,
+               log->info(Logr::Error, "Policy hit while performing security poll"));
         }
         catch (...) {
-          g_log << Logger::Error << "Exception while performing security poll" << endl;
+          SLOG(g_log << Logger::Error << "Exception while performing security poll" << endl,
+               log->info(Logr::Error, "Exception while performing security poll"));
         }
       });
 
@@ -2114,19 +2165,21 @@ static void houseKeeping(void*)
       }
       // interval might have ben updated
       trustAnchorTask.setPeriod(std::max(1U, luaconfsLocal->trustAnchorFileInfo.interval) * 3600);
-      trustAnchorTask.runIfDue(now, [&luaconfsLocal]() {
+      trustAnchorTask.runIfDue(now, [&luaconfsLocal, &log]() {
         if (!luaconfsLocal->trustAnchorFileInfo.fname.empty() && luaconfsLocal->trustAnchorFileInfo.interval != 0) {
-          g_log << Logger::Debug << "Refreshing Trust Anchors from file" << endl;
+          SLOG(g_log << Logger::Debug << "Refreshing Trust Anchors from file" << endl,
+               log->info(Logr::Debug, "Refreshing Trust Anchors from file"));
           try {
             map<DNSName, dsmap_t> dsAnchors;
-            if (updateTrustAnchorsFromFile(luaconfsLocal->trustAnchorFileInfo.fname, dsAnchors)) {
+            if (updateTrustAnchorsFromFile(luaconfsLocal->trustAnchorFileInfo.fname, dsAnchors, log)) {
               g_luaconfs.modify([&dsAnchors](LuaConfigItems& lci) {
                 lci.dsAnchors = dsAnchors;
               });
             }
           }
           catch (const PDNSException& pe) {
-            g_log << Logger::Error << "Unable to update Trust Anchors: " << pe.reason << endl;
+            SLOG(g_log << Logger::Error << "Unable to update Trust Anchors: " << pe.reason << endl,
+                 log->error(Logr::Error, pe.reason, "Unable to update Trust Anchors"));
           }
         }
       });
@@ -2135,12 +2188,14 @@ static void houseKeeping(void*)
   }
   catch (const PDNSException& ae) {
     t_running = false;
-    g_log << Logger::Error << "Fatal error in housekeeping thread: " << ae.reason << endl;
+    SLOG(g_log << Logger::Error << "Fatal error in housekeeping thread: " << ae.reason << endl,
+         log->error(Logr::Error, ae.reason, "Fatal error in housekeeping thread"));
     throw;
   }
   catch (...) {
     t_running = false;
-    g_log << Logger::Error << "Uncaught exception in housekeeping thread" << endl;
+    SLOG(g_log << Logger::Error << "Uncaught exception in housekeeping thread" << endl,
+         log->info(Logr::Error, "Uncaught exception in housekeeping thread"));
     throw;
   }
 }
@@ -2164,9 +2219,11 @@ static void recursorThread()
         if (!primeHints()) {
           threadInfo.setExitCode(EXIT_FAILURE);
           RecursorControlChannel::stop = 1;
-          g_log << Logger::Critical << "Priming cache failed, stopping" << endl;
+          SLOG(g_log << Logger::Critical << "Priming cache failed, stopping" << endl,
+               log->info(Logr::Critical, "Priming cache failed, stopping"));
         }
-        g_log << Logger::Debug << "Done priming cache with root hints" << endl;
+        SLOG(g_log << Logger::Debug << "Done priming cache with root hints" << endl,
+             log->info(Logr::Debug, "Done priming cache with root hints"));
       }
     }
 
@@ -2186,11 +2243,13 @@ static void recursorThread()
         if (!::arg()["lua-dns-script"].empty()) {
           t_pdl = std::make_shared<RecursorLua4>();
           t_pdl->loadFile(::arg()["lua-dns-script"]);
-          g_log << Logger::Warning << "Loaded 'lua' script from '" << ::arg()["lua-dns-script"] << "'" << endl;
+          SLOG(g_log << Logger::Warning << "Loaded 'lua' script from '" << ::arg()["lua-dns-script"] << "'" << endl,
+               log->info(Logr::Warning, "Loading Lua script from file", "name", Logging::Loggable(::arg()["lua-dns-script"])));
         }
       }
       catch (std::exception& e) {
-        g_log << Logger::Error << "Failed to load 'lua' script from '" << ::arg()["lua-dns-script"] << "': " << e.what() << endl;
+        SLOG(g_log << Logger::Error << "Failed to load 'lua' script from '" << ::arg()["lua-dns-script"] << "': " << e.what() << endl,
+             log->error(Logr::Error, e.what(), "Failed to load Lua script from file", "name", Logging::Loggable(::arg()["lua-dns-script"])));
         _exit(99);
       }
     }
@@ -2299,7 +2358,7 @@ static void recursorThread()
       // Use primes, it avoid not being scheduled in cases where the counter has a regular pattern.
       // We want to call handler thread often, it gets scheduled about 2 times per second
       if (((threadInfo.isHandler() || threadInfo.isTaskThread()) && s_counter % 11 == 0) || s_counter % 499 == 0) {
-        MT->makeThread(houseKeeping, 0);
+        MT->makeThread(houseKeeping, nullptr);
       }
 
       if (!(s_counter % 55)) {
