@@ -223,7 +223,7 @@ void handleQueuedAsynchronousEvents()
 
 bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
 {
-  if (query->isResponse) {
+  if (query->d_isResponse) {
     return resumeResponse(std::move(query));
   }
 
@@ -331,7 +331,7 @@ bool suspendResponse(DNSResponse& dr, uint16_t asyncID, uint16_t queryID, uint32
 
   vinfolog("Suspending asynchronous response %d at %d.%d until %d.%d", queryID, now.tv_sec, now.tv_usec, ttd.tv_sec, ttd.tv_usec);
   auto query = getInternalQueryFromDQ(dr, true);
-  query->isResponse = true;
+  query->d_isResponse = true;
   query->downstream = dr.d_downstream;
 
   g_asyncHolder->push(asyncID, queryID, ttd, std::move(query));

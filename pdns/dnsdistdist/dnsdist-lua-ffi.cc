@@ -814,7 +814,7 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
     ids.qname = parsed;
 
     PacketBuffer initialPacket;
-    if (query->isResponse) {
+    if (query->d_isResponse) {
       if (!ids.d_packet) {
         return false;
       }
@@ -828,8 +828,8 @@ bool dnsdist_ffi_resume_from_async_with_alternate_name(uint16_t asyncID, uint16_
     if (!dnsdist::rebaseDNSPacket(initialPacket, originalName, parsed)) {
       return false;
     }
-    if (query->isResponse) {
-      query->isResponse = false;
+    if (query->d_isResponse) {
+      query->d_isResponse = false;
     }
     query->query.d_buffer = std::move(initialPacket);
   }

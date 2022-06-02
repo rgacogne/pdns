@@ -189,8 +189,7 @@ struct CrossProtocolQuery
   InternalQuery query;
   std::shared_ptr<DownstreamState> downstream{nullptr};
   size_t proxyProtocolPayloadSize{0};
-  bool isXFR{false};
-  bool isResponse{false};
+  bool d_isResponse{false};
 };
 
 class TCPClientCollection
