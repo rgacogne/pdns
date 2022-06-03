@@ -27,7 +27,7 @@ std::unique_ptr<CrossProtocolQuery> getUDPCrossProtocolQueryFromDQ(DNSQuestion& 
 
 namespace dnsdist
 {
-std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq)
+std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq, bool isResponse)
 {
   auto protocol = dq.getProtocol();
   if (protocol == dnsdist::Protocol::DoUDP || protocol == dnsdist::Protocol::DNSCryptUDP) {
@@ -35,11 +35,7 @@ std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq)
   }
 #ifdef HAVE_DNS_OVER_HTTPS
   else if (protocol == dnsdist::Protocol::DoH) {
-    if (dq.ids.du == nullptr) {
-      throw std::runtime_error("Trying to get a DoH cross-protocol query from a question without DoH unit");
-    }
-
-    return getDoHCrossProtocolQueryFromDQ(dq);
+    return getDoHCrossProtocolQueryFromDQ(dq, isResponse);
   }
 #endif
   else {

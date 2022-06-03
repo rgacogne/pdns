@@ -476,7 +476,7 @@ public:
       du = std::move(dr.ids.du);
     }
 
-    if (!response.d_selfGenerated) {
+    if (!du->ids.selfGenerated) {
       double udiff = du->ids.queryRealTime.udiff();
       vinfolog("Got answer from %s, relayed to %s (https), took %f usec", du->downstream->d_config.remote.toStringWithPort(), du->ids.origRemote.toStringWithPort(), udiff);
 
@@ -522,14 +522,16 @@ protected:
 class DoHCrossProtocolQuery : public CrossProtocolQuery
 {
 public:
-  DoHCrossProtocolQuery(DOHUnitUniquePtr&& du)
+  DoHCrossProtocolQuery(DOHUnitUniquePtr&& du, bool isResponse)
   {
-    if (!du->response.empty()) {
+    if (isResponse) {
       /* happens when a response becomes async */
       query = InternalQuery(std::move(du->response), std::move(du->ids));
     }
     else {
-      query = InternalQuery(std::move(du->query), std::move(du->ids));
+      /* we need to duplicate the query here because we might need
+         the existing query later if we get a truncated answer */
+      query = InternalQuery(PacketBuffer(du->query), std::move(du->ids));
     }
 
     /* it might have been moved when we moved du->ids */
@@ -558,19 +560,47 @@ public:
     auto sender = std::make_shared<DoHTCPCrossQuerySender>(*query.d_idstate.cs);
     return sender;
   }
+
+  DNSQuestion getDQ() override
+  {
+    auto& ids = query.d_idstate;
+    DNSQuestion dq(ids, query.d_buffer);
+    return dq;
+  }
+
+  DNSResponse getDR() override
+  {
+    auto& ids = query.d_idstate;
+    DNSResponse dr(ids, query.d_buffer, downstream);
+    return dr;
+  }
 };
 
-std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq)
+std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq, bool isResponse)
 {
   if (!dq.ids.du) {
     throw std::runtime_error("Trying to create a DoH cross protocol query without a valid DoH unit");
   }
 
   auto du = std::move(dq.ids.du);
-  du->ids = std::move(dq.ids);
+  if (&dq.ids != &du->ids) {
+    du->ids = std::move(dq.ids);
+  }
+
   du->ids.origID = dq.getHeader()->id;
 
-  return std::make_unique<DoHCrossProtocolQuery>(std::move(du));
+  if (!isResponse) {
+    if (du->query.data() != dq.getMutableData().data()) {
+      du->query = std::move(dq.getMutableData());
+    }
+  }
+  else {
+    if (du->response.data() != dq.getMutableData().data()) {
+      du->response = std::move(dq.getMutableData());
+    }
+  }
+
+  return std::make_unique<DoHCrossProtocolQuery>(std::move(du), isResponse);
 }
 
 /*
@@ -651,7 +681,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
       return;
     }
 
-    if (dq.isAsynchronous()) {
+    if (result == ProcessQueryResult::Asynchronous) {
       return;
     }
 
@@ -688,7 +718,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
       du->tcp = true;
 
       /* this moves du->ids, careful! */
-      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du));
+      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du), false);
       cpq->query.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
 
       if (downstream->passCrossProtocolQuery(std::move(cpq))) {
@@ -701,7 +731,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
     }
 
     ComboAddress dest = dq.ids.origDest;
-    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, std::move(du->query), dest)) {
+    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, du->query, dest)) {
       sendDoHUnitToTheMainThread(std::move(du), "DoH internal error");
       return;
     }
@@ -1286,7 +1316,7 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
       du->truncated = false;
       du->response.clear();
 
-      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du));
+      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du), false);
 
       if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
         continue;
