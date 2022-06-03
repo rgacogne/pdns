@@ -2324,13 +2324,23 @@ static void cleanupLuaObjects()
   clearWebHandlers();
 }
 
-static void sighandler(int sig)
+static void sigTermHandler(int)
 {
   cleanupLuaObjects();
   __gcov_dump();
   _exit(EXIT_SUCCESS);
 }
-#endif
+#else /* COVERAGE */
+static void sigTermHandler(int)
+{
+  if (g_syslog) {
+    syslog(LOG_INFO, "Exiting on user request");
+  }
+  std::cout<<"Exiting on user request"<<std::endl;
+
+  _exit(EXIT_SUCCESS);
+}
+#endif /* COVERAGE */
 
 int main(int argc, char** argv)
 {
@@ -2346,9 +2356,7 @@ int main(int argc, char** argv)
 
     signal(SIGPIPE, SIG_IGN);
     signal(SIGCHLD, SIG_IGN);
-#ifdef COVERAGE
-    signal(SIGTERM, sighandler);
-#endif
+    signal(SIGTERM, sigTermHandler);
 
     openlog("dnsdist", LOG_PID|LOG_NDELAY, LOG_DAEMON);
 
