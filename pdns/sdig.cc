@@ -502,6 +502,7 @@ try {
   }
 
   std::atomic<uint64_t> failures{0};
+  std::atomic<uint64_t> threadsRunning{0};
   auto clientFunc = [&]() {
     /* time to prepare, send, receive and process */
     DTime dt;
@@ -569,10 +570,9 @@ try {
           setTCPNoDelay(sock.getHandle()); // disable NAGLE, which does not play nicely with delayed ACKs
           TCPIOHandler handler(subjectName, false, sock.releaseHandle(), timeout, tlsCtx, time(nullptr));
           handler.connect(fastOpen, dest, timeout);
-          connected = true;
           // we are writing the proxyheader inside the TLS connection. Is that right?
           if (proxyheader.size() > 0 && handler.write(proxyheader.data(), proxyheader.size(), timeout) != proxyheader.size()) {
-            throw PDNSException("tcp write failed");
+            throw std::runtime_error("tcp write failed");
           }
 
           vector<uint8_t> packet;
@@ -594,19 +594,22 @@ try {
             question.append(packet.begin(), packet.end());
             latencyTimer.set();
             if (handler.write(question.data(), question.size(), timeout) != question.size()) {
-              throw PDNSException("tcp write failed");
+              throw std::runtime_error("tcp write failed");
             }
 
             if (handler.read((char *)&len, sizeof(len), timeout) != sizeof(len)) {
-              throw PDNSException("tcp read failed");
+              throw std::runtime_error("tcp read failed");
             }
             len = ntohs(len);
             reply.resize(len);
             if (handler.read(&reply[0], len, timeout) != len) {
-              throw PDNSException("tcp read failed");
+              throw std::runtime_error("tcp read failed");
             }
             auto latency = latencyTimer.udiffNoReset();
             handleLatency(latency);
+
+            // only mark as connected after receiving one valid response
+            connected = true;
 
             if (*verbose) {
               printReply(reply, showflags, hidesoadetails, dumpluaraw);
@@ -621,6 +624,7 @@ try {
           if (!connected) {
             cerr<<e.what()<<endl;
             done = true;
+            threadsRunning--;
             ++s_queryIdx;
           }
         }
@@ -699,6 +703,7 @@ try {
     executionTimer.set();
     for (size_t idx = 0; idx < clients; idx++) {
       threads.push_back(std::thread(clientFunc));
+      threadsRunning++;
     }
     for (auto& thr : threads) {
       thr.join();
@@ -707,6 +712,7 @@ try {
     totalExecutionTime = executionTimer.udiffNoReset();
   }
   else {
+    threadsRunning = 1;
     executionTimer.set();
     clientFunc();
     totalExecutionTime = executionTimer.udiffNoReset();
@@ -716,14 +722,16 @@ try {
   if (runTime > 0) {
     auto latencies = *s_latencies.lock();
     auto numberOfQueriesSent = s_queryIdx.load();
+    auto numberOfQueriesToSend = questions.size();
     auto numberOfResponses = latencies.size();
 
     cout<<"========================="<<endl;
     cout<<"=        SUMMARY        ="<<endl;
     cout<<"========================="<<endl;
-    cout<<"Sent "<<numberOfQueriesSent<<" queries over "<<clients<<" connections, during "<<runTime<<" seconds at "<<qps<<" queries per second, using a "<<chr<<" cache hit ratio target"<<endl;
-    cerr<<"Received "<<numberOfResponses<<" responses over "<<numberOfQueriesSent<<", "<<failures<<" errors, success rate is "<<((100.0*numberOfResponses/numberOfQueriesSent))<<"%"<<endl;
+    cout<<"Sent "<<numberOfQueriesSent<<" queries over "<<threadsRunning<<" connection(s), during "<<runTime<<" seconds at "<<qps<<" queries per second, using a "<<chr<<" cache hit ratio target"<<endl;
+    cerr<<"Received "<<numberOfResponses<<" responses over "<<numberOfQueriesToSend<<", "<<failures<<" errors, success rate is "<<((100.0*numberOfResponses/numberOfQueriesToSend))<<"%"<<endl;
     cerr<<"Final execution time: "<<(totalExecutionTime/1000000.0)<<" seconds, actual responses per second rate: "<<(numberOfResponses/(totalExecutionTime/1000000.0))<<endl;
+    cerr<<clients<<" concurrent connection(s) requested, "<<threadsRunning<<" actually achieved ("<<(clients-threadsRunning)<<" thread(s) could not open a working connection)"<<endl;
     if (numberOfResponses > 0) {
       std::sort(latencies.begin(), latencies.end());
       cout<<"Minimum latency is "<<latencies.at(0)<<" µs"<<endl;
