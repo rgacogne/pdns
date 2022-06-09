@@ -132,7 +132,7 @@ std::string MiniCurl::getURL(const std::string& str, const ComboAddress* rem, co
   if(res != CURLE_OK || http_code != 200)  {
     throw std::runtime_error("Unable to retrieve URL ("+std::to_string(http_code)+"): "+string(curl_easy_strerror(res)));
   }
-  std::string ret=d_data;
+  std::string ret = std::move(d_data);
   d_data.clear();
   return ret;
 }
@@ -152,8 +152,7 @@ std::string MiniCurl::postURL(const std::string& str, const std::string& postdat
   if(res != CURLE_OK)
     throw std::runtime_error("Unable to post URL ("+std::to_string(http_code)+"): "+string(curl_easy_strerror(res)));
 
-  std::string ret=d_data;
-
+  std::string ret = std::move(d_data);
   d_data.clear();
   return ret;
 }
@@ -179,4 +178,37 @@ void MiniCurl::setHeaders(const MiniCurlHeaders& headers)
     }
     curl_easy_setopt(d_curl, CURLOPT_HTTPHEADER, d_header_list);
   }
+}
+
+uint64_t MiniCurl::getTimingInfo(TimingInfo type) const
+{
+  const std::map<MiniCurl::TimingInfo, CURLINFO> types = {
+    { TimingInfo::Connect, CURLINFO_CONNECT_TIME_T },
+#if defined(CURL_AT_LEAST_VERSION)
+#if CURL_AT_LEAST_VERSION(7, 60, 0)
+    { TimingInfo::TLSDone, CURLINFO_APPCONNECT_TIME_T },
+#endif
+#endif
+    { TimingInfo::QueryReadyToBeSent, CURLINFO_PRETRANSFER_TIME_T },
+    { TimingInfo::ResponseReady, CURLINFO_STARTTRANSFER_TIME_T },
+    { TimingInfo::Total, CURLINFO_TOTAL_TIME_T },
+  };
+
+  if (!d_curl) {
+    throw std::runtime_error("trying to get timing data from an invalid MiniCurl object");
+  }
+
+  auto match = types.find(type);
+  if (match == types.end()) {
+    /* unsupported */
+    return 0;
+  }
+
+  curl_off_t value = 0;
+  auto code = curl_easy_getinfo(d_curl, match->second, &value);
+  if (code != CURLE_OK) {
+    throw std::runtime_error("error getting timing data from MiniCurl object: " + std::string(curl_easy_strerror(code)));
+  }
+
+  return value;
 }

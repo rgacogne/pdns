@@ -534,6 +534,7 @@ try {
             latencyTimer.set();
             reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
             auto latency = latencyTimer.udiffNoReset();
+            latency -= mc.getTimingInfo(MiniCurl::TimingInfo::QueryReadyToBeSent);
             handleLatency(latency);
 
             if (*verbose) {
