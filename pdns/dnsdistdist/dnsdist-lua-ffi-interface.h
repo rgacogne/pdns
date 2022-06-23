@@ -230,3 +230,9 @@ bool dnsdist_ffi_network_endpoint_new(const char* path, size_t pathSize, dnsdist
 bool dnsdist_ffi_network_endpoint_is_valid(const dnsdist_ffi_network_endpoint_t* endpoint) __attribute__ ((visibility ("default")));
 bool dnsdist_ffi_network_endpoint_send(const dnsdist_ffi_network_endpoint_t* endpoint, const char* payload, size_t payloadSize) __attribute__ ((visibility ("default")));
 void dnsdist_ffi_network_endpoint_free(dnsdist_ffi_network_endpoint_t* endpoint) __attribute__ ((visibility ("default")));
+
+typedef struct dnsdist_ffi_network_message_t dnsdist_ffi_network_message_t;
+
+const char* dnsdist_ffi_network_message_get_payload(const dnsdist_ffi_network_message_t* msg) __attribute__ ((visibility ("default")));
+size_t dnsdist_ffi_network_message_get_payload_size(const dnsdist_ffi_network_message_t* msg) __attribute__ ((visibility ("default")));
+uint16_t dnsdist_ffi_network_message_get_endpoint_id(const dnsdist_ffi_network_message_t* msg) __attribute__ ((visibility ("default")));

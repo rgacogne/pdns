@@ -1598,3 +1598,28 @@ void dnsdist_ffi_network_endpoint_free(dnsdist_ffi_network_endpoint_t* endpoint)
 {
   delete endpoint;
 }
+
+const char* dnsdist_ffi_network_message_get_payload(const dnsdist_ffi_network_message_t* msg)
+{
+  if (msg != nullptr) {
+    return msg->payload.c_str();
+  }
+  return nullptr;
+}
+
+size_t dnsdist_ffi_network_message_get_payload_size(const dnsdist_ffi_network_message_t* msg)
+{
+  if (msg != nullptr) {
+    return msg->payload.size();
+  }
+  return 0;
+}
+
+uint16_t dnsdist_ffi_network_message_get_endpoint_id(const dnsdist_ffi_network_message_t* msg)
+{
+  if (msg != nullptr) {
+    return msg->endpointID;
+  }
+  return 0;
+}
+
