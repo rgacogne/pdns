@@ -155,6 +155,33 @@ std::set<std::string> g_capabilitiesToRetain;
 static size_t const s_initialUDPPacketBufferSize = s_maxPacketCacheEntrySize + DNSCRYPT_MAX_RESPONSE_PADDING_AND_MAC_SIZE;
 static_assert(s_initialUDPPacketBufferSize <= UINT16_MAX, "Packet size should fit in a uint16_t");
 
+static ssize_t sendfromto(int sock, const void* data, size_t len, int flags, const ComboAddress& from, const ComboAddress& to)
+{
+  if (from.sin4.sin_family == 0) {
+    return sendto(sock, data, len, flags, reinterpret_cast<const struct sockaddr*>(&to), to.getSocklen());
+  }
+  struct msghdr msgh;
+  struct iovec iov;
+  cmsgbuf_aligned cbuf;
+
+  /* Set up iov and msgh structures. */
+  memset(&msgh, 0, sizeof(struct msghdr));
+  iov.iov_base = const_cast<void*>(data);
+  iov.iov_len = len;
+  msgh.msg_iov = &iov;
+  msgh.msg_iovlen = 1;
+  msgh.msg_name = (struct sockaddr*)&to;
+  msgh.msg_namelen = to.getSocklen();
+
+  if(from.sin4.sin_family) {
+    addCMsgSrcAddr(&msgh, &cbuf, &from, 0);
+  }
+  else {
+    msgh.msg_control=nullptr;
+  }
+  return sendmsg(sock, &msgh, flags);
+}
+
 static void truncateTC(PacketBuffer& packet, size_t maximumSize, unsigned int qnameWireLength)
 {
   try
@@ -189,13 +216,7 @@ struct DelayedPacket
   ComboAddress origDest;
   void operator()()
   {
-    ssize_t res;
-    if(origDest.sin4.sin_family == 0) {
-      res = sendto(fd, packet.data(), packet.size(), 0, (struct sockaddr*)&destination, destination.getSocklen());
-    }
-    else {
-      res = sendfromto(fd, packet.data(), packet.size(), 0, origDest, destination);
-    }
+    ssize_t res = sendfromto(fd, packet.data(), packet.size(), 0, origDest, destination);
     if (res == -1) {
       int err = errno;
       vinfolog("Error sending delayed response to %s: %s", destination.toStringWithPort(), strerror(err));
@@ -540,13 +561,7 @@ bool sendUDPResponse(int origFD, const PacketBuffer& response, const int delayMs
     g_delay->submit(dp, delayMsec);
   }
   else {
-    ssize_t res;
-    if (origDest.sin4.sin_family == 0) {
-      res = sendto(origFD, response.data(), response.size(), 0, reinterpret_cast<const struct sockaddr*>(&origRemote), origRemote.getSocklen());
-    }
-    else {
-      res = sendfromto(origFD, response.data(), response.size(), 0, origDest, origRemote);
-    }
+    ssize_t res = sendfromto(origFD, response.data(), response.size(), 0, origDest, origRemote);
     if (res == -1) {
       int err = errno;
       vinfolog("Error sending response to %s: %s", origRemote.toStringWithPort(), stringerror(err));
@@ -558,9 +573,14 @@ bool sendUDPResponse(int origFD, const PacketBuffer& response, const int delayMs
 
 void handleResponseSent(const InternalQueryState& ids, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol protocol)
 {
+  handleResponseSent(ids.qname, ids.qtype, udiff, client, backend, size, cleartextDH, protocol);
+}
+
+void handleResponseSent(const DNSName& qname, const QType& qtype, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol protocol)
+{
   struct timespec ts;
   gettime(&ts);
-  g_rings.insertResponse(ts, client, ids.qname, ids.qtype, static_cast<unsigned int>(udiff), size, cleartextDH, backend, protocol);
+  g_rings.insertResponse(ts, client, qname, qtype, static_cast<unsigned int>(udiff), size, cleartextDH, backend, protocol);
 
   switch (cleartextDH.rcode) {
   case RCode::NXDomain:
@@ -637,7 +657,6 @@ static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& re
       ds->releaseState(*queryId);
     }
 
-    ds->latencyUsec = (127.0 * ds->latencyUsec / 128.0) + udiff/128.0;
     doLatencyStats(udiff);
   }
 }
@@ -725,6 +744,10 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
 
         dh->id = ids->internal.origID;
         ++dss->responses;
+
+        double udiff = ids->internal.queryRealTime.udiff();
+        // do that _before_ the processing, otherwise it's not fair to the backend
+        dss->latencyUsec = (127.0 * dss->latencyUsec / 128.0) + udiff / 128.0;
 
         /* don't call processResponse for DOH */
         if (du) {
@@ -1648,6 +1671,8 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
 #endif /* DISABLE_RECVMMSG */
       /* we use dest, always, because we don't want to use the listening address to send a response since it could be 0.0.0.0 */
       sendUDPResponse(cs.udpFD, query, dq.ids.delayMsec, dest, remote);
+
+      handleResponseSent(dq.ids.qname, dq.ids.qtype, 0., remote, ComboAddress(), query.size(), *dh, dnsdist::Protocol::DoUDP);
       return;
     }
 
@@ -2226,16 +2251,16 @@ static void setUpLocalBind(std::unique_ptr<ClientState>& cstate)
       SListen(socket, cs.tcpListenQueueSize);
 
       if (cs.tlsFrontend != nullptr) {
-        warnlog("Listening on %s for TLS", addr.toStringWithPort());
+        infolog("Listening on %s for TLS", addr.toStringWithPort());
       }
       else if (cs.dohFrontend != nullptr) {
-        warnlog("Listening on %s for DoH", addr.toStringWithPort());
+        infolog("Listening on %s for DoH", addr.toStringWithPort());
       }
       else if (cs.dnscryptCtx != nullptr) {
-        warnlog("Listening on %s for DNSCrypt", addr.toStringWithPort());
+        infolog("Listening on %s for DNSCrypt", addr.toStringWithPort());
       }
       else {
-        warnlog("Listening on %s", addr.toStringWithPort());
+        infolog("Listening on %s", addr.toStringWithPort());
       }
     }
   };
@@ -2662,7 +2687,7 @@ int main(int argc, char** argv)
       }
     }
 
-    warnlog("dnsdist %s comes with ABSOLUTELY NO WARRANTY. This is free software, and you are welcome to redistribute it according to the terms of the GPL version 2", VERSION);
+    infolog("dnsdist %s comes with ABSOLUTELY NO WARRANTY. This is free software, and you are welcome to redistribute it according to the terms of the GPL version 2", VERSION);
 
     vector<string> vec;
     std::string acls;

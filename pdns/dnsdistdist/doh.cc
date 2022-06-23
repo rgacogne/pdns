@@ -689,6 +689,11 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
       if (du->response.empty()) {
         du->response = std::move(du->query);
       }
+      if (du->response.size() >= sizeof(dnsheader) && du->contentType.empty()) {
+        auto dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
+
+        handleResponseSent(du->ids.qname, QType(du->ids.qtype), 0., du->ids.origDest, ComboAddress(), du->response.size(), *dh, dnsdist::Protocol::DoH);
+      }
       sendDoHUnitToTheMainThread(std::move(du), "DoH self-answered response");
       return;
     }

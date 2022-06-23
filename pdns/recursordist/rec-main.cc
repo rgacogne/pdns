@@ -48,7 +48,10 @@
 #endif
 
 #ifdef HAVE_SYSTEMD
+// All calls are coming form the same function, so no use for CODE_LINE, CODE_FUNC etc
+#define SD_JOURNAL_SUPPRESS_LOCATION
 #include <systemd/sd-daemon.h>
+#include <systemd/sd-journal.h>
 #endif
 
 static thread_local uint64_t t_protobufServersGeneration;
@@ -93,6 +96,8 @@ bool g_addExtendedResolutionDNSErrors;
 static std::atomic<uint32_t> s_counter;
 int g_argc;
 char** g_argv;
+static string s_structured_logger_backend;
+static Logger::Urgency s_logUrgency;
 
 /* without reuseport, all listeners share the same sockets */
 deferredAdd_t g_deferredAdds;
@@ -374,7 +379,7 @@ static FDMultiplexer* getMultiplexer(Logr::log_t log)
   _exit(1);
 }
 
-static std::shared_ptr<std::vector<std::unique_ptr<RemoteLogger>>> startProtobufServers(const ProtobufExportConfig& config)
+static std::shared_ptr<std::vector<std::unique_ptr<RemoteLogger>>> startProtobufServers(const ProtobufExportConfig& config, Logr::log_t log)
 {
   auto result = std::make_shared<std::vector<std::unique_ptr<RemoteLogger>>>();
 
@@ -386,10 +391,12 @@ static std::shared_ptr<std::vector<std::unique_ptr<RemoteLogger>>> startProtobuf
       result->emplace_back(std::move(logger));
     }
     catch (const std::exception& e) {
-      g_log << Logger::Error << "Error while starting protobuf logger to '" << server << ": " << e.what() << endl;
+      SLOG(g_log << Logger::Error << "Error while starting protobuf logger to '" << server << ": " << e.what() << endl,
+           log->error(Logr::Error, e.what(), "Exception while starting protobuf logger", "exception", Logging::Loggable("std::exception"), "server", Logging::Loggable(server)));
     }
     catch (const PDNSException& e) {
-      g_log << Logger::Error << "Error while starting protobuf logger to '" << server << ": " << e.reason << endl;
+      SLOG(g_log << Logger::Error << "Error while starting protobuf logger to '" << server << ": " << e.reason << endl,
+           log->error(Logr::Error, e.reason, "Exception while starting protobuf logger", "exception", Logging::Loggable("PDNSException"), "server", Logging::Loggable(server)));
     }
   }
 
@@ -420,7 +427,8 @@ bool checkProtobufExport(LocalStateHolder<LuaConfigItems>& luaconfsLocal)
     }
     t_protobufServers.reset();
 
-    t_protobufServers = startProtobufServers(luaconfsLocal->protobufExportConfig);
+    auto log = g_slog->withName("protobuf");
+    t_protobufServers = startProtobufServers(luaconfsLocal->protobufExportConfig, log);
     t_protobufServersGeneration = luaconfsLocal->generation;
   }
 
@@ -451,7 +459,8 @@ bool checkOutgoingProtobufExport(LocalStateHolder<LuaConfigItems>& luaconfsLocal
     }
     t_outgoingProtobufServers.reset();
 
-    t_outgoingProtobufServers = startProtobufServers(luaconfsLocal->outgoingProtobufExportConfig);
+    auto log = g_slog->withName("protobuf");
+    t_outgoingProtobufServers = startProtobufServers(luaconfsLocal->outgoingProtobufExportConfig, log);
     t_outgoingProtobufServersGeneration = luaconfsLocal->generation;
   }
 
@@ -575,7 +584,7 @@ void protobufLogResponse(const struct dnsheader* dh, LocalStateHolder<LuaConfigI
 
 #ifdef HAVE_FSTRM
 
-static std::shared_ptr<std::vector<std::unique_ptr<FrameStreamLogger>>> startFrameStreamServers(const FrameStreamExportConfig& config)
+static std::shared_ptr<std::vector<std::unique_ptr<FrameStreamLogger>>> startFrameStreamServers(const FrameStreamExportConfig& config, Logr::log_t log)
 {
   auto result = std::make_shared<std::vector<std::unique_ptr<FrameStreamLogger>>>();
 
@@ -601,10 +610,12 @@ static std::shared_ptr<std::vector<std::unique_ptr<FrameStreamLogger>>> startFra
       result->emplace_back(fsl);
     }
     catch (const std::exception& e) {
-      g_log << Logger::Error << "Error while starting dnstap framestream logger to '" << server << ": " << e.what() << endl;
+      SLOG(g_log << Logger::Error << "Error while starting dnstap framestream logger to '" << server << ": " << e.what() << endl,
+           log->error(Logr::Error, e.what(), "Exception while starting dnstap framestream logger", "exception", Logging::Loggable("std::exception"), "server", Logging::Loggable(server)));
     }
     catch (const PDNSException& e) {
-      g_log << Logger::Error << "Error while starting dnstap framestream logger to '" << server << ": " << e.reason << endl;
+      SLOG(g_log << Logger::Error << "Error while starting dnstap framestream logger to '" << server << ": " << e.reason << endl,
+           log->error(Logr::Error, e.reason, "Exception while starting dnstap framestream logger", "exception", Logging::Loggable("PDNSException"), "server", Logging::Loggable(server)));
     }
   }
 
@@ -631,7 +642,8 @@ bool checkFrameStreamExport(LocalStateHolder<LuaConfigItems>& luaconfsLocal)
       t_frameStreamServers.reset();
     }
 
-    t_frameStreamServers = startFrameStreamServers(luaconfsLocal->frameStreamExportConfig);
+    auto log = g_slog->withName("dnstap");
+    t_frameStreamServers = startFrameStreamServers(luaconfsLocal->frameStreamExportConfig, log);
     t_frameStreamServersGeneration = luaconfsLocal->generation;
   }
 
@@ -872,10 +884,60 @@ static const char* toTimestampStringMilli(const struct timeval& tv, char* buf, s
   return buf;
 }
 
+#ifdef HAVE_SYSTEMD
+static void loggerSDBackend(const Logging::Entry& entry)
+{
+  // First map SL priority to syslog's Urgency
+  Logger::Urgency u = entry.d_priority ? Logger::Urgency(entry.d_priority) : Logger::Info;
+  if (u > s_logUrgency) {
+    // We do not log anything if the Urgency of the message is lower than the requested loglevel.
+    // Not that lower Urgency means higher number.
+    return;
+  }
+  // We need to keep the string in mem until sd_journal_sendv has ben called
+  vector<string> strings;
+  auto appendKeyAndVal = [&strings](const string& k, const string& v) {
+    strings.emplace_back(k + "=" + v);
+  };
+  appendKeyAndVal("MESSAGE", entry.message);
+  if (entry.error) {
+    appendKeyAndVal("ERROR", entry.error.get());
+  }
+  appendKeyAndVal("LEVEL", std::to_string(entry.level));
+  appendKeyAndVal("PRIORITY", std::to_string(entry.d_priority));
+  if (entry.name) {
+    appendKeyAndVal("SUBSYSTEM", entry.name.get());
+  }
+  char timebuf[64];
+  appendKeyAndVal("TIMESTAMP", toTimestampStringMilli(entry.d_timestamp, timebuf, sizeof(timebuf)));
+  for (auto const& v : entry.values) {
+    appendKeyAndVal(toUpper(v.first), v.second);
+  }
+  // Thread id filled in by backend, since the SL code does not know about RecursorThreads
+  // We use the Recursor thread, other threads get id 0. May need to revisit.
+  appendKeyAndVal("TID", std::to_string(RecThreadInfo::id()));
+
+  vector<iovec> iov;
+  iov.reserve(strings.size());
+  for (const auto& s : strings) {
+    // iovec has no 2 arg constructor, so make it explicit
+    iov.emplace_back(iovec{const_cast<void*>(reinterpret_cast<const void*>(s.data())), s.size()});
+  }
+  sd_journal_sendv(iov.data(), static_cast<int>(iov.size()));
+}
+#endif
+
 static void loggerBackend(const Logging::Entry& entry)
 {
   static thread_local std::stringstream buf;
 
+  // First map SL priority to syslog's Urgency
+  Logger::Urgency u = entry.d_priority ? Logger::Urgency(entry.d_priority) : Logger::Info;
+  if (u > s_logUrgency) {
+    // We do not log anything if the Urgency of the message is lower than the requested loglevel.
+    // Not that lower Urgency means higher number.
+    return;
+  }
   buf.str("");
   buf << "msg=" << std::quoted(entry.message);
   if (entry.error) {
@@ -889,13 +951,16 @@ static void loggerBackend(const Logging::Entry& entry)
   if (entry.d_priority) {
     buf << " prio=" << std::quoted(Logr::Logger::toString(entry.d_priority));
   }
+  // Thread id filled in by backend, since the SL code does not know about RecursorThreads
+  // We use the Recursor thread, other threads get id 0. May need to revisit.
+  buf << " tid=" << std::quoted(std::to_string(RecThreadInfo::id()));
   char timebuf[64];
   buf << " ts=" << std::quoted(toTimestampStringMilli(entry.d_timestamp, timebuf, sizeof(timebuf)));
   for (auto const& v : entry.values) {
     buf << " ";
     buf << v.first << "=" << std::quoted(v.second);
   }
-  Logger::Urgency u = entry.d_priority ? Logger::Urgency(entry.d_priority) : Logger::Info;
+
   g_log << u << buf.str() << endl;
 }
 
@@ -935,7 +1000,7 @@ static void doStats(void)
             << SyncRes::getThrottledServersSize() << ", ns speeds: "
             << SyncRes::getNSSpeedsSize() << ", failed ns: "
             << SyncRes::getFailedServersSize() << ", ednsmap: "
-            << broadcastAccFunction<uint64_t>(pleaseGetEDNSStatusesSize) << ", non-resolving: "
+            << SyncRes::getEDNSStatusesSize() << ", non-resolving: "
             << SyncRes::getNonResolvingNSSize() << ", saved-parentsets: "
             << SyncRes::getSaveParentsNSSetsSize()
             << endl;
@@ -961,7 +1026,7 @@ static void doStats(void)
                 "throttle-entries", Logging::Loggable(SyncRes::getThrottledServersSize()),
                 "nsspeed-entries", Logging::Loggable(SyncRes::getNSSpeedsSize()),
                 "failed-host-entries", Logging::Loggable(SyncRes::getFailedServersSize()),
-                "edns-entries", Logging::Loggable(broadcastAccFunction<uint64_t>(pleaseGetEDNSStatusesSize)),
+                "edns-entries", Logging::Loggable(SyncRes::getEDNSStatusesSize()),
                 "non-resolving-nameserver-entries", Logging::Loggable(SyncRes::getNonResolvingNSSize()),
                 "saved-parent-ns-sets-entries", Logging::Loggable(SyncRes::getSaveParentsNSSetsSize()),
                 "outqueries-per-query", Logging::Loggable(ratePercentage(SyncRes::s_outqueries, SyncRes::s_queries)));
@@ -1210,7 +1275,8 @@ template <class T>
 T broadcastAccFunction(const std::function<T*()>& func)
 {
   if (!RecThreadInfo::self().isHandler()) {
-    g_log << Logger::Error << "broadcastAccFunction has been called by a worker (" << RecThreadInfo::id() << ")" << endl;
+    SLOG(g_log << Logger::Error << "broadcastAccFunction has been called by a worker (" << RecThreadInfo::id() << ")" << endl,
+         g_slog->withName("runtime")->info(Logr::Critical, "broadcastAccFunction has been called by a worker")); // tid will be added
     _exit(1);
   }
 
@@ -1432,8 +1498,8 @@ static int serviceMain(int argc, char* argv[], Logr::log_t log)
   SyncRes::s_max_busy_dot_probes = ::arg().asNum("max-busy-dot-probes");
 
   if (SyncRes::s_tcp_fast_open_connect) {
-    checkFastOpenSysctl(true);
-    checkTFOconnect();
+    checkFastOpenSysctl(true, log);
+    checkTFOconnect(log);
   }
 
   if (SyncRes::s_serverID.empty()) {
@@ -1895,12 +1961,16 @@ static void handlePipeRequest(int fd, FDMultiplexer::funcparam_t& var)
     resp = tmsg->func();
   }
   catch (std::exception& e) {
-    if (g_logCommonErrors)
-      g_log << Logger::Error << "PIPE function we executed created exception: " << e.what() << endl; // but what if they wanted an answer.. we send 0
+    if (g_logCommonErrors) {
+      SLOG(g_log << Logger::Error << "PIPE function we executed created exception: " << e.what() << endl, // but what if they wanted an answer.. we send 0
+           g_slog->withName("runtime")->error(Logr::Error, e.what(), "PIPE function we executed created exception", "exception", Logging::Loggable("std::exception")));
+    }
   }
   catch (PDNSException& e) {
-    if (g_logCommonErrors)
-      g_log << Logger::Error << "PIPE function we executed created PDNS exception: " << e.reason << endl; // but what if they wanted an answer.. we send 0
+    if (g_logCommonErrors) {
+      SLOG(g_log << Logger::Error << "PIPE function we executed created PDNS exception: " << e.reason << endl, // but what if they wanted an answer.. we send 0
+           g_slog->withName("runtime")->error(Logr::Error, e.reason, "PIPE function we executed created exception", "exception", Logging::Loggable("PDNSException")));
+    }
   }
   if (tmsg->wantAnswer) {
     if (write(RecThreadInfo::self().pipes.writeFromThread, &resp, sizeof(resp)) != sizeof(resp)) {
@@ -1914,13 +1984,15 @@ static void handlePipeRequest(int fd, FDMultiplexer::funcparam_t& var)
 
 static void handleRCC(int fd, FDMultiplexer::funcparam_t& var)
 {
+  auto log = g_slog->withName("control");
   try {
     FDWrapper clientfd = accept(fd, nullptr, nullptr);
     if (clientfd == -1) {
       throw PDNSException("accept failed");
     }
     string msg = g_rcc.recv(clientfd).d_str;
-    g_log << Logger::Info << "Received rec_control command '" << msg << "' via controlsocket" << endl;
+    SLOG(g_log << Logger::Info << "Received rec_control command '" << msg << "' via controlsocket" << endl,
+         log->info(Logr::Info, "Received rec_control command via control socket", "command", Logging::Loggable(msg)));
 
     RecursorControlParser rcp;
     RecursorControlParser::func_t* command;
@@ -1930,10 +2002,12 @@ static void handleRCC(int fd, FDMultiplexer::funcparam_t& var)
     command();
   }
   catch (const std::exception& e) {
-    g_log << Logger::Error << "Error dealing with control socket request: " << e.what() << endl;
+    SLOG(g_log << Logger::Error << "Error dealing with control socket request: " << e.what() << endl,
+         log->error(Logr::Error, e.what(), "Exception while dealing with control socket request", "exception", Logging::Loggable("std::exception")));
   }
   catch (const PDNSException& ae) {
-    g_log << Logger::Error << "Error dealing with control socket request: " << ae.reason << endl;
+    SLOG(g_log << Logger::Error << "Error dealing with control socket request: " << ae.reason << endl,
+         log->error(Logr::Error, ae.reason, "Exception while dealing with control socket request", "exception", Logging::Loggable("PDNSException")));
   }
 }
 
@@ -2011,11 +2085,6 @@ static void houseKeeping(void*)
       });
     }
 
-    static thread_local PeriodicTask pruneEDNSTask{"pruneEDNSTask", 5}; // period could likely be longer
-    pruneEDNSTask.runIfDue(now, [now]() {
-      SyncRes::pruneEDNSStatuses(now.tv_sec - 2 * 3600);
-    });
-
     static thread_local PeriodicTask pruneTCPTask{"pruneTCPTask", 5};
     pruneTCPTask.runIfDue(now, [now]() {
       t_tcp_manager.cleanup(now);
@@ -2027,7 +2096,7 @@ static void houseKeeping(void*)
     // Likley a few handler tasks could be moved to the taskThread
     if (info.isTaskThread()) {
       // TaskQueue is run always
-      runTasks(g_logCommonErrors, 10);
+      runTasks(10, g_logCommonErrors);
 
       static PeriodicTask ztcTask{"ZTC", 60};
       static map<DNSName, RecZoneToCache::State> ztcStates;
@@ -2060,6 +2129,11 @@ static void houseKeeping(void*)
       static PeriodicTask pruneNSpeedTask{"pruneNSSpeedTask", 30};
       pruneNSpeedTask.runIfDue(now, [now]() {
         SyncRes::pruneNSSpeeds(now.tv_sec - 300);
+      });
+
+      static PeriodicTask pruneEDNSTask{"pruneEDNSTask", 60};
+      pruneEDNSTask.runIfDue(now, [now]() {
+        SyncRes::pruneEDNSStatuses(now.tv_sec);
       });
 
       if (SyncRes::s_max_busy_dot_probes > 0) {
@@ -2097,24 +2171,25 @@ static void houseKeeping(void*)
         if (res == 0) {
           // Success, go back to the defaut period
           rootUpdateTask.setPeriod(std::max(SyncRes::s_maxcachettl * 8 / 10, minRootRefreshInterval));
+          const string msg = "Exception while priming the root NS zones";
           try {
             primeRootNSZones(g_dnssecmode, 0);
           }
           catch (const std::exception& e) {
             SLOG(g_log << Logger::Error << "Exception while priming the root NS zones: " << e.what() << endl,
-                 log->error(Logr::Error, e.what(), "Exception while priming the root NS zones"));
+                 log->error(Logr::Error, e.what(), msg, "exception", Logging::Loggable("std::exception")));
           }
           catch (const PDNSException& e) {
             SLOG(g_log << Logger::Error << "Exception while priming the root NS zones: " << e.reason << endl,
-                 log->error(Logr::Error, e.reason, "Exception while priming the root NS zones"));
+                 log->error(Logr::Error, e.reason, msg, "exception", Logging::Loggable("PDNSException")));
           }
           catch (const ImmediateServFailException& e) {
             SLOG(g_log << Logger::Error << "Exception while priming the root NS zones: " << e.reason << endl,
-                 log->error(Logr::Error, e.reason, "Exception while priming the root NS zones"));
+                 log->error(Logr::Error, e.reason, msg, "exception", Logging::Loggable("ImmediateServFailException")));
           }
           catch (const PolicyHitException& e) {
             SLOG(g_log << Logger::Error << "Policy hit while priming the root NS zones" << endl,
-                 log->info(Logr::Error, "Policy hit while priming the root NS zones"));
+                 log->info(Logr::Error, msg, "exception", Logging::Loggable("PolicyHitException")));
           }
           catch (...) {
             SLOG(g_log << Logger::Error << "Exception while priming the root NS zones" << endl,
@@ -2296,16 +2371,19 @@ static void recursorThread()
 
     if (threadInfo.isHandler()) {
       if (::arg().mustDo("webserver")) {
-        g_log << Logger::Warning << "Enabling web server" << endl;
+        SLOG(g_log << Logger::Warning << "Enabling web server" << endl,
+             log->info(Logr::Info, "Enabling web server"))
         try {
           rws = make_unique<RecursorWebServer>(t_fdm.get());
         }
         catch (const PDNSException& e) {
-          g_log << Logger::Error << "Unable to start the internal web server: " << e.reason << endl;
+          SLOG(g_log << Logger::Error << "Unable to start the internal web server: " << e.reason << endl,
+               log->error(Logr::Critical, e.reason, "Exception while starting internal web server"));
           _exit(99);
         }
       }
-      g_log << Logger::Info << "Enabled '" << t_fdm->getName() << "' multiplexer" << endl;
+      SLOG(g_log << Logger::Info << "Enabled '" << t_fdm->getName() << "' multiplexer" << endl,
+           log->info(Logr::Info, "Enabled multiplexer", "name", Logging::Loggable(t_fdm->getName())));
     }
     else {
       t_fdm->addReadFD(threadInfo.pipes.readQueriesToThread, handlePipeRequest);
@@ -2424,13 +2502,16 @@ static void recursorThread()
     }
   }
   catch (PDNSException& ae) {
-    g_log << Logger::Error << "Exception: " << ae.reason << endl;
+    SLOG(g_log << Logger::Error << "Exception: " << ae.reason << endl,
+         log->error(Logr::Error, ae.reason, "Exception in RecursorThread", "exception", Logging::Loggable("PDNSException")))
   }
   catch (std::exception& e) {
-    g_log << Logger::Error << "STL Exception: " << e.what() << endl;
+    SLOG(g_log << Logger::Error << "STL Exception: " << e.what() << endl,
+         log->error(Logr::Error, e.what(), "Exception in RecursorThread", "exception", Logging::Loggable("std::exception")))
   }
   catch (...) {
-    g_log << Logger::Error << "any other exception in main: " << endl;
+    SLOG(g_log << Logger::Error << "any other exception in main: " << endl,
+         log->info(Logr::Error, "Exception in RecursorThread"));
   }
 }
 
@@ -2693,6 +2774,7 @@ int main(int argc, char** argv)
     ::arg().set("tcp-out-max-queries", "Maximum total number of queries per TCP/DoT connection, 0 means no limit") = "0";
     ::arg().set("tcp-out-max-idle-per-thread", "Maximum number of idle TCP/DoT connections per thread") = "100";
     ::arg().setSwitch("structured-logging", "Prefer structured logging") = "yes";
+    ::arg().set("structured-logging-backend", "Structured logging backend") = "default";
     ::arg().setSwitch("save-parent-ns-set", "Save parent NS set to be used if child NS set fails") = "yes";
     ::arg().set("max-busy-dot-probes", "Maximum number of concurrent DoT probes") = "0";
 
@@ -2717,16 +2799,18 @@ int main(int argc, char** argv)
 
     // Pick up options given on command line to setup logging asap.
     g_quiet = ::arg().mustDo("quiet");
-    Logger::Urgency logUrgency = (Logger::Urgency)::arg().asNum("loglevel");
+    s_logUrgency = (Logger::Urgency)::arg().asNum("loglevel");
     g_slogStructured = ::arg().mustDo("structured-logging");
+    s_structured_logger_backend = ::arg()["structured-logging-backend"];
 
-    if (logUrgency < Logger::Error)
-      logUrgency = Logger::Error;
-    if (!g_quiet && logUrgency < Logger::Info) { // Logger::Info=6, Logger::Debug=7
-      logUrgency = Logger::Info; // if you do --quiet=no, you need Info to also see the query log
+    if (s_logUrgency < Logger::Error) {
+      s_logUrgency = Logger::Error;
     }
-    g_log.setLoglevel(logUrgency);
-    g_log.toConsole(logUrgency);
+    if (!g_quiet && s_logUrgency < Logger::Info) { // Logger::Info=6, Logger::Debug=7
+      s_logUrgency = Logger::Info; // if you do --quiet=no, you need Info to also see the query log
+    }
+    g_log.setLoglevel(s_logUrgency);
+    g_log.toConsole(s_logUrgency);
 
     string configname = ::arg()["config-dir"] + "/recursor.conf";
     if (::arg()["config-name"] != "") {
@@ -2758,7 +2842,21 @@ int main(int argc, char** argv)
       exit(0);
     }
 
-    g_slog = Logging::Logger::create(loggerBackend);
+    if (s_structured_logger_backend == "systemd-journal") {
+#ifdef HAVE_SYSTEMD
+      if (int fd = sd_journal_stream_fd("pdns-recusor", LOG_DEBUG, 0); fd >= 0) {
+        g_slog = Logging::Logger::create(loggerSDBackend);
+        close(fd);
+      }
+#endif
+      if (g_slog == nullptr) {
+        cerr << "Structured logging to systemd-journal requested but it is not available" << endl;
+      }
+    }
+
+    if (g_slog == nullptr) {
+      g_slog = Logging::Logger::create(loggerBackend);
+    }
     // Missing: a mechanism to call setVerbosity(x)
     auto startupLog = g_slog->withName("config");
 
@@ -2772,16 +2870,17 @@ int main(int argc, char** argv)
     ::arg().parse(argc, argv);
 
     g_quiet = ::arg().mustDo("quiet");
-    logUrgency = (Logger::Urgency)::arg().asNum("loglevel");
+    s_logUrgency = (Logger::Urgency)::arg().asNum("loglevel");
     g_slogStructured = ::arg().mustDo("structured-logging");
 
-    if (logUrgency < Logger::Error)
-      logUrgency = Logger::Error;
-    if (!g_quiet && logUrgency < Logger::Info) { // Logger::Info=6, Logger::Debug=7
-      logUrgency = Logger::Info; // if you do --quiet=no, you need Info to also see the query log
+    if (s_logUrgency < Logger::Error) {
+      s_logUrgency = Logger::Error;
     }
-    g_log.setLoglevel(logUrgency);
-    g_log.toConsole(logUrgency);
+    if (!g_quiet && s_logUrgency < Logger::Info) { // Logger::Info=6, Logger::Debug=7
+      s_logUrgency = Logger::Info; // if you do --quiet=no, you need Info to also see the query log
+    }
+    g_log.setLoglevel(s_logUrgency);
+    g_log.toConsole(s_logUrgency);
 
     if (!::arg()["chroot"].empty() && !::arg()["api-config-dir"].empty()) {
       SLOG(g_log << Logger::Error << "Using chroot and enabling the API is not possible" << endl,

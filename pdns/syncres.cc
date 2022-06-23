@@ -860,6 +860,38 @@ void SyncRes::AuthDomain::addSOA(std::vector<DNSRecord>& records) const
   }
 }
 
+bool SyncRes::AuthDomain::operator==(const AuthDomain& rhs) const
+{
+  return d_records == rhs.d_records
+    && d_servers == rhs.d_servers
+    && d_name == rhs.d_name
+    && d_rdForward == rhs.d_rdForward;
+}
+
+[[nodiscard]] std::string SyncRes::AuthDomain::print(const std::string& indent,
+                                                     const std::string& indentLevel) const
+{
+  std::stringstream s;
+  s << indent << "DNSName = " << d_name << std::endl;
+  s << indent << "rdForward = " << d_rdForward << std::endl;
+  s << indent << "Records {" << std::endl;
+  auto recordContentIndentation = indent;
+  recordContentIndentation += indentLevel;
+  recordContentIndentation += indentLevel;
+  for (const auto& record : d_records) {
+    s << indent << indentLevel << "Record `" << record.d_name << "` {" << std::endl;
+    s << record.print(recordContentIndentation);
+    s << indent << indentLevel << "}" << std::endl;
+  }
+  s << indent << "}" << std::endl;
+  s << indent << "Servers {" << std::endl;
+  for (const auto& server : d_servers) {
+    s << indent << indentLevel << server.toString() << std::endl;
+  }
+  s << indent << "}" << std::endl;
+  return s.str();
+}
+
 int SyncRes::AuthDomain::getRecords(const DNSName& qname, const QType qtype, std::vector<DNSRecord>& records) const
 {
   int result = RCode::NoError;
@@ -1028,6 +1060,61 @@ static const char* timestamp(time_t t, char* buf, size_t sz)
   return buf;
 }
 
+struct ednsstatus_t : public multi_index_container<SyncRes::EDNSStatus,
+                                                   indexed_by<
+                                                     ordered_unique<tag<ComboAddress>, member<SyncRes::EDNSStatus, ComboAddress, &SyncRes::EDNSStatus::address>>,
+                                                     ordered_non_unique<tag<time_t>, member<SyncRes::EDNSStatus, time_t, &SyncRes::EDNSStatus::ttd>>
+                                                     >>
+{
+  // Get a copy
+  ednsstatus_t getMap() const
+  {
+    return *this;
+  }
+
+  void setMode(index<ComboAddress>::type &ind, iterator it, SyncRes::EDNSStatus::EDNSMode mode, time_t ts)
+  {
+    if (it->mode != mode || it->ttd == 0) {
+      ind.modify(it, [=](SyncRes::EDNSStatus &s) { s.mode = mode; s.ttd = ts + Expire; });
+    }
+  }
+
+  void prune(time_t now)
+  {
+    auto &ind = get<time_t>();
+    ind.erase(ind.begin(), ind.upper_bound(now));
+  }
+
+  static const time_t Expire = 7200;
+};
+
+static LockGuarded<ednsstatus_t> s_ednsstatus;
+
+SyncRes::EDNSStatus::EDNSMode SyncRes::getEDNSStatus(const ComboAddress& server)
+{
+  auto lock = s_ednsstatus.lock();
+  const auto& it = lock->find(server);
+  if (it == lock->end()) {
+    return EDNSStatus::EDNSOK;
+  }
+  return it->mode;
+}
+
+uint64_t SyncRes::getEDNSStatusesSize()
+{
+  return s_ednsstatus.lock()->size();
+}
+
+void SyncRes::clearEDNSStatuses()
+{
+  s_ednsstatus.lock()->clear();
+}
+
+void SyncRes::pruneEDNSStatuses(time_t cutoff)
+{
+  s_ednsstatus.lock()->prune(cutoff);
+}
+
 uint64_t SyncRes::doEDNSDump(int fd)
 {
   int newfd = dup(fd);
@@ -1041,11 +1128,12 @@ uint64_t SyncRes::doEDNSDump(int fd)
   }
   uint64_t count = 0;
 
-  fprintf(fp.get(),"; edns from thread follows\n;\n");
-  for(const auto& eds : t_sstorage.ednsstatus) {
+  fprintf(fp.get(),"; edns dump follows\n; ip\tstatus\tttd\n");
+  const auto copy = s_ednsstatus.lock()->getMap();
+  for (const auto& eds : copy) {
     count++;
     char tmp[26];
-    fprintf(fp.get(), "%s\t%d\t%s\n", eds.address.toString().c_str(), (int)eds.mode, timestamp(eds.modeSetAt, tmp, sizeof(tmp)));
+    fprintf(fp.get(), "%s\t%s\t%s\n", eds.address.toString().c_str(), eds.toString().c_str(), timestamp(eds.ttd, tmp, sizeof(tmp)));
   }
   return count;
 }
@@ -1374,34 +1462,35 @@ uint64_t SyncRes::doDumpDoTProbeMap(int fd)
 LWResult::Result SyncRes::asyncresolveWrapper(const ComboAddress& ip, bool ednsMANDATORY, const DNSName& domain, const DNSName& auth, int type, bool doTCP, bool sendRDQuery, struct timeval* now, boost::optional<Netmask>& srcmask, LWResult* res, bool* chained, const DNSName& nsName) const
 {
   /* what is your QUEST?
-     the goal is to get as many remotes as possible on the highest level of EDNS support
+     the goal is to get as many remotes as possible on the best level of EDNS support
      The levels are:
 
-     0) UNKNOWN Unknown state
-     1) EDNS: Honors EDNS0
+     1) EDNSOK: Honors EDNS0
      2) EDNSIGNORANT: Ignores EDNS0, gives replies without EDNS0
      3) NOEDNS: Generates FORMERR on EDNS queries
 
-     Everybody starts out assumed to be '0'.
-     If '0', send out EDNS0
-        If you FORMERR us, go to '3',
-        If no EDNS in response, go to '2'
-     If '1', send out EDNS0
-        If FORMERR, downgrade to 3
-     If '2', keep on including EDNS0, see what happens
-        Same behaviour as 0
-     If '3', send bare queries
+     Everybody starts out assumed to be EDNSOK.
+     If EDNSOK, send out EDNS0
+        If you FORMERR us, go to NOEDNS, 
+        If no EDNS in response, go to EDNSIGNORANT
+     If EDNSIGNORANT, keep on including EDNS0, see what happens
+        Same behaviour as EDNSOK
+     If NOEDNS, send bare queries
   */
 
-  auto ednsstatus = t_sstorage.ednsstatus.insert(ip).first; // does this include port? YES
-  auto &ind = t_sstorage.ednsstatus.get<ComboAddress>();
-  if (ednsstatus->modeSetAt && ednsstatus->modeSetAt + 3600 < d_now.tv_sec) {
-    t_sstorage.ednsstatus.reset(ind, ednsstatus);
-    //    cerr<<"Resetting EDNS Status for "<<ip.toString()<<endl);
+  SyncRes::EDNSStatus::EDNSMode mode = EDNSStatus::EDNSOK;
+  {
+    auto lock = s_ednsstatus.lock();
+    auto ednsstatus = lock->find(ip); // does this include port? YES
+    if (ednsstatus != lock->end()) {
+      if (ednsstatus->ttd && ednsstatus->ttd < d_now.tv_sec) {
+        lock->erase(ednsstatus);
+      } else {
+        mode = ednsstatus->mode;
+      }
+    }
   }
 
-  const SyncRes::EDNSStatus::EDNSMode *mode = &ednsstatus->mode;
-  const SyncRes::EDNSStatus::EDNSMode oldmode = *mode;
   int EDNSLevel = 0;
   auto luaconfsLocal = g_luaconfs.getLocal();
   ResolveContext ctx;
@@ -1412,19 +1501,21 @@ LWResult::Result SyncRes::asyncresolveWrapper(const ComboAddress& ip, bool ednsM
 #endif
 
   LWResult::Result ret;
-  for(int tries = 0; tries < 3; ++tries) {
-    //    cerr<<"Remote '"<<ip.toString()<<"' currently in mode "<<mode<<endl;
 
-    if (*mode == EDNSStatus::NOEDNS) {
+  for (int tries = 0; tries < 2; ++tries) {
+
+    if (mode == EDNSStatus::NOEDNS) {
       g_stats.noEdnsOutQueries++;
       EDNSLevel = 0; // level != mode
     }
-    else if (ednsMANDATORY || *mode == EDNSStatus::UNKNOWN || *mode == EDNSStatus::EDNSOK || *mode == EDNSStatus::EDNSIGNORANT)
+    else if (ednsMANDATORY || mode != EDNSStatus::NOEDNS) {
       EDNSLevel = 1;
+    }
 
     DNSName sendQname(domain);
-    if (g_lowercaseOutgoing)
+    if (g_lowercaseOutgoing) {
       sendQname.makeUsLowerCase();
+    }
 
     if (d_asyncResolve) {
       ret = d_asyncResolve(ip, sendQname, type, doTCP, sendRDQuery, EDNSLevel, now, srcmask, ctx, res, chained);
@@ -1432,39 +1523,59 @@ LWResult::Result SyncRes::asyncresolveWrapper(const ComboAddress& ip, bool ednsM
     else {
       ret = asyncresolve(ip, sendQname, type, doTCP, sendRDQuery, EDNSLevel, now, srcmask, ctx, d_outgoingProtobufServers, d_frameStreamServers, luaconfsLocal->outgoingProtobufExportConfig.exportTypes, res, chained);
     }
-    // ednsstatus might be cleared, so do a new lookup
-    ednsstatus = t_sstorage.ednsstatus.insert(ip).first;
-    mode = &ednsstatus->mode;
+
     if (ret == LWResult::Result::PermanentError || ret == LWResult::Result::OSLimitError || ret == LWResult::Result::Spoofed) {
-      return ret; // transport error, nothing to learn here
+      break; // transport error, nothing to learn here
     }
 
     if (ret == LWResult::Result::Timeout) { // timeout, not doing anything with it now
-      return ret;
+      break;
     }
-    else if (*mode == EDNSStatus::UNKNOWN || *mode == EDNSStatus::EDNSOK || *mode == EDNSStatus::EDNSIGNORANT ) {
-      if(res->d_validpacket && !res->d_haveEDNS && res->d_rcode == RCode::FormErr)  {
-	//	cerr<<"Downgrading to NOEDNS because of "<<RCode::to_s(res->d_rcode)<<" for query to "<<ip.toString()<<" for '"<<domain<<"'"<<endl;
-        t_sstorage.ednsstatus.setMode(ind, ednsstatus, EDNSStatus::NOEDNS);
+
+    if (EDNSLevel == 1) {
+      // We sent out with EDNS
+      // ret is LWResult::Result::Success
+      // ednsstatus in table might be pruned or changed by another request/thread, so do a new lookup/insert
+      auto lock = s_ednsstatus.lock();
+      auto ednsstatus = lock->find(ip); // does this include port? YES
+
+      // Read current mode, defaulting to OK
+      mode = EDNSStatus::EDNSOK;
+      if (ednsstatus != lock->end()) {
+        if (ednsstatus->ttd && ednsstatus->ttd  < d_now.tv_sec) {
+          lock->erase(ednsstatus);
+          ednsstatus = lock->end();
+        } else {
+          mode = ednsstatus->mode;
+        }
+      }
+
+      // Determine new mode
+      if (res->d_validpacket && !res->d_haveEDNS && res->d_rcode == RCode::FormErr)  {
+        mode = EDNSStatus::NOEDNS;
+        if (ednsstatus == lock->end()) {
+          ednsstatus = lock->insert(ip).first;
+        }
+        auto &ind = lock->get<ComboAddress>();
+        lock->setMode(ind, ednsstatus, mode, d_now.tv_sec);
         continue;
       }
-      else if(!res->d_haveEDNS) {
-        if (*mode != EDNSStatus::EDNSIGNORANT) {
-          t_sstorage.ednsstatus.setMode(ind, ednsstatus, EDNSStatus::EDNSIGNORANT);
-	  //	  cerr<<"We find that "<<ip.toString()<<" is an EDNS-ignorer for '"<<domain<<"', moving to mode 2"<<endl;
-	}
+      else if (!res->d_haveEDNS) {
+        if (ednsstatus == lock->end()) {
+          ednsstatus = lock->insert(ip).first;
+        }
+        auto &ind = lock->get<ComboAddress>();
+        lock->setMode(ind, ednsstatus, EDNSStatus::EDNSIGNORANT, d_now.tv_sec);
       }
       else {
-        t_sstorage.ednsstatus.setMode(ind, ednsstatus, EDNSStatus::EDNSOK);
-	//	cerr<<"We find that "<<ip.toString()<<" is EDNS OK!"<<endl;
+        // New status is EDNSOK
+        if (ednsstatus != lock->end()) {
+          lock->erase(ip);
+        }
       }
     }
 
-    if (oldmode != *mode || !ednsstatus->modeSetAt) {
-      t_sstorage.ednsstatus.setTS(ind, ednsstatus, d_now.tv_sec);
-    }
-    //    cerr<<"Result: ret="<<ret<<", EDNS-level: "<<EDNSLevel<<", haveEDNS: "<<res->d_haveEDNS<<", new mode: "<<mode<<endl;
-    return LWResult::Result::Success;
+    break;
   }
   return ret;
 }
@@ -4919,8 +5030,13 @@ static void updateDoTStatus(ComboAddress address, DoTStatus::Status status, time
 
 bool SyncRes::tryDoT(const DNSName& qname, const QType qtype, const DNSName& nsName, ComboAddress address, time_t now)
 {
-  auto logHelper = [](const string& msg) {
-    g_log<<Logger::Debug<<"Failed to probe DoT records, got an exception: "<<msg<<endl;
+  auto log = g_slog->withName("taskq")->withValues("method", Logging::Loggable("tryDoT"), "name", Logging::Loggable(qname), "qtype", Logging::Loggable(QType(qtype).toString()), "ip", Logging::Loggable(address));
+
+  auto logHelper1 = [&log](const string& ename) {
+    log->info(Logr::Debug, "Failed to probe DoT records, got an exception", "exception", Logging::Loggable(ename));
+  };
+  auto logHelper2 = [&log](const string& msg, const string& ename) {
+    log->error(Logr::Debug, msg, "Failed to probe DoT records, got an exception", "exception", Logging::Loggable(ename));
   };
   LWResult lwr;
   bool truncated;
@@ -4934,19 +5050,19 @@ bool SyncRes::tryDoT(const DNSName& qname, const QType qtype, const DNSName& nsN
     ok = ok && lwr.d_rcode == RCode::NoError && lwr.d_records.size() > 0;
   }
   catch(const PDNSException& e) {
-    logHelper(e.reason);
+    logHelper2(e.reason, "PDNSException");
   }
   catch(const ImmediateServFailException& e) {
-    logHelper(e.reason);
+    logHelper2(e.reason, "ImmediateServFailException");
   }
   catch(const PolicyHitException& e) {
-    logHelper("PolicyHitException");
+    logHelper1("PolicyHitException");
   }
   catch(const std::exception& e) {
-    logHelper(e.what());
+    logHelper2(e.what(), "std::exception");
   }
   catch(...) {
-    logHelper("other");
+    logHelper1("other");
   }
   updateDoTStatus(address, ok ? DoTStatus::Good : DoTStatus::Bad, now + (ok ? dotSuccessWait : dotFailWait), true);
   return ok;
@@ -5626,13 +5742,15 @@ void SyncRes::parseEDNSSubnetAddFor(const std::string& subnetlist)
 }
 
 // used by PowerDNSLua - note that this neglects to add the packet count & statistics back to pdns_recursor.cc
-int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl)
+int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl, Logr::log_t log)
 {
-  return directResolve(qname, qtype, qclass, ret, pdl, SyncRes::s_qnameminimization);
+  return directResolve(qname, qtype, qclass, ret, pdl, SyncRes::s_qnameminimization, log);
 }
 
-int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl, bool qm)
+int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl, bool qm, Logr::log_t slog)
 {
+  auto log = slog->withValues("qname", Logging::Loggable(qname), "qtype", Logging::Loggable(qtype));
+
   struct timeval now;
   gettimeofday(&now, 0);
 
@@ -5643,27 +5761,33 @@ int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, 
   }
 
   int res = -1;
+  const std::string msg = "Exception while resolving";
   try {
     res = sr.beginResolve(qname, qtype, qclass, ret, 0);
   }
   catch(const PDNSException& e) {
-    g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got pdns exception: "<<e.reason<<endl;
+    SLOG(g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got pdns exception: "<<e.reason<<endl,
+         log->error(Logr::Error, e.reason, msg, "exception", Logging::Loggable("PDNSException")));
     ret.clear();
   }
   catch(const ImmediateServFailException& e) {
-    g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got ImmediateServFailException: "<<e.reason<<endl;
+    SLOG(g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got ImmediateServFailException: "<<e.reason<<endl,
+         log->error(Logr::Error, e.reason, msg, "exception", Logging::Loggable("ImmediateServFailException")));
     ret.clear();
   }
   catch(const PolicyHitException& e) {
-    g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got a policy hit"<<endl;
+    SLOG(g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got a policy hit"<<endl,
+         log->info(Logr::Error, msg, "exception", Logging::Loggable("PolicyHitException")));
     ret.clear();
   }
   catch(const std::exception& e) {
-    g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got STL error: "<<e.what()<<endl;
+    SLOG(g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got STL error: "<<e.what()<<endl,
+         log->error(Logr::Error, e.what(), msg, "exception", Logging::Loggable("std::exception")));
     ret.clear();
   }
   catch(...) {
-    g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got an exception"<<endl;
+    SLOG(g_log<<Logger::Error<<"Failed to resolve "<<qname<<", got an exception"<<endl,
+         log->info(Logr::Error, msg));
     ret.clear();
   }
 
@@ -5678,6 +5802,7 @@ int SyncRes::getRootNS(struct timeval now, asyncresolve_t asyncCallback, unsigne
   sr.setDNSSECValidationRequested(g_dnssecmode != DNSSECMode::Off && g_dnssecmode != DNSSECMode::ProcessNoValidate);
   sr.setAsyncCallback(asyncCallback);
 
+  const string msg = "Failed to update . records";
   vector<DNSRecord> ret;
   int res = -1;
   try {
@@ -5689,21 +5814,26 @@ int SyncRes::getRootNS(struct timeval now, asyncresolve_t asyncCallback, unsigne
       }
     }
   }
-  catch(const PDNSException& e) {
-    g_log<<Logger::Error<<"Failed to update . records, got an exception: "<<e.reason<<endl;
+  catch (const PDNSException& e) {
+    SLOG(g_log<<Logger::Error<<"Failed to update . records, got an exception: "<<e.reason<<endl,
+         log->error(Logr::Error, e.reason, msg, "exception", Logging::Loggable("PDNSException")));
   }
-  catch(const ImmediateServFailException& e) {
-    g_log<<Logger::Error<<"Failed to update . records, got an exception: "<<e.reason<<endl;
+  catch (const ImmediateServFailException& e) {
+    SLOG(g_log<<Logger::Error<<"Failed to update . records, got an exception: "<<e.reason<<endl,
+         log->error(Logr::Error, e.reason, msg, "exception", Logging::Loggable("ImmediateServFailException")));
   }
-  catch(const PolicyHitException& e) {
-    g_log<<Logger::Error<<"Failed to update . records, got a policy hit"<<endl;
+  catch (const PolicyHitException& e) {
+    SLOG(g_log<<Logger::Error<<"Failed to update . records, got a policy hit"<<endl,
+         log->info(Logr::Error, msg, "exception", Logging::Loggable("PolicyHitException")));
     ret.clear();
   }
-  catch(const std::exception& e) {
-    g_log<<Logger::Error<<"Failed to update . records, got an exception: "<<e.what()<<endl;
+  catch (const std::exception& e) {
+    SLOG(g_log<<Logger::Error<<"Failed to update . records, got an exception: "<<e.what()<<endl,
+         log->error(Logr::Error, e.what(), msg, "exception", Logging::Loggable("std::exception")));
   }
-  catch(...) {
-    g_log<<Logger::Error<<"Failed to update . records, got an exception"<<endl;
+  catch (...) {
+    SLOG(g_log<<Logger::Error<<"Failed to update . records, got an exception"<<endl,
+         log->info(Logr::Error, msg));
   }
 
   if (res == 0) {
@@ -5711,7 +5841,8 @@ int SyncRes::getRootNS(struct timeval now, asyncresolve_t asyncCallback, unsigne
          log->info(Logr::Debug, "Refreshed . records"));
   }
   else {
-    g_log<<Logger::Warning<<"Failed to update root NS records, RCODE="<<res<<endl;
+    SLOG(g_log<<Logger::Warning<<"Failed to update root NS records, RCODE="<<res<<endl,
+         log->info(Logr::Warning, msg, "rcode", Logging::Loggable(res)));
   }
   return res;
 }

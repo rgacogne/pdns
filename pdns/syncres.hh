@@ -114,6 +114,12 @@ public:
     DNSName d_name;
     bool d_rdForward{false};
 
+    bool operator==(const AuthDomain& rhs) const;
+
+    [[nodiscard]]
+    std::string print(const std::string& indent = "",
+                      const std::string& indentLevel = "  ") const;
+
     int getRecords(const DNSName& qname, QType qtype, std::vector<DNSRecord>& records) const;
     bool isAuth() const
     {
@@ -138,37 +144,7 @@ public:
 
   typedef std::unordered_map<DNSName, AuthDomain> domainmap_t;
 
-  struct EDNSStatus {
-    EDNSStatus(const ComboAddress &arg) : address(arg) {}
-    ComboAddress address;
-    time_t modeSetAt{0};
-    mutable enum EDNSMode { UNKNOWN=0, EDNSOK=1, EDNSIGNORANT=2, NOEDNS=3 } mode{UNKNOWN};
-  };
-
-  struct ednsstatus_t : public multi_index_container<EDNSStatus,
-                                                     indexed_by<
-                                                       ordered_unique<tag<ComboAddress>, member<EDNSStatus, ComboAddress, &EDNSStatus::address>>,
-                                                       ordered_non_unique<tag<time_t>, member<EDNSStatus, time_t, &EDNSStatus::modeSetAt>>
-                                  >> {
-    void reset(index<ComboAddress>::type &ind, iterator it) {
-      ind.modify(it, [](EDNSStatus &s) { s.mode = EDNSStatus::EDNSMode::UNKNOWN; s.modeSetAt = 0; }); 
-    }
-    void setMode(index<ComboAddress>::type &ind, iterator it, EDNSStatus::EDNSMode mode) {
-      it->mode = mode;
-    }
-    void setTS(index<ComboAddress>::type &ind, iterator it, time_t ts) {
-      ind.modify(it, [ts](EDNSStatus &s) { s.modeSetAt = ts; });
-    }
-
-    void prune(time_t cutoff) {
-      auto &ind = get<time_t>();
-      ind.erase(ind.begin(), ind.upper_bound(cutoff));
-    }
-
-  };
-
   struct ThreadLocalStorage {
-    ednsstatus_t ednsstatus;
     std::shared_ptr<domainmap_t> domainmap;
   };
 
@@ -176,6 +152,7 @@ public:
   {
     s_lm = lm;
   }
+
   static uint64_t doEDNSDump(int fd);
   static uint64_t doDumpNSSpeeds(int fd);
   static uint64_t doDumpThrottleMap(int fd);
@@ -236,26 +213,27 @@ public:
   static void clearNSSpeeds();
   static float getNSSpeed(const DNSName& server, const ComboAddress& ca);
 
-  static EDNSStatus::EDNSMode getEDNSStatus(const ComboAddress& server)
-  {
-    const auto& it = t_sstorage.ednsstatus.find(server);
-    if (it == t_sstorage.ednsstatus.end())
-      return EDNSStatus::UNKNOWN;
+  struct EDNSStatus {
+    EDNSStatus(const ComboAddress &arg) : address(arg) {}
+    ComboAddress address;
+    time_t ttd{0};
+    enum EDNSMode : uint8_t { EDNSOK = 0, EDNSIGNORANT = 1, NOEDNS = 2 } mode{EDNSOK};
 
-    return it->mode;
-  }
-  static uint64_t getEDNSStatusesSize()
-  {
-    return t_sstorage.ednsstatus.size();
-  }
-  static void clearEDNSStatuses()
-  {
-    t_sstorage.ednsstatus.clear();
-  }
-  static void pruneEDNSStatuses(time_t cutoff)
-  {
-    t_sstorage.ednsstatus.prune(cutoff);
-  }
+    std::string toString() const
+    {
+      const std::array<std::string,3> modes = { "OK", "Ignorant", "No" };
+      unsigned int m = static_cast<unsigned int>(mode);
+      if (m >= modes.size()) {
+        return "?";
+      }
+      return modes.at(m);
+    }
+  };
+
+  static EDNSStatus::EDNSMode getEDNSStatus(const ComboAddress& server);
+  static uint64_t getEDNSStatusesSize();
+  static void clearEDNSStatuses();
+  static void pruneEDNSStatuses(time_t cutoff);
 
   static uint64_t getThrottledServersSize();
   static void pruneThrottledServers(time_t now);
@@ -519,7 +497,7 @@ public:
   static const int event_trace_to_log = 2;
   static int s_event_trace_enabled;
   static bool s_save_parent_ns_set;
-  
+
   std::unordered_map<std::string,bool> d_discardedPolicies;
   DNSFilterEngine::Policy d_appliedPolicy;
   std::unordered_set<std::string> d_policyTags;
@@ -909,8 +887,8 @@ typedef std::function<void*(void)> pipefunc_t;
 void broadcastFunction(const pipefunc_t& func);
 void distributeAsyncFunction(const std::string& question, const pipefunc_t& func);
 
-int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl);
-int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl, bool qm);
+int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl, Logr::log_t);
+int directResolve(const DNSName& qname, const QType qtype, const QClass qclass, vector<DNSRecord>& ret, shared_ptr<RecursorLua4> pdl, bool qm, Logr::log_t);
 int followCNAMERecords(std::vector<DNSRecord>& ret, const QType qtype, int oldret);
 int getFakeAAAARecords(const DNSName& qname, ComboAddress prefix, vector<DNSRecord>& ret);
 int getFakePTRRecords(const DNSName& qname, vector<DNSRecord>& ret);
@@ -923,7 +901,6 @@ void* pleaseSupplantAllowNotifyFor(std::shared_ptr<notifyset_t> ns);
 
 uint64_t* pleaseGetNsSpeedsSize();
 uint64_t* pleaseGetFailedServersSize();
-uint64_t* pleaseGetEDNSStatusesSize();
 uint64_t* pleaseGetConcurrentQueries();
 uint64_t* pleaseGetThrottleSize();
 uint64_t* pleaseGetPacketCacheHits();
@@ -953,4 +930,3 @@ struct ThreadTimes
     return *this;
   }
 };
-

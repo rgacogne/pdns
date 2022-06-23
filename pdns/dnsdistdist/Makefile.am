@@ -125,6 +125,7 @@ dnsdist-lua-ffi.$(OBJEXT): dnsdist-lua-ffi-interface.inc
 dnsdist_SOURCES = \
 	base64.hh \
 	bpf-filter.cc bpf-filter.hh \
+	burtle.hh \
 	cachecleaner.hh \
 	capabilities.cc capabilities.hh \
 	circular_buffer.hh \
@@ -206,6 +207,7 @@ dnsdist_SOURCES = \
 	iputils.cc iputils.hh \
 	libssl.cc libssl.hh \
 	lock.hh \
+	logging.hh \
 	misc.cc misc.hh \
 	mplexer.hh \
 	namespaces.hh \

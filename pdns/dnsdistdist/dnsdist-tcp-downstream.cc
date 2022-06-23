@@ -76,19 +76,20 @@ bool ConnectionToBackend::reconnect()
       auto socket = Socket(d_ds->d_config.remote.sin4.sin_family, SOCK_STREAM, 0);
       DEBUGLOG("result of socket() is "<<socket.getHandle());
 
+#ifdef SO_BINDTODEVICE
+      if (!d_ds->d_config.sourceItfName.empty()) {
+        int res = setsockopt(socket.getHandle(), SOL_SOCKET, SO_BINDTODEVICE, d_ds->d_config.sourceItfName.c_str(), d_ds->d_config.sourceItfName.length());
+        if (res != 0) {
+          vinfolog("Error setting up the interface on backend TCP socket '%s': %s", d_ds->getNameWithAddr(), stringerror());
+        }
+      }
+#endif
+
       if (!IsAnyAddress(d_ds->d_config.sourceAddr)) {
         SSetsockopt(socket.getHandle(), SOL_SOCKET, SO_REUSEADDR, 1);
 #ifdef IP_BIND_ADDRESS_NO_PORT
         if (d_ds->d_config.ipBindAddrNoPort) {
           SSetsockopt(socket.getHandle(), SOL_IP, IP_BIND_ADDRESS_NO_PORT, 1);
-        }
-#endif
-#ifdef SO_BINDTODEVICE
-        if (!d_ds->d_config.sourceItfName.empty()) {
-          int res = setsockopt(socket.getHandle(), SOL_SOCKET, SO_BINDTODEVICE, d_ds->d_config.sourceItfName.c_str(), d_ds->d_config.sourceItfName.length());
-          if (res != 0) {
-            vinfolog("Error setting up the interface on backend TCP socket '%s': %s", d_ds->getNameWithAddr(), stringerror());
-          }
         }
 #endif
         socket.bind(d_ds->d_config.sourceAddr, false);
@@ -659,6 +660,9 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
 
   --conn->d_ds->outstanding;
   auto ids = std::move(it->second.d_query.d_idstate);
+  const double udiff = ids.queryRealTime.udiff();
+  conn->d_ds->latencyUsecTCP = (127.0 * conn->d_ds->latencyUsecTCP / 128.0) + udiff / 128.0;
+
   d_pendingResponses.erase(it);
   /* marking as idle for now, so we can accept new queries if our queues are empty */
   if (d_pendingQueries.empty() && d_pendingResponses.empty()) {

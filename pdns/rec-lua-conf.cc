@@ -252,7 +252,8 @@ static void rpzPrimary(LuaConfigItems& lci, luaConfigDelayedThreads& delayedThre
       if (have.count("refresh")) {
         refresh = boost::get<uint32_t>(have["refresh"]);
         if (refresh == 0) {
-          g_log << Logger::Warning << "rpzPrimary refresh value of 0 ignored" << endl;
+          SLOG(g_log << Logger::Warning << "rpzPrimary refresh value of 0 ignored" << endl,
+               lci.d_slog->info(Logr::Warning, "rpzPrimary refresh value of 0 ignored"));
         }
       }
 
@@ -291,8 +292,10 @@ static void rpzPrimary(LuaConfigItems& lci, luaConfigDelayedThreads& delayedThre
     zone->setName(polName);
     zoneIdx = lci.dfe.addZone(zone);
 
+    auto log = lci.d_slog->withValues("seedfile", Logging::Loggable(seedFile), "zone", Logging::Loggable(zoneName));
     if (!seedFile.empty()) {
-      g_log << Logger::Info << "Pre-loading RPZ zone " << zoneName << " from seed file '" << seedFile << "'" << endl;
+      SLOG(g_log << Logger::Info << "Pre-loading RPZ zone " << zoneName << " from seed file '" << seedFile << "'" << endl,
+           log->info(Logr::Info, "Pre-loading RPZ zone from seed file"));
       try {
         sr = loadRPZFromFile(seedFile, zone, defpol, defpolOverrideLocal, maxTTL);
 
@@ -305,21 +308,25 @@ static void rpzPrimary(LuaConfigItems& lci, luaConfigDelayedThreads& delayedThre
         }
       }
       catch (const PDNSException& e) {
-        g_log << Logger::Warning << "Unable to pre-load RPZ zone " << zoneName << " from seed file '" << seedFile << "': " << e.reason << endl;
+        SLOG(g_log << Logger::Warning << "Unable to pre-load RPZ zone " << zoneName << " from seed file '" << seedFile << "': " << e.reason << endl,
+             log->error(Logr::Warning, e.reason, "Exception while pre-loadin RPZ zone", "exception", Logging::Loggable("PDNSException")));
         zone->clear();
       }
       catch (const std::exception& e) {
-        g_log << Logger::Warning << "Unable to pre-load RPZ zone " << zoneName << " from seed file '" << seedFile << "': " << e.what() << endl;
+        SLOG(g_log << Logger::Warning << "Unable to pre-load RPZ zone " << zoneName << " from seed file '" << seedFile << "': " << e.what() << endl,
+             log->error(Logr::Warning, e.what(), "Exception while pre-loadin RPZ zone", "exception", Logging::Loggable("std::exception")));
         zone->clear();
       }
     }
   }
   catch (const std::exception& e) {
-    g_log << Logger::Error << "Problem configuring 'rpzPrimary': " << e.what() << endl;
+    SLOG(g_log << Logger::Error << "Problem configuring 'rpzPrimary': " << e.what() << endl,
+         lci.d_slog->error(Logr::Critical, e.what(), "Exception configuring 'rpzPrimary'", "exception", Logging::Loggable("std::exception")));
     exit(1); // FIXME proper exit code?
   }
   catch (const PDNSException& e) {
-    g_log << Logger::Error << "Problem configuring 'rpzPrimary': " << e.reason << endl;
+    SLOG(g_log << Logger::Error << "Problem configuring 'rpzPrimary': " << e.reason << endl,
+         lci.d_slog->error(Logr::Critical, e.reason, "Exception configuring 'rpzPrimary'", Logging::Loggable("PDNSException")));
     exit(1); // FIXME proper exit code?
   }
 
@@ -357,6 +364,7 @@ public:
 void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& delayedThreads, ProxyMapping& proxyMapping)
 {
   LuaConfigItems lci;
+  lci.d_slog = g_slog->withName("luaconfig");
 
   RecLuaConfigContext Lua;
 
@@ -386,6 +394,7 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
   Lua->writeVariable("Policy", pmap);
 
   Lua->writeFunction("rpzFile", [&lci](const string& filename, boost::optional<rpzOptions_t> options) {
+    auto log = lci.d_slog->withValues("file", Logging::Loggable(filename));
     try {
       boost::optional<DNSFilterEngine::Policy> defpol;
       bool defpolOverrideLocal = true;
@@ -396,19 +405,23 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
         auto& have = *options;
         parseRPZParameters(have, zone, polName, defpol, defpolOverrideLocal, maxTTL);
       }
-      g_log << Logger::Warning << "Loading RPZ from file '" << filename << "'" << endl;
+      SLOG(g_log << Logger::Warning << "Loading RPZ from file '" << filename << "'" << endl,
+           log->info(Logr::Info, "Loading RPZ from file"));
       zone->setName(polName);
       loadRPZFromFile(filename, zone, defpol, defpolOverrideLocal, maxTTL);
       lci.dfe.addZone(zone);
-      g_log << Logger::Warning << "Done loading RPZ from file '" << filename << "'" << endl;
+      SLOG(g_log << Logger::Warning << "Done loading RPZ from file '" << filename << "'" << endl,
+           log->info(Logr::Info,  "Done loading RPZ from file"));
     }
     catch (const std::exception& e) {
-      g_log << Logger::Error << "Unable to load RPZ zone from '" << filename << "': " << e.what() << endl;
+      SLOG(g_log << Logger::Error << "Unable to load RPZ zone from '" << filename << "': " << e.what() << endl,
+           log->error(Logr::Error, e.what(), "Exception while loadinf  RPZ zone from file"));
     }
   });
 
   Lua->writeFunction("rpzMaster", [&lci, &delayedThreads](const boost::variant<string, std::vector<std::pair<int, string>>>& primaries_, const string& zoneName, boost::optional<rpzOptions_t> options) {
-    g_log << Logger::Warning << "'rpzMaster' is deprecated and will be removed in a future release, use 'rpzPrimary' instead" << endl;
+    SLOG(g_log << Logger::Warning << "'rpzMaster' is deprecated and will be removed in a future release, use 'rpzPrimary' instead" << endl,
+         lci.d_slog->info(Logr::Warning, "'rpzMaster' is deprecated and will be removed in a future release, use 'rpzPrimary' instead"));
     rpzPrimary(lci, delayedThreads, primaries_, zoneName, options);
   });
   Lua->writeFunction("rpzPrimary", [&lci, &delayedThreads](const boost::variant<string, std::vector<std::pair<int, string>>>& primaries_, const string& zoneName, boost::optional<rpzOptions_t> options) {
@@ -493,7 +506,9 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
       lci.ztcConfigs[validZoneName] = conf;
     }
     catch (const std::exception& e) {
-      g_log << Logger::Error << "Problem configuring zoneToCache for zone '" << zoneName << "': " << e.what() << endl;
+      SLOG(g_log << Logger::Error << "Problem configuring zoneToCache for zone '" << zoneName << "': " << e.what() << endl,
+           lci.d_slog->error(Logr::Error, e.what(), "Problem configuring zoneToCache", "zone", Logging::Loggable(zoneName),
+                             "exception", Logging::Loggable("std::exception")));
     }
   });
 
@@ -524,7 +539,8 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
                          }
                        }
                        catch (std::exception& e) {
-                         g_log << Logger::Error << "Error in addSortList: " << e.what() << endl;
+                         SLOG(g_log << Logger::Error << "Error in addSortList: " << e.what() << endl,
+                              lci.d_slog->error(Logr::Error, e.what(), "Error in addSortList", "exception",  Logging::Loggable("std::exception")));
                        }
                      });
 
@@ -546,7 +562,8 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
   /* Remove in 4.3 */
   Lua->writeFunction("addDS", [&lci](const std::string& who, const std::string& what) {
     warnIfDNSSECDisabled("Warning: adding Trust Anchor for DNSSEC (addDS), but dnssec is set to 'off'!");
-    g_log << Logger::Warning << "addDS is deprecated and will be removed in the future, switch to addTA" << endl;
+    SLOG(g_log << Logger::Warning << "addDS is deprecated and will be removed in the future, switch to addTA" << endl,
+         lci.d_slog->info(Logr::Warning, "addDS is deprecated and will be removed in the future, switch to addTA"));
     DNSName zone(who);
     auto ds = std::dynamic_pointer_cast<DSRecordContent>(DSRecordContent::make(what));
     lci.dsAnchors[zone].insert(*ds);
@@ -554,7 +571,8 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
 
   /* Remove in 4.3 */
   Lua->writeFunction("clearDS", [&lci](boost::optional<string> who) {
-    g_log << Logger::Warning << "clearDS is deprecated and will be removed in the future, switch to clearTA" << endl;
+    SLOG(g_log << Logger::Warning << "clearDS is deprecated and will be removed in the future, switch to clearTA" << endl,
+         lci.d_slog->info(Logr::Warning, "clearDS is deprecated and will be removed in the future, switch to clearTA"));
     warnIfDNSSECDisabled("Warning: removing Trust Anchor for DNSSEC (clearDS), but dnssec is set to 'off'!");
     if (who)
       lci.dsAnchors.erase(DNSName(*who));
@@ -583,11 +601,10 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
     if (interval) {
       realInterval = static_cast<uint32_t>(*interval);
     }
-    auto log = g_slog->withName("config");
     warnIfDNSSECDisabled("Warning: reading Trust Anchors from file (readTrustAnchorsFromFile), but dnssec is set to 'off'!");
     lci.trustAnchorFileInfo.fname = fnamearg;
     lci.trustAnchorFileInfo.interval = realInterval;
-    updateTrustAnchorsFromFile(fnamearg, lci.dsAnchors, log);
+    updateTrustAnchorsFromFile(fnamearg, lci.dsAnchors, lci.d_slog);
   });
 
   Lua->writeFunction("setProtobufMasks", [&lci](const uint8_t maskV4, uint8_t maskV6) {
@@ -616,14 +633,17 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
         parseProtobufOptions(vars, lci.protobufExportConfig);
       }
       catch (std::exception& e) {
-        g_log << Logger::Error << "Error while adding protobuf logger: " << e.what() << endl;
+        SLOG(g_log << Logger::Error << "Error while adding protobuf logger: " << e.what() << endl,
+             lci.d_slog->error(Logr::Error, e.what(), "Exception  while adding protobuf logger", "exception", Logging::Loggable("std::exception")));
       }
       catch (PDNSException& e) {
-        g_log << Logger::Error << "Error while adding protobuf logger: " << e.reason << endl;
+        SLOG(g_log << Logger::Error << "Error while adding protobuf logger: " << e.reason << endl,
+             lci.d_slog->error(Logr::Error, e.reason, "Exception  while adding protobuf logger", "exception", Logging::Loggable("PDNSException")));
       }
     }
     else {
-      g_log << Logger::Error << "Only one protobufServer() directive can be configured, we already have " << lci.protobufExportConfig.servers.at(0).toString() << endl;
+      SLOG(g_log << Logger::Error << "Only one protobufServer() directive can be configured, we already have " << lci.protobufExportConfig.servers.at(0).toString() << endl,
+           lci.d_slog->info(Logr::Error, "Only one protobufServer() directive can be configured", "existing", Logging::Loggable(lci.protobufExportConfig.servers.at(0).toString())));
     }
   });
 
@@ -648,14 +668,17 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
         parseProtobufOptions(vars, lci.outgoingProtobufExportConfig);
       }
       catch (std::exception& e) {
-        g_log << Logger::Error << "Error while starting outgoing protobuf logger: " << e.what() << endl;
+        SLOG(g_log << Logger::Error << "Error while starting outgoing protobuf logger: " << e.what() << endl,
+             lci.d_slog->error(Logr::Error, "Exception while starting outgoing protobuf logger", "exception", Logging::Loggable("std::exception")));
       }
       catch (PDNSException& e) {
-        g_log << Logger::Error << "Error while starting outgoing protobuf logger: " << e.reason << endl;
+        SLOG(g_log << Logger::Error << "Error while starting outgoing protobuf logger: " << e.reason << endl,
+             lci.d_slog->error(Logr::Error, "Exception while starting outgoing protobuf logger", "exception", Logging::Loggable("PDNSException")));
       }
     }
     else {
-      g_log << Logger::Error << "Only one outgoingProtobufServer() directive can be configured, we already have " << lci.outgoingProtobufExportConfig.servers.at(0).toString() << endl;
+      SLOG(g_log << Logger::Error << "Only one outgoingProtobufServer() directive can be configured, we already have " << lci.outgoingProtobufExportConfig.servers.at(0).toString() << endl,
+           lci.d_slog->info(Logr::Error, "Only one outgoingProtobufServer() directive can be configured", "existing", Logging::Loggable(lci.outgoingProtobufExportConfig.servers.at(0).toString())));
     }
   });
 
@@ -683,14 +706,17 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
         parseFrameStreamOptions(vars, lci.frameStreamExportConfig);
       }
       catch (std::exception& e) {
-        g_log << Logger::Error << "Error reading config for dnstap framestream logger: " << e.what() << endl;
+        SLOG(g_log << Logger::Error << "Error reading config for dnstap framestream logger: " << e.what() << endl,
+              lci.d_slog->error(Logr::Error, "Exception reading config for dnstap framestream logger", "exception", Logging::Loggable("std::exception")));
       }
       catch (PDNSException& e) {
-        g_log << Logger::Error << "Error reading config for dnstap framestream logger: " << e.reason << endl;
+        SLOG(g_log << Logger::Error << "Error reading config for dnstap framestream logger: " << e.reason << endl,
+             lci.d_slog->error(Logr::Error, "Exception reading config for dnstap framestream logger", "exception", Logging::Loggable("PDNSException")));
       }
     }
     else {
-      g_log << Logger::Error << "Only one dnstapFrameStreamServer() directive can be configured, we already have " << lci.frameStreamExportConfig.servers.at(0) << endl;
+      SLOG(g_log << Logger::Error << "Only one dnstapFrameStreamServer() directive can be configured, we already have " << lci.frameStreamExportConfig.servers.at(0) << endl,
+           lci.d_slog->info(Logr::Error,  "Only one dnstapFrameStreamServer() directive can be configured",  "existing", Logging::Loggable(lci.frameStreamExportConfig.servers.at(0))));
     }
   });
 #endif /* HAVE_FSTRM */
@@ -704,7 +730,8 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
     case QType::NAPTR:
       break;
     default:
-      g_log << Logger::Error << "addAllowedAdditionalQType does not support " << QType(qtype).toString() << endl;
+      SLOG(g_log << Logger::Error << "addAllowedAdditionalQType does not support " << QType(qtype).toString() << endl,
+           lci.d_slog->info(Logr::Error, "addAllowedAdditionalQType does not support this qtype", "qtype", Logging::Loggable(QType(qtype).toString())));
       return;
     }
 
@@ -719,14 +746,15 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
       if (const auto it = options->find("mode"); it != options->end()) {
         mode = static_cast<AdditionalMode>(it->second);
         if (mode > AdditionalMode::ResolveDeferred) {
-          g_log << Logger::Error << "addAllowedAdditionalQType: unknown mode " << it->second << endl;
+          SLOG(g_log << Logger::Error << "addAllowedAdditionalQType: unknown mode " << it->second << endl,
+               lci.d_slog->info(Logr::Error, "addAllowedAdditionalQType: unknown mode", "mode", Logging::Loggable( it->second)));
         }
       }
     }
     lci.allowAdditionalQTypes.insert_or_assign(qtype, pair(targets, mode));
   });
 
-  Lua->writeFunction("addProxyMapping", [&proxyMapping](const string& netmaskArg, const string& addressArg, boost::optional<std::vector<pair<int,std::string>>> smnStrings) {
+  Lua->writeFunction("addProxyMapping", [&proxyMapping,&lci](const string& netmaskArg, const string& addressArg, boost::optional<std::vector<pair<int,std::string>>> smnStrings) {
     try {
       Netmask netmask(netmaskArg);
       ComboAddress address(addressArg);
@@ -740,10 +768,12 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
       proxyMapping.insert_or_assign(netmask, {address, smn});
     }
     catch (std::exception& e) {
-      g_log << Logger::Error << "Error processing addProxyMapping: " << e.what() << endl;
+      SLOG(g_log << Logger::Error << "Error processing addProxyMapping: " << e.what() << endl,
+           lci.d_slog->error(Logr::Error, e.what(), "Exception processing addProxyMapping", "exception", Logging::Loggable("std::exception")));
     }
     catch (PDNSException& e) {
-      g_log << Logger::Error << "Error processing addProxyMapping: " << e.reason << endl;
+      SLOG(g_log << Logger::Error << "Error processing addProxyMapping: " << e.reason << endl,
+           lci.d_slog->error(Logr::Error, e.reason, "Exception processing addProxyMapping", "exception", Logging::Loggable("PDNSException")));
     }
   });
 
@@ -752,22 +782,25 @@ void loadRecursorLuaConfig(const std::string& fname, luaConfigDelayedThreads& de
     g_luaconfs.setState(std::move(lci));
   }
   catch (const LuaContext::ExecutionErrorException& e) {
-    g_log << Logger::Error << "Unable to load Lua script from '" + fname + "': ";
+    SLOG(g_log << Logger::Error << "Unable to load Lua script from '" + fname + "': ",
+         lci.d_slog->error(Logr::Error, e.what(),  "Unable to load Lua script", "file", Logging::Loggable(fname)));
     try {
       std::rethrow_if_nested(e);
     }
     catch (const std::exception& exp) {
       // exp is the exception that was thrown from inside the lambda
-      g_log << exp.what() << std::endl;
+      SLOG(g_log << exp.what() << std::endl,
+           lci.d_slog->error(Logr::Error, exp.what(), "Exception loading Lua", "exception", Logging::Loggable("std::exception")));
     }
     catch (const PDNSException& exp) {
       // exp is the exception that was thrown from inside the lambda
-      g_log << exp.reason << std::endl;
-    }
+      SLOG(g_log << exp.reason << std::endl,
+           lci.d_slog->error(Logr::Error, exp.reason, "Exception loading Lua", "exception", Logging::Loggable("PDNSException")))    }
     throw;
   }
   catch (std::exception& err) {
-    g_log << Logger::Error << "Unable to load Lua script from '" + fname + "': " << err.what() << endl;
+    SLOG(g_log << Logger::Error << "Unable to load Lua script from '" + fname + "': " << err.what() << endl,
+         lci.d_slog->error(Logr::Error, err.what(),  "Unable to load Lua script", "file", Logging::Loggable(fname), "exception", Logging::Loggable("std::exception")));
     throw;
   }
 }
@@ -782,11 +815,13 @@ void startLuaConfigDelayedThreads(const luaConfigDelayedThreads& delayedThreads,
       t.detach();
     }
     catch (const std::exception& e) {
-      g_log << Logger::Error << "Problem starting RPZIXFRTracker thread: " << e.what() << endl;
+      SLOG(g_log << Logger::Error << "Problem starting RPZIXFRTracker thread: " << e.what() << endl,
+           g_slog->withName("rpz")->error(Logr::Error, e.what(), "Exception startng RPZIXFRTracker thread", "exception", Logging::Loggable("std::exception")));
       exit(1);
     }
     catch (const PDNSException& e) {
-      g_log << Logger::Error << "Problem starting RPZIXFRTracker thread: " << e.reason << endl;
+      SLOG(g_log << Logger::Error << "Problem starting RPZIXFRTracker thread: " << e.reason << endl,
+           g_slog->withName("rpz")->error(Logr::Error, e.reason, "Exception startng RPZIXFRTracker thread", "exception", Logging::Loggable("PDNSException")));
       exit(1);
     }
   }
