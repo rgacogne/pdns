@@ -2323,8 +2323,9 @@ void setupLuaActions(LuaContext& luaCtx)
     });
 
   luaCtx.writeFunction("LimitTTLResponseAction", [](uint32_t min, uint32_t max, boost::optional<LuaArray<uint16_t>> types) {
-      std::set<QType> capTypes;
+      std::unordered_set<QType> capTypes;
       if (types) {
+        capTypes.reserve(types->size());
         for (const auto& [idx, type] : *types) {
           (void) idx;
           capTypes.insert(QType(type));
