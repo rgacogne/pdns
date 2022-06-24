@@ -1623,3 +1623,42 @@ uint16_t dnsdist_ffi_network_message_get_endpoint_id(const dnsdist_ffi_network_m
   return 0;
 }
 
+void dnsdist_ffi_metric_inc(const char* metricName, size_t metricNameLen)
+{
+  auto metric = g_stats.customCounters.find(std::string_view(metricName, metricNameLen));
+  if (metric != g_stats.customCounters.end()) {
+    ++metric->second;
+  }
+}
+
+void dnsdist_ffi_metric_dec(const char* metricName, size_t metricNameLen)
+{
+  auto metric = g_stats.customCounters.find(std::string_view(metricName, metricNameLen));
+  if (metric != g_stats.customCounters.end()) {
+    --metric->second;
+  }
+}
+
+void dnsdist_ffi_metric_set(const char* metricName, size_t metricNameLen, double value)
+{
+  auto metric = g_stats.customGauges.find(std::string_view(metricName, metricNameLen));
+  if (metric != g_stats.customGauges.end()) {
+    metric->second = value;
+  }
+}
+
+double dnsdist_ffi_metric_get(const char* metricName, size_t metricNameLen)
+{
+  auto name = std::string_view(metricName, metricNameLen);
+  auto counter = g_stats.customCounters.find(name);
+  if (counter != g_stats.customCounters.end()) {
+    return (double)counter->second.load();
+  }
+  else {
+    auto gauge = g_stats.customGauges.find(name);
+    if (gauge != g_stats.customGauges.end()) {
+      return gauge->second.load();
+    }
+  }
+  return 0.;
+}
