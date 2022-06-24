@@ -424,7 +424,7 @@ IDState* DownstreamState::getIDState(unsigned int& selectedID, int64_t& generati
     bool done = false;
     do {
       selectedID = dnsdist::getRandomValue(std::numeric_limits<uint16_t>::max());
-      auto [it, inserted] = map->insert({selectedID, IDState()});
+      auto [it, inserted] = map->emplace(selectedID, IDState());
       ids = &it->second;
       if (inserted) {
         done = true;
