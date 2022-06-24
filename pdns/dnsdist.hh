@@ -366,6 +366,9 @@ struct DNSDistStats
   stat_t tcpCrossProtocolQueryPipeFull{0};
   stat_t tcpCrossProtocolResponsePipeFull{0};
   double latencyAvg100{0}, latencyAvg1000{0}, latencyAvg10000{0}, latencyAvg1000000{0};
+  double latencyTCPAvg100{0}, latencyTCPAvg1000{0}, latencyTCPAvg10000{0}, latencyTCPAvg1000000{0};
+  double latencyDoTAvg100{0}, latencyDoTAvg1000{0}, latencyDoTAvg10000{0}, latencyDoTAvg1000000{0};
+  double latencyDoHAvg100{0}, latencyDoHAvg1000{0}, latencyDoHAvg10000{0}, latencyDoHAvg1000000{0};
   typedef std::function<uint64_t(const std::string&)> statfunction_t;
   typedef boost::variant<stat_t*, pdns::stat_t_trait<double>*, double*, statfunction_t> entry_t;
 
@@ -397,6 +400,18 @@ struct DNSDistStats
     {"latency-avg1000", &latencyAvg1000},
     {"latency-avg10000", &latencyAvg10000},
     {"latency-avg1000000", &latencyAvg1000000},
+    {"latency-tcp-avg100", &latencyTCPAvg100},
+    {"latency-tcp-avg1000", &latencyTCPAvg1000},
+    {"latency-tcp-avg10000", &latencyTCPAvg10000},
+    {"latency-tcp-avg1000000", &latencyTCPAvg1000000},
+    {"latency-dot-avg100", &latencyDoTAvg100},
+    {"latency-dot-avg1000", &latencyDoTAvg1000},
+    {"latency-dot-avg10000", &latencyDoTAvg10000},
+    {"latency-dot-avg1000000", &latencyDoTAvg1000000},
+    {"latency-doh-avg100", &latencyDoHAvg100},
+    {"latency-doh-avg1000", &latencyDoHAvg1000},
+    {"latency-doh-avg10000", &latencyDoHAvg10000},
+    {"latency-doh-avg1000000", &latencyDoHAvg1000000},
     {"uptime", uptimeOfProcess},
     {"real-memory-usage", getRealMemoryUsage},
     {"special-memory-usage", getSpecialMemoryUsage},
@@ -441,7 +456,7 @@ struct DNSDistStats
 };
 
 extern struct DNSDistStats g_stats;
-void doLatencyStats(double udiff);
+void doLatencyStats(dnsdist::Protocol protocol, double udiff);
 
 class BasicQPSLimiter
 {
@@ -575,6 +590,7 @@ struct ClientState
   }
 
   stat_t queries{0};
+  stat_t nonCompliantQueries{0};
   mutable stat_t responses{0};
   mutable stat_t tcpDiedReadingQuery{0};
   mutable stat_t tcpDiedSendingResponse{0};
@@ -639,6 +655,28 @@ struct ClientState
   bool hasTLS() const
   {
     return tlsFrontend != nullptr || (dohFrontend != nullptr && dohFrontend->isHTTPS());
+  }
+
+  dnsdist::Protocol getProtocol() const
+  {
+    if (dnscryptCtx) {
+      if (udpFD != -1) {
+        return dnsdist::Protocol::DNSCryptUDP;
+      }
+      return dnsdist::Protocol::DNSCryptTCP;
+    }
+    if (isDoH()) {
+      return dnsdist::Protocol::DoH;
+    }
+    else if (hasTLS()) {
+      return dnsdist::Protocol::DoT;
+    }
+    else if (udpFD != -1) {
+      return dnsdist::Protocol::DoUDP;
+    }
+    else {
+      return dnsdist::Protocol::DoTCP;
+    }
   }
 
   std::string getType() const
@@ -795,6 +833,7 @@ struct DownstreamState: public std::enable_shared_from_this<DownstreamState>
   stat_t reuseds{0};
   stat_t queries{0};
   stat_t responses{0};
+  stat_t nonCompliantResponses{0};
   struct {
     stat_t sendErrors{0};
     stat_t reuseds{0};
@@ -810,6 +849,8 @@ struct DownstreamState: public std::enable_shared_from_this<DownstreamState>
   stat_t tcpCurrentConnections{0};
   /* maximum number of concurrent connections to this backend reached */
   stat_t tcpMaxConcurrentConnections{0};
+  /* number of times we had to enforce the maximum concurrent connections limit */
+  stat_t tcpTooManyConcurrentConnections{0};
   stat_t tcpReusedConnections{0};
   stat_t tcpNewConnections{0};
   stat_t tlsResumptions{0};
@@ -1128,9 +1169,9 @@ void setLuaSideEffect();   // set to report a side effect, cancelling all _no_ s
 bool getLuaNoSideEffect(); // set if there were only explicit declarations of _no_ side effect
 void resetLuaSideEffect(); // reset to indeterminate state
 
-bool responseContentMatches(const PacketBuffer& response, const DNSName& qname, const uint16_t qtype, const uint16_t qclass, const ComboAddress& remote, unsigned int& qnameWireLength);
+bool responseContentMatches(const PacketBuffer& response, const DNSName& qname, const uint16_t qtype, const uint16_t qclass, const std::shared_ptr<DownstreamState>& remote, unsigned int& qnameWireLength);
 
-bool checkQueryHeaders(const struct dnsheader* dh);
+bool checkQueryHeaders(const struct dnsheader* dh, ClientState& cs);
 
 extern std::vector<std::shared_ptr<DNSCryptContext>> g_dnsCryptLocals;
 int handleDNSCryptQuery(PacketBuffer& packet, DNSCryptQuery& query, bool tcp, time_t now, PacketBuffer& response);
@@ -1158,5 +1199,5 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint1
 
 ssize_t udpClientSendRequestToBackend(const std::shared_ptr<DownstreamState>& ss, const int sd, const PacketBuffer& request, bool healthCheck = false);
 bool sendUDPResponse(int origFD, const PacketBuffer& response, const int delayMsec, const ComboAddress& origDest, const ComboAddress& origRemote);
-void handleResponseSent(const DNSName& qname, const QType& qtype, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol protocol);
-void handleResponseSent(const InternalQueryState& ids, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol protocol);
+void handleResponseSent(const DNSName& qname, const QType& qtype, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol outgoingProtocol, dnsdist::Protocol incomingProtocol);
+void handleResponseSent(const InternalQueryState& ids, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol outgoingProtocol);

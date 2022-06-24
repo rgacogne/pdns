@@ -161,6 +161,18 @@ std::map<std::string, MetricDefinition> MetricDefinitionStorage::metrics{
   { "latency-avg1000",                       MetricDefinition(PrometheusMetricType::gauge,   "Average response latency in microseconds of the last 1000 packets")},
   { "latency-avg10000",                      MetricDefinition(PrometheusMetricType::gauge,   "Average response latency in microseconds of the last 10000 packets")},
   { "latency-avg1000000",                    MetricDefinition(PrometheusMetricType::gauge,   "Average response latency in microseconds of the last 1000000 packets")},
+  { "latency-tcp-avg100",                    MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 100 packets received over TCP")},
+  { "latency-tcp-avg1000",                   MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 1000 packets received over TCP")},
+  { "latency-tcp-avg10000",                  MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 10000 packets received over TCP")},
+  { "latency-tcp-avg1000000",                MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 1000000 packets received over TCP")},
+  { "latency-dot-avg100",                    MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 100 packets received over DoT")},
+  { "latency-dot-avg1000",                   MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 1000 packets received over DoT")},
+  { "latency-dot-avg10000",                  MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 10000 packets received over DoT")},
+  { "latency-dot-avg1000000",                MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 1000000 packets received over DoT")},
+  { "latency-doh-avg100",                    MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 100 packets received over DoH")},
+  { "latency-doh-avg1000",                   MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 1000 packets received over DoH")},
+  { "latency-doh-avg10000",                  MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 10000 packets received over DoH")},
+  { "latency-doh-avg1000000",                MetricDefinition(PrometheusMetricType::gauge,   "Average response latency, in microseconds, of the last 1000000 packets received over DoH")},
   { "uptime",                                MetricDefinition(PrometheusMetricType::gauge,   "Uptime of the dnsdist process in seconds")},
   { "real-memory-usage",                     MetricDefinition(PrometheusMetricType::gauge,   "Current memory usage in bytes")},
   { "noncompliant-queries",                  MetricDefinition(PrometheusMetricType::counter, "Number of queries dropped as non-compliant")},
@@ -504,52 +516,56 @@ static void handlePrometheus(const YaHTTP::Request& req, YaHTTP::Response& resp)
   auto states = g_dstates.getLocal();
   const string statesbase = "dnsdist_server_";
 
-  output << "# HELP " << statesbase << "status "                      << "Whether this backend is up (1) or down (0)"                        << "\n";
-  output << "# TYPE " << statesbase << "status "                      << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "queries "                     << "Amount of queries relayed to server"                               << "\n";
-  output << "# TYPE " << statesbase << "queries "                     << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "responses "                   << "Amount of responses received from this server"                     << "\n";
-  output << "# TYPE " << statesbase << "responses "                   << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "drops "                       << "Amount of queries not answered by server"                          << "\n";
-  output << "# TYPE " << statesbase << "drops "                       << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "latency "                     << "Server's latency when answering questions in milliseconds"         << "\n";
-  output << "# TYPE " << statesbase << "latency "                     << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "senderrors "                  << "Total number of OS send errors while relaying queries"             << "\n";
-  output << "# TYPE " << statesbase << "senderrors "                  << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "outstanding "                 << "Current number of queries that are waiting for a backend response" << "\n";
-  output << "# TYPE " << statesbase << "outstanding "                 << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "order "                       << "The order in which this server is picked"                          << "\n";
-  output << "# TYPE " << statesbase << "order "                       << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "weight "                      << "The weight within the order in which this server is picked"        << "\n";
-  output << "# TYPE " << statesbase << "weight "                      << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "tcpdiedsendingquery "         << "The number of TCP I/O errors while sending the query"              << "\n";
-  output << "# TYPE " << statesbase << "tcpdiedsendingquery "         << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpdiedreadingresponse "      << "The number of TCP I/O errors while reading the response"           << "\n";
-  output << "# TYPE " << statesbase << "tcpdiedreadingresponse "      << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpgaveup "                   << "The number of TCP connections failing after too many attempts"     << "\n";
-  output << "# TYPE " << statesbase << "tcpgaveup "                   << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpconnecttimeouts "          << "The number of TCP connect timeouts"                                << "\n";
-  output << "# TYPE " << statesbase << "tcpconnecttimeouts "          << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpreadtimeouts "             << "The number of TCP read timeouts"                                   << "\n";
-  output << "# TYPE " << statesbase << "tcpreadtimeouts "             << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpwritetimeouts "            << "The number of TCP write timeouts"                                  << "\n";
-  output << "# TYPE " << statesbase << "tcpwritetimeouts "            << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpcurrentconnections "       << "The number of current TCP connections"                             << "\n";
-  output << "# TYPE " << statesbase << "tcpcurrentconnections "       << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "tcpmaxconcurrentconnections " << "The maximum number of concurrent TCP connections"                  << "\n";
-  output << "# TYPE " << statesbase << "tcpmaxconcurrentconnections " << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpnewconnections "           << "The number of established TCP connections in total"                << "\n";
-  output << "# TYPE " << statesbase << "tcpnewconnections "           << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpreusedconnections "        << "The number of times a TCP connection has been reused"              << "\n";
-  output << "# TYPE " << statesbase << "tcpreusedconnections "        << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcpavgqueriesperconn "        << "The average number of queries per TCP connection"                  << "\n";
-  output << "# TYPE " << statesbase << "tcpavgqueriesperconn "        << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "tcpavgconnduration "          << "The average duration of a TCP connection (ms)"                     << "\n";
-  output << "# TYPE " << statesbase << "tcpavgconnduration "          << "gauge"                                                             << "\n";
-  output << "# HELP " << statesbase << "tlsresumptions "              << "The number of times a TLS session has been resumed"                << "\n";
-  output << "# TYPE " << statesbase << "tlsersumptions "              << "counter"                                                           << "\n";
-  output << "# HELP " << statesbase << "tcplatency "                  << "Server's latency when answering TCP questions in milliseconds"     << "\n";
-  output << "# TYPE " << statesbase << "tcplatency "                  << "gauge"                                                             << "\n";
+  output << "# HELP " << statesbase << "status "                          << "Whether this backend is up (1) or down (0)"                                           << "\n";
+  output << "# TYPE " << statesbase << "status "                          << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "queries "                         << "Amount of queries relayed to server"                                                  << "\n";
+  output << "# TYPE " << statesbase << "queries "                         << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "responses "                       << "Amount of responses received from this server"                                        << "\n";
+  output << "# TYPE " << statesbase << "responses "                       << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "noncompliantresponses "           << "Amount of non-compliant responses received from this server"                          << "\n";
+  output << "# TYPE " << statesbase << "noncompliantresponses "           << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "drops "                           << "Amount of queries not answered by server"                                             << "\n";
+  output << "# TYPE " << statesbase << "drops "                           << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "latency "                         << "Server's latency when answering questions in milliseconds"                            << "\n";
+  output << "# TYPE " << statesbase << "latency "                         << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "senderrors "                      << "Total number of OS send errors while relaying queries"                                << "\n";
+  output << "# TYPE " << statesbase << "senderrors "                      << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "outstanding "                     << "Current number of queries that are waiting for a backend response"                    << "\n";
+  output << "# TYPE " << statesbase << "outstanding "                     << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "order "                           << "The order in which this server is picked"                                             << "\n";
+  output << "# TYPE " << statesbase << "order "                           << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "weight "                          << "The weight within the order in which this server is picked"                           << "\n";
+  output << "# TYPE " << statesbase << "weight "                          << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "tcpdiedsendingquery "             << "The number of TCP I/O errors while sending the query"                                 << "\n";
+  output << "# TYPE " << statesbase << "tcpdiedsendingquery "             << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpdiedreadingresponse "          << "The number of TCP I/O errors while reading the response"                              << "\n";
+  output << "# TYPE " << statesbase << "tcpdiedreadingresponse "          << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpgaveup "                       << "The number of TCP connections failing after too many attempts"                        << "\n";
+  output << "# TYPE " << statesbase << "tcpgaveup "                       << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpconnecttimeouts "              << "The number of TCP connect timeouts"                                                   << "\n";
+  output << "# TYPE " << statesbase << "tcpconnecttimeouts "              << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpreadtimeouts "                 << "The number of TCP read timeouts"                                                      << "\n";
+  output << "# TYPE " << statesbase << "tcpreadtimeouts "                 << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpwritetimeouts "                << "The number of TCP write timeouts"                                                     << "\n";
+  output << "# TYPE " << statesbase << "tcpwritetimeouts "                << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpcurrentconnections "           << "The number of current TCP connections"                                                << "\n";
+  output << "# TYPE " << statesbase << "tcpcurrentconnections "           << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "tcpmaxconcurrentconnections "     << "The maximum number of concurrent TCP connections"                                     << "\n";
+  output << "# TYPE " << statesbase << "tcpmaxconcurrentconnections "     << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcptoomanyconcurrentconnections " << "Number of times we had to enforce the maximum number of concurrent TCP connections"   << "\n";
+  output << "# TYPE " << statesbase << "tcptoomanyconcurrentconnections " << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpnewconnections "               << "The number of established TCP connections in total"                                   << "\n";
+  output << "# TYPE " << statesbase << "tcpnewconnections "               << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpreusedconnections "            << "The number of times a TCP connection has been reused"                                 << "\n";
+  output << "# TYPE " << statesbase << "tcpreusedconnections "            << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcpavgqueriesperconn "            << "The average number of queries per TCP connection"                                     << "\n";
+  output << "# TYPE " << statesbase << "tcpavgqueriesperconn "            << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "tcpavgconnduration "              << "The average duration of a TCP connection (ms)"                                        << "\n";
+  output << "# TYPE " << statesbase << "tcpavgconnduration "              << "gauge"                                                                                << "\n";
+  output << "# HELP " << statesbase << "tlsresumptions "                  << "The number of times a TLS session has been resumed"                                   << "\n";
+  output << "# TYPE " << statesbase << "tlsersumptions "                  << "counter"                                                                              << "\n";
+  output << "# HELP " << statesbase << "tcplatency "                      << "Server's latency when answering TCP questions in milliseconds"                        << "\n";
+  output << "# TYPE " << statesbase << "tcplatency "                      << "gauge"                                                                                << "\n";
 
   for (const auto& state : *states) {
     string serverName;
@@ -566,36 +582,40 @@ static void handlePrometheus(const YaHTTP::Request& req, YaHTTP::Response& resp)
     const std::string label = boost::str(boost::format("{server=\"%1%\",address=\"%2%\"}")
                                          % serverName % state->d_config.remote.toStringWithPort());
 
-    output << statesbase << "status"                       << label << " " << (state->isUp() ? "1" : "0")        << "\n";
-    output << statesbase << "queries"                      << label << " " << state->queries.load()              << "\n";
-    output << statesbase << "responses"                    << label << " " << state->responses.load()            << "\n";
-    output << statesbase << "drops"                        << label << " " << state->reuseds.load()              << "\n";
+    output << statesbase << "status"                           << label << " " << (state->isUp() ? "1" : "0")            << "\n";
+    output << statesbase << "queries"                          << label << " " << state->queries.load()                  << "\n";
+    output << statesbase << "responses"                        << label << " " << state->responses.load()                << "\n";
+    output << statesbase << "noncompliantresponses"            << label << " " << state->nonCompliantResponses.load()    << "\n";
+    output << statesbase << "drops"                            << label << " " << state->reuseds.load()                  << "\n";
     if (state->isUp()) {
-      output << statesbase << "latency"                    << label << " " << state->latencyUsec/1000.0          << "\n";
-      output << statesbase << "tcplatency"                 << label << " " << state->latencyUsecTCP/1000.0       << "\n";
+      output << statesbase << "latency"                        << label << " " << state->latencyUsec/1000.0              << "\n";
+      output << statesbase << "tcplatency"                     << label << " " << state->latencyUsecTCP/1000.0           << "\n";
     }
-    output << statesbase << "senderrors"                   << label << " " << state->sendErrors.load()           << "\n";
-    output << statesbase << "outstanding"                  << label << " " << state->outstanding.load()          << "\n";
-    output << statesbase << "order"                        << label << " " << state->d_config.order              << "\n";
-    output << statesbase << "weight"                       << label << " " << state->d_config.d_weight           << "\n";
-    output << statesbase << "tcpdiedsendingquery"          << label << " " << state->tcpDiedSendingQuery         << "\n";
-    output << statesbase << "tcpdiedreadingresponse"       << label << " " << state->tcpDiedReadingResponse      << "\n";
-    output << statesbase << "tcpgaveup"                    << label << " " << state->tcpGaveUp                   << "\n";
-    output << statesbase << "tcpreadtimeouts"              << label << " " << state->tcpReadTimeouts             << "\n";
-    output << statesbase << "tcpwritetimeouts"             << label << " " << state->tcpWriteTimeouts            << "\n";
-    output << statesbase << "tcpconnecttimeouts"           << label << " " << state->tcpConnectTimeouts          << "\n";
-    output << statesbase << "tcpcurrentconnections"        << label << " " << state->tcpCurrentConnections       << "\n";
-    output << statesbase << "tcpmaxconcurrentconnections"  << label << " " << state->tcpMaxConcurrentConnections << "\n";
-    output << statesbase << "tcpnewconnections"            << label << " " << state->tcpNewConnections           << "\n";
-    output << statesbase << "tcpreusedconnections"         << label << " " << state->tcpReusedConnections        << "\n";
-    output << statesbase << "tcpavgqueriesperconn"         << label << " " << state->tcpAvgQueriesPerConnection  << "\n";
-    output << statesbase << "tcpavgconnduration"           << label << " " << state->tcpAvgConnectionDuration    << "\n";
-    output << statesbase << "tlsresumptions"               << label << " " << state->tlsResumptions              << "\n";
+    output << statesbase << "senderrors"                       << label << " " << state->sendErrors.load()               << "\n";
+    output << statesbase << "outstanding"                      << label << " " << state->outstanding.load()              << "\n";
+    output << statesbase << "order"                            << label << " " << state->d_config.order                  << "\n";
+    output << statesbase << "weight"                           << label << " " << state->d_config.d_weight               << "\n";
+    output << statesbase << "tcpdiedsendingquery"              << label << " " << state->tcpDiedSendingQuery             << "\n";
+    output << statesbase << "tcpdiedreadingresponse"           << label << " " << state->tcpDiedReadingResponse          << "\n";
+    output << statesbase << "tcpgaveup"                        << label << " " << state->tcpGaveUp                       << "\n";
+    output << statesbase << "tcpreadtimeouts"                  << label << " " << state->tcpReadTimeouts                 << "\n";
+    output << statesbase << "tcpwritetimeouts"                 << label << " " << state->tcpWriteTimeouts                << "\n";
+    output << statesbase << "tcpconnecttimeouts"               << label << " " << state->tcpConnectTimeouts              << "\n";
+    output << statesbase << "tcpcurrentconnections"            << label << " " << state->tcpCurrentConnections           << "\n";
+    output << statesbase << "tcpmaxconcurrentconnections"      << label << " " << state->tcpMaxConcurrentConnections     << "\n";
+    output << statesbase << "tcptoomanyconcurrentconnections"  << label << " " << state->tcpTooManyConcurrentConnections << "\n";
+    output << statesbase << "tcpnewconnections"                << label << " " << state->tcpNewConnections               << "\n";
+    output << statesbase << "tcpreusedconnections"             << label << " " << state->tcpReusedConnections            << "\n";
+    output << statesbase << "tcpavgqueriesperconn"             << label << " " << state->tcpAvgQueriesPerConnection      << "\n";
+    output << statesbase << "tcpavgconnduration"               << label << " " << state->tcpAvgConnectionDuration        << "\n";
+    output << statesbase << "tlsresumptions"                   << label << " " << state->tlsResumptions                  << "\n";
   }
 
   const string frontsbase = "dnsdist_frontend_";
   output << "# HELP " << frontsbase << "queries " << "Amount of queries received by this frontend" << "\n";
   output << "# TYPE " << frontsbase << "queries " << "counter" << "\n";
+  output << "# HELP " << frontsbase << "noncompliantqueries " << "Amount of non-compliant queries received by this frontend" << "\n";
+  output << "# TYPE " << frontsbase << "noncompliantqueries " << "counter" << "\n";
   output << "# HELP " << frontsbase << "responses " << "Amount of responses sent by this frontend" << "\n";
   output << "# TYPE " << frontsbase << "responses " << "counter" << "\n";
   output << "# HELP " << frontsbase << "tcpdiedreadingquery " << "Amount of TCP connections terminated while reading the query from the client" << "\n";
@@ -648,6 +668,7 @@ static void handlePrometheus(const YaHTTP::Request& req, YaHTTP::Response& resp)
                                          % frontName % proto % threadNumber);
 
     output << frontsbase << "queries" << label << front->queries.load() << "\n";
+    output << frontsbase << "noncompliantqueries" << label << front->nonCompliantQueries.load() << "\n";
     output << frontsbase << "responses" << label << front->responses.load() << "\n";
     if (front->isTCP()) {
       output << frontsbase << "tcpdiedreadingquery" << label << front->tcpDiedReadingQuery.load() << "\n";
@@ -986,6 +1007,7 @@ static void addServerToJSON(Json::array& servers, int id, const std::shared_ptr<
     {"latency", (double)(a->latencyUsec/1000.0)},
     {"queries", (double)a->queries},
     {"responses", (double)a->responses},
+    {"nonCompliantResponses", (double)a->nonCompliantResponses},
     {"sendErrors", (double)a->sendErrors},
     {"tcpDiedSendingQuery", (double)a->tcpDiedSendingQuery},
     {"tcpDiedReadingResponse", (double)a->tcpDiedReadingResponse},
@@ -995,6 +1017,7 @@ static void addServerToJSON(Json::array& servers, int id, const std::shared_ptr<
     {"tcpWriteTimeouts", (double)a->tcpWriteTimeouts},
     {"tcpCurrentConnections", (double)a->tcpCurrentConnections},
     {"tcpMaxConcurrentConnections", (double)a->tcpMaxConcurrentConnections},
+    {"tcpTooManyConcurrentConnections", (double)a->tcpTooManyConcurrentConnections},
     {"tcpNewConnections", (double)a->tcpNewConnections},
     {"tcpReusedConnections", (double)a->tcpReusedConnections},
     {"tcpAvgQueriesPerConnection", (double)a->tcpAvgQueriesPerConnection},
@@ -1037,6 +1060,7 @@ static void handleStats(const YaHTTP::Request& req, YaHTTP::Response& resp)
       { "tcp", front->tcpFD >= 0 },
       { "type", front->getType() },
       { "queries", (double) front->queries.load() },
+      { "nonCompliantQueries", (double) front->nonCompliantQueries.load() },
       { "responses", (double) front->responses.load() },
       { "tcpDiedReadingQuery", (double) front->tcpDiedReadingQuery.load() },
       { "tcpDiedSendingResponse", (double) front->tcpDiedSendingResponse.load() },

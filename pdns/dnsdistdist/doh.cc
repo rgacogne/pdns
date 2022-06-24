@@ -630,6 +630,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
 
     if (du->query.size() < sizeof(dnsheader)) {
       ++g_stats.nonCompliantQueries;
+      ++cs.nonCompliantQueries;
       du->status_code = 400;
       sendDoHUnitToTheMainThread(std::move(du), "DoH non-compliant query");
       return;
@@ -647,7 +648,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
       /* don't keep that pointer around, it will be invalidated if the buffer is ever resized */
       struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(du->query.data());
 
-      if (!checkQueryHeaders(dh)) {
+      if (!checkQueryHeaders(dh, cs)) {
         du->status_code = 400;
         sendDoHUnitToTheMainThread(std::move(du), "DoH invalid headers");
         return;
@@ -692,7 +693,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit)
       if (du->response.size() >= sizeof(dnsheader) && du->contentType.empty()) {
         auto dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
 
-        handleResponseSent(du->ids.qname, QType(du->ids.qtype), 0., du->ids.origDest, ComboAddress(), du->response.size(), *dh, dnsdist::Protocol::DoH);
+        handleResponseSent(du->ids.qname, QType(du->ids.qtype), 0., du->ids.origDest, ComboAddress(), du->response.size(), *dh, dnsdist::Protocol::DoH, dnsdist::Protocol::DoH);
       }
       sendDoHUnitToTheMainThread(std::move(du), "DoH self-answered response");
       return;

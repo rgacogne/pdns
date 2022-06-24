@@ -639,15 +639,15 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
       --conn->d_ds->outstanding;
       /* marking as idle for now, so we can accept new queries if our queues are empty */
       if (d_pendingQueries.empty() && d_pendingResponses.empty()) {
-        t_downstreamTCPConnectionsManager.moveToIdle(conn);
         d_state = State::idle;
+        t_downstreamTCPConnectionsManager.moveToIdle(conn);
       }
     }
 
     sender->handleXFRResponse(now, std::move(response));
     if (done) {
-      t_downstreamTCPConnectionsManager.moveToIdle(conn);
       d_state = State::idle;
+      t_downstreamTCPConnectionsManager.moveToIdle(conn);
       return IOState::Done;
     }
 
@@ -666,8 +666,8 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
   d_pendingResponses.erase(it);
   /* marking as idle for now, so we can accept new queries if our queues are empty */
   if (d_pendingQueries.empty() && d_pendingResponses.empty()) {
-    t_downstreamTCPConnectionsManager.moveToIdle(conn);
     d_state = State::idle;
+    t_downstreamTCPConnectionsManager.moveToIdle(conn);
   }
 
   auto shared = conn;
@@ -690,8 +690,8 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
   }
   else {
     DEBUGLOG("nothing to do, waiting for a new query");
-    t_downstreamTCPConnectionsManager.moveToIdle(conn);
     d_state = State::idle;
+    t_downstreamTCPConnectionsManager.moveToIdle(conn);
     return IOState::Done;
   }
 }

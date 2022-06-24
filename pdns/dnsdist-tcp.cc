@@ -238,7 +238,7 @@ static IOState sendQueuedResponses(std::shared_ptr<IncomingTCPConnectionState>& 
   return IOState::Done;
 }
 
-static void handleResponseSent(std::shared_ptr<IncomingTCPConnectionState>& state, const TCPResponse& currentResponse)
+static void handleResponseSent(std::shared_ptr<IncomingTCPConnectionState>& state, TCPResponse& currentResponse)
 {
   if (currentResponse.d_idstate.qtype == QType::AXFR || currentResponse.d_idstate.qtype == QType::IXFR) {
     return;
@@ -261,6 +261,9 @@ static void handleResponseSent(std::shared_ptr<IncomingTCPConnectionState>& stat
     const auto& ids = currentResponse.d_idstate;
     ::handleResponseSent(ids, 0., state->d_ci.remote, ComboAddress(), static_cast<unsigned int>(currentResponse.d_buffer.size()), currentResponse.d_cleartextDH, ids.protocol);
   }
+
+  currentResponse.d_buffer.clear();
+  currentResponse.d_connection.reset();
 }
 
 static void prependSizeToTCPQuery(PacketBuffer& buffer, size_t proxyProtocolPayloadSize)
@@ -523,7 +526,7 @@ void IncomingTCPConnectionState::handleResponse(const struct timeval& now, TCPRe
     try {
       auto& ids = response.d_idstate;
       unsigned int qnameWireLength;
-      if (!response.d_connection || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, response.d_connection->getRemote(), qnameWireLength)) {
+      if (!response.d_connection || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, response.d_connection->getDS(), qnameWireLength)) {
         state->terminateClientConnection();
         return;
       }
@@ -684,6 +687,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
 {
   if (state->d_querySize < sizeof(dnsheader)) {
     ++g_stats.nonCompliantQueries;
+    ++state->d_ci.cs->nonCompliantQueries;
     state->terminateClientConnection();
     return;
   }
@@ -733,7 +737,7 @@ static void handleQuery(std::shared_ptr<IncomingTCPConnectionState>& state, cons
   {
     /* this pointer will be invalidated the second the buffer is resized, don't hold onto it! */
     auto* dh = reinterpret_cast<dnsheader*>(state->d_buffer.data());
-    if (!checkQueryHeaders(dh)) {
+    if (!checkQueryHeaders(dh, *state->d_ci.cs)) {
       state->terminateClientConnection();
       return;
     }
