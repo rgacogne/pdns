@@ -23,6 +23,7 @@
 #include "dnsdist-async.hh"
 #include "dnsdist-dnsparser.hh"
 #include "dnsdist-lua-ffi.hh"
+#include "dnsdist-mac-address.hh"
 #include "dnsdist-lua-network.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-ecs.hh"
@@ -74,8 +75,7 @@ size_t dnsdist_ffi_dnsquestion_get_mac_addr(const dnsdist_ffi_dnsquestion_t* dq,
   if (dq == nullptr) {
     return 0;
   }
-
-  auto ret = getMACAddress(dq->dq->ids.origRemote, reinterpret_cast<char*>(buffer), bufferSize);
+  auto ret = dnsdist::MacAddressesCache::get(dq->dq->ids.origRemote, reinterpret_cast<char*>(buffer), bufferSize);
   if (ret != 0) {
     return 0;
   }

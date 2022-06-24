@@ -26,6 +26,7 @@
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-lua-ffi.hh"
+#include "dnsdist-mac-address.hh"
 #include "dnsdist-protobuf.hh"
 #include "dnsdist-kvs.hh"
 #include "dnsdist-svc.hh"
@@ -951,8 +952,9 @@ public:
 
   DNSAction::Action operator()(DNSQuestion* dq, std::string* ruleresult) const override
   {
-    std::string mac = getMACAddress(dq->ids.origRemote);
-    if (mac.empty()) {
+    char mac[6];
+    int res = dnsdist::MacAddressesCache::get(dq->ids.origRemote, mac, sizeof(mac));
+    if (res != 0) {
       return Action::None;
     }
 
