@@ -635,10 +635,8 @@ private:
 class TCPCrossProtocolQuery : public CrossProtocolQuery
 {
 public:
-  TCPCrossProtocolQuery(PacketBuffer&& buffer, InternalQueryState&& ids, std::shared_ptr<DownstreamState> ds, std::shared_ptr<TCPCrossProtocolQuerySender> sender): d_sender(std::move(sender))
+  TCPCrossProtocolQuery(PacketBuffer&& buffer, InternalQueryState&& ids, std::shared_ptr<DownstreamState> ds, std::shared_ptr<TCPCrossProtocolQuerySender> sender): CrossProtocolQuery(InternalQuery(std::move(buffer), std::move(ids)), ds), d_sender(std::move(sender))
   {
-    query = InternalQuery(std::move(buffer), std::move(ids));
-    downstream = ds;
     proxyProtocolPayloadSize = 0;
   }
 

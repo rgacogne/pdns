@@ -165,6 +165,9 @@ struct CrossProtocolQuery
   CrossProtocolQuery()
   {
   }
+  CrossProtocolQuery(InternalQuery&& query_, std::shared_ptr<DownstreamState>& downstream_): query(std::move(query_)), downstream(downstream_)
+  {
+  }
 
   CrossProtocolQuery(CrossProtocolQuery&& rhs) = delete;
   virtual ~CrossProtocolQuery()
