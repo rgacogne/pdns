@@ -240,4 +240,4 @@ uint16_t dnsdist_ffi_network_message_get_endpoint_id(const dnsdist_ffi_network_m
 void dnsdist_ffi_metric_inc(const char* metricName, size_t metricNameLen) __attribute__ ((visibility ("default")));
 void dnsdist_ffi_metric_dec(const char* metricName, size_t metricNameLen) __attribute__ ((visibility ("default")));
 void dnsdist_ffi_metric_set(const char* metricName, size_t metricNameLen, double value) __attribute__ ((visibility ("default")));
-double dnsdist_ffi_metric_get(const char* metricName, size_t metricNameLen) __attribute__ ((visibility ("default")));
+double dnsdist_ffi_metric_get(const char* metricName, size_t metricNameLen, bool isCounter) __attribute__ ((visibility ("default")));

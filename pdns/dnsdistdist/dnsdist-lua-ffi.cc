@@ -1647,12 +1647,14 @@ void dnsdist_ffi_metric_set(const char* metricName, size_t metricNameLen, double
   }
 }
 
-double dnsdist_ffi_metric_get(const char* metricName, size_t metricNameLen)
+double dnsdist_ffi_metric_get(const char* metricName, size_t metricNameLen, bool isCounter)
 {
   auto name = std::string_view(metricName, metricNameLen);
-  auto counter = g_stats.customCounters.find(name);
-  if (counter != g_stats.customCounters.end()) {
-    return (double)counter->second.load();
+  if (isCounter) {
+    auto counter = g_stats.customCounters.find(name);
+    if (counter != g_stats.customCounters.end()) {
+      return (double)counter->second.load();
+    }
   }
   else {
     auto gauge = g_stats.customGauges.find(name);
