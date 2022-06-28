@@ -26,6 +26,7 @@
 #include "dnsdist-ecs.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-lua-ffi.hh"
+#include "dnsdist-mac-address.hh"
 #include "dnsdist-protobuf.hh"
 #include "dnsdist-kvs.hh"
 #include "dnsdist-svc.hh"
@@ -951,8 +952,9 @@ public:
 
   DNSAction::Action operator()(DNSQuestion* dq, std::string* ruleresult) const override
   {
-    std::string mac = getMACAddress(dq->ids.origRemote);
-    if (mac.empty()) {
+    char mac[6];
+    int res = dnsdist::MacAddressesCache::get(dq->ids.origRemote, mac, sizeof(mac));
+    if (res != 0) {
       return Action::None;
     }
 
@@ -1768,7 +1770,7 @@ private:
 class ClearRecordTypesResponseAction : public DNSResponseAction, public boost::noncopyable
 {
 public:
-  ClearRecordTypesResponseAction(const std::set<QType>& qtypes) : d_qtypes(qtypes)
+  ClearRecordTypesResponseAction(const std::unordered_set<QType>& qtypes) : d_qtypes(qtypes)
   {
   }
 
@@ -1786,7 +1788,7 @@ public:
   }
 
 private:
-  std::set<QType> d_qtypes{};
+  std::unordered_set<QType> d_qtypes{};
 };
 
 class ContinueAction : public DNSAction
@@ -2323,8 +2325,9 @@ void setupLuaActions(LuaContext& luaCtx)
     });
 
   luaCtx.writeFunction("LimitTTLResponseAction", [](uint32_t min, uint32_t max, boost::optional<LuaArray<uint16_t>> types) {
-      std::set<QType> capTypes;
+      std::unordered_set<QType> capTypes;
       if (types) {
+        capTypes.reserve(types->size());
         for (const auto& [idx, type] : *types) {
           (void) idx;
           capTypes.insert(QType(type));
@@ -2350,7 +2353,7 @@ void setupLuaActions(LuaContext& luaCtx)
   });
 
   luaCtx.writeFunction("ClearRecordTypesResponseAction", [](LuaTypeOrArrayOf<int> types) {
-      std::set<QType> qtypes{};
+      std::unordered_set<QType> qtypes{};
       if (types.type() == typeid(int)) {
         qtypes.insert(boost::get<int>(types));
       } else if (types.type() == typeid(LuaArray<int>)) {

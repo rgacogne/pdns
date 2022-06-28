@@ -23,6 +23,7 @@
 #include "dnsdist-async.hh"
 #include "dnsdist-dnsparser.hh"
 #include "dnsdist-lua-ffi.hh"
+#include "dnsdist-mac-address.hh"
 #include "dnsdist-lua-network.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-ecs.hh"
@@ -74,8 +75,7 @@ size_t dnsdist_ffi_dnsquestion_get_mac_addr(const dnsdist_ffi_dnsquestion_t* dq,
   if (dq == nullptr) {
     return 0;
   }
-
-  auto ret = getMACAddress(dq->dq->ids.origRemote, reinterpret_cast<char*>(buffer), bufferSize);
+  auto ret = dnsdist::MacAddressesCache::get(dq->dq->ids.origRemote, reinterpret_cast<char*>(buffer), bufferSize);
   if (ret != 0) {
     return 0;
   }
@@ -699,7 +699,7 @@ void dnsdist_ffi_dnsresponse_add_type_to_max_returned_ttl(dnsdist_ffi_dnsrespons
 void dnsdist_ffi_dnsresponse_clear_records_type(dnsdist_ffi_dnsresponse_t* dr, uint16_t qtype)
 {
   if (dr != nullptr && dr->dr != nullptr) {
-    clearDNSPacketRecordTypes(dr->dr->getMutableData(), std::set<QType>{qtype});
+    clearDNSPacketRecordTypes(dr->dr->getMutableData(), std::unordered_set<QType>{qtype});
   }
 }
 
@@ -1597,4 +1597,70 @@ bool dnsdist_ffi_network_endpoint_send(const dnsdist_ffi_network_endpoint_t* end
 void dnsdist_ffi_network_endpoint_free(dnsdist_ffi_network_endpoint_t* endpoint)
 {
   delete endpoint;
+}
+
+const char* dnsdist_ffi_network_message_get_payload(const dnsdist_ffi_network_message_t* msg)
+{
+  if (msg != nullptr) {
+    return msg->payload.c_str();
+  }
+  return nullptr;
+}
+
+size_t dnsdist_ffi_network_message_get_payload_size(const dnsdist_ffi_network_message_t* msg)
+{
+  if (msg != nullptr) {
+    return msg->payload.size();
+  }
+  return 0;
+}
+
+uint16_t dnsdist_ffi_network_message_get_endpoint_id(const dnsdist_ffi_network_message_t* msg)
+{
+  if (msg != nullptr) {
+    return msg->endpointID;
+  }
+  return 0;
+}
+
+void dnsdist_ffi_metric_inc(const char* metricName, size_t metricNameLen)
+{
+  auto metric = g_stats.customCounters.find(std::string_view(metricName, metricNameLen));
+  if (metric != g_stats.customCounters.end()) {
+    ++metric->second;
+  }
+}
+
+void dnsdist_ffi_metric_dec(const char* metricName, size_t metricNameLen)
+{
+  auto metric = g_stats.customCounters.find(std::string_view(metricName, metricNameLen));
+  if (metric != g_stats.customCounters.end()) {
+    --metric->second;
+  }
+}
+
+void dnsdist_ffi_metric_set(const char* metricName, size_t metricNameLen, double value)
+{
+  auto metric = g_stats.customGauges.find(std::string_view(metricName, metricNameLen));
+  if (metric != g_stats.customGauges.end()) {
+    metric->second = value;
+  }
+}
+
+double dnsdist_ffi_metric_get(const char* metricName, size_t metricNameLen, bool isCounter)
+{
+  auto name = std::string_view(metricName, metricNameLen);
+  if (isCounter) {
+    auto counter = g_stats.customCounters.find(name);
+    if (counter != g_stats.customCounters.end()) {
+      return (double)counter->second.load();
+    }
+  }
+  else {
+    auto gauge = g_stats.customGauges.find(name);
+    if (gauge != g_stats.customGauges.end()) {
+      return gauge->second.load();
+    }
+  }
+  return 0.;
 }

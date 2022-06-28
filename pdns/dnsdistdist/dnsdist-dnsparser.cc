@@ -120,8 +120,8 @@ bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNS
     }
   }
 
-  const std::set<QType> nameOnlyTypes = {QType::NS, QType::PTR, QType::CNAME, QType::DNAME};
-  const std::set<QType> noNameTypes{QType::A, QType::AAAA, QType::DHCID, QType::TXT, QType::OPT, QType::HINFO, QType::DNSKEY, QType::CDNSKEY, QType::DS, QType::CDS, QType::DLV, QType::SSHFP, QType::KEY, QType::CERT, QType::TLSA, QType::SMIMEA, QType::OPENPGPKEY, QType::NSEC, QType::NSEC3, QType::CSYNC, QType::NSEC3PARAM, QType::LOC, QType::NID, QType::L32, QType::L64, QType::EUI48, QType::EUI64, QType::URI, QType::CAA};
+  const std::unordered_set<QType> nameOnlyTypes{QType::NS, QType::PTR, QType::CNAME, QType::DNAME};
+  const std::unordered_set<QType> noNameTypes{QType::A, QType::AAAA, QType::DHCID, QType::TXT, QType::OPT, QType::HINFO, QType::DNSKEY, QType::CDNSKEY, QType::DS, QType::CDS, QType::DLV, QType::SSHFP, QType::KEY, QType::CERT, QType::TLSA, QType::SMIMEA, QType::OPENPGPKEY, QType::NSEC, QType::NSEC3, QType::CSYNC, QType::NSEC3PARAM, QType::LOC, QType::NID, QType::L32, QType::L64, QType::EUI48, QType::EUI64, QType::URI, QType::CAA};
 
   /* copy AN, NS and AR */
   for (idx = 0; idx < recordsCount; idx++) {

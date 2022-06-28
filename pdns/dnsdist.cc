@@ -1498,8 +1498,11 @@ private:
 class UDPCrossProtocolQuery : public CrossProtocolQuery
 {
 public:
-  UDPCrossProtocolQuery(PacketBuffer&& buffer, InternalQueryState&& ids, std::shared_ptr<DownstreamState> ds)
+  UDPCrossProtocolQuery(PacketBuffer&& buffer_, InternalQueryState&& ids_, std::shared_ptr<DownstreamState> ds): CrossProtocolQuery(InternalQuery(std::move(buffer_), std::move(ids_)), ds)
   {
+    auto& ids = query.d_idstate;
+    const auto& buffer = query.d_buffer;
+
     if (ids.udpPayloadSize == 0) {
       uint16_t z = 0;
       getEDNSUDPPayloadSizeAndZ(reinterpret_cast<const char*>(buffer.data()), buffer.size(), &ids.udpPayloadSize, &z);
@@ -1507,8 +1510,6 @@ public:
         ids.udpPayloadSize = 512;
       }
     }
-    query = InternalQuery(std::move(buffer), std::move(ids));
-    downstream = ds;
   }
 
   ~UDPCrossProtocolQuery()
