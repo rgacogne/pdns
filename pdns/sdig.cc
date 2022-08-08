@@ -737,7 +737,7 @@ try {
       std::sort(latencies.begin(), latencies.end());
       cout<<"Minimum latency is "<<latencies.at(0)<<" µs"<<endl;
       cout<<"Maximum latency is "<<latencies.at(numberOfResponses-1)<<" µs"<<endl;
-      cout<<"Mean latency is "<<latencies.at((numberOfResponses-1)/2)<<" µs"<<endl;
+      cout<<"Median latency is "<<latencies.at((numberOfResponses-1)/2)<<" µs"<<endl;
       uint64_t total = 0;
       for (const auto& value : latencies) {
         total += value;
