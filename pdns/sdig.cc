@@ -514,15 +514,16 @@ try {
 
     if (doh) {
 #ifdef HAVE_LIBCURL
+      std::string question;
+      vector<uint8_t> packet;
+      MiniCurl mc;
+      MiniCurl::MiniCurlHeaders mch;
+      mch.emplace("Content-Type", "application/dns-message");
+      mch.emplace("Accept", "application/dns-message");
+      // FIXME: how do we use proxyheader here?
+
       while (!done) {
         try {
-          std::string question;
-          vector<uint8_t> packet;
-          MiniCurl mc;
-          MiniCurl::MiniCurlHeaders mch;
-          mch.emplace("Content-Type", "application/dns-message");
-          mch.emplace("Accept", "application/dns-message");
-          // FIXME: how do we use proxyheader here?
 
           while (!done) {
             dt.set();
