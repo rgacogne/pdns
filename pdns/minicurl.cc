@@ -183,15 +183,15 @@ void MiniCurl::setHeaders(const MiniCurlHeaders& headers)
 uint64_t MiniCurl::getTimingInfo(TimingInfo type) const
 {
   const std::map<MiniCurl::TimingInfo, CURLINFO> types = {
-    { TimingInfo::Connect, CURLINFO_CONNECT_TIME_T },
 #if defined(CURL_AT_LEAST_VERSION)
-#if CURL_AT_LEAST_VERSION(7, 60, 0)
+#if CURL_AT_LEAST_VERSION(7, 61, 0)
+    { TimingInfo::Connect, CURLINFO_CONNECT_TIME_T },
     { TimingInfo::TLSDone, CURLINFO_APPCONNECT_TIME_T },
-#endif
-#endif
     { TimingInfo::QueryReadyToBeSent, CURLINFO_PRETRANSFER_TIME_T },
     { TimingInfo::ResponseReady, CURLINFO_STARTTRANSFER_TIME_T },
     { TimingInfo::Total, CURLINFO_TOTAL_TIME_T },
+#endif /* 7.61 */
+#endif /* CURL_AT_LEAST_VERSION */
   };
 
   if (!d_curl) {
