@@ -188,7 +188,7 @@ uint64_t MiniCurl::getTimingInfo(TimingInfo type) const
     { TimingInfo::Connect, CURLINFO_CONNECT_TIME_T },
     { TimingInfo::TLSDone, CURLINFO_APPCONNECT_TIME_T },
     { TimingInfo::QueryReadyToBeSent, CURLINFO_PRETRANSFER_TIME_T },
-    { TimingInfo::ResponseReady, CURLINFO_STARTTRANSFER_TIME_T },
+    { TimingInfo::TransferStarted, CURLINFO_STARTTRANSFER_TIME_T },
     { TimingInfo::Total, CURLINFO_TOTAL_TIME_T },
 #endif /* 7.61 */
 #endif /* CURL_AT_LEAST_VERSION */

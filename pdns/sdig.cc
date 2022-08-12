@@ -536,6 +536,13 @@ try {
             reply = mc.postURL(argv[1], question, mch, timeout.tv_sec, fastOpen);
             auto latency = latencyTimer.udiffNoReset();
             latency -= mc.getTimingInfo(MiniCurl::TimingInfo::QueryReadyToBeSent);
+            /* This is much more accurate, but note that the timing information is
+               not available on old versions of libcurl, and sometimes only the total
+               is available, so we need to be careful. */
+            auto internalLatency = mc.getTimingInfo(MiniCurl::TimingInfo::Total) - mc.getTimingInfo(MiniCurl::TimingInfo::QueryReadyToBeSent);
+            if (latency > 0 && internalLatency > 0 && internalLatency < static_cast<uint64_t>(latency)) {
+              latency = internalLatency;
+            }
             handleLatency(latency);
 
             if (*verbose) {

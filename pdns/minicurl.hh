@@ -40,7 +40,13 @@ public:
   MiniCurl& operator=(const MiniCurl&) = delete;
   std::string getURL(const std::string& str, const ComboAddress* rem=nullptr, const ComboAddress* src=nullptr, int timeout = 2, bool fastopen = false, bool verify = false);
   std::string postURL(const std::string& str, const std::string& postdata, MiniCurlHeaders& headers, int timeout = 2, bool fastopen = false, bool verify = false);
-  enum class TimingInfo : uint8_t { Connect, TLSDone, QueryReadyToBeSent, ResponseReady, Total };
+  enum class TimingInfo : uint8_t {
+    Connect, /* TCP connection has been established */
+    TLSDone, /* TLS session has been set up (handshake done) */
+    QueryReadyToBeSent, /* Query is being sent */
+    TransferStarted, /* For POST and PUT queries, the payload is being sent. Otherwise the first byte of the response has been received */
+    Total /* Response has been fully received */
+  };
   /* rrturn the elapsed time, in microseconds, to reach the requested state */
   uint64_t getTimingInfo(TimingInfo) const;
 private:
