@@ -50,6 +50,7 @@
 #include "uuid-utils.hh"
 #include "proxy-protocol.hh"
 #include "stat_t.hh"
+#include "xsk.hh"
 
 uint64_t uptimeOfProcess(const std::string& str);
 
@@ -622,6 +623,7 @@ struct ClientState
   std::shared_ptr<TLSFrontend> tlsFrontend{nullptr};
   std::shared_ptr<DOHFrontend> dohFrontend{nullptr};
   std::shared_ptr<BPFFilter> d_filter{nullptr};
+  std::shared_ptr<XskWorker> xskInfo;
   size_t d_maxInFlightQueriesPerConn{1};
   size_t d_tcpConcurrentConnectionsLimit{0};
   int udpFD{-1};
@@ -759,6 +761,8 @@ struct DownstreamState: public std::enable_shared_from_this<DownstreamState>
     std::string d_dohPath;
     std::string name;
     std::string nameWithAddr;
+    MACAddr sourceMACAddr;
+    MACAddr destMACAddr;
     size_t d_numberOfSockets{1};
     size_t d_maxInFlightQueriesPerConn{1};
     size_t d_tcpConcurrentConnectionsLimit{0};
@@ -852,6 +856,7 @@ public:
   std::atomic<bool> hashesComputed{false};
   std::atomic<bool> connected{false};
   bool upStatus{false};
+  std::shared_ptr<XskWorker> xskInfo;
 
 private:
   void connectUDPSockets();
@@ -861,7 +866,14 @@ private:
   std::atomic_flag threadStarted;
   bool d_stopped{false};
 public:
-
+  void updateStatisticsInfo()
+  {
+    auto delta = sw.udiffAndSet() / 1000000.0;
+    queryLoad.store(1.0 * (queries.load() - prev.queries.load()) / delta);
+    dropRate.store(1.0 * (reuseds.load() - prev.reuseds.load()) / delta);
+    prev.queries.store(queries.load());
+    prev.reuseds.store(reuseds.load());
+  }
   void start();
 
   bool isUp() const
@@ -971,7 +983,18 @@ public:
   IDState* getIDState(unsigned int& id, int64_t& generation);
   IDState* getExistingState(unsigned int id);
   void releaseState(unsigned int id);
-
+#ifdef HAVE_XSK
+  void registerXsk(std::shared_ptr<XskSocket>& xsk)
+  {
+    xskInfo = XskWorker::create();
+    if (d_config.sourceAddr.sin4.sin_family == 0) {
+      throw runtime_error("invalid source addr");
+    }
+    xsk->addWorker(xskInfo, d_config.sourceAddr, getProtocol() != dnsdist::Protocol::DoUDP);
+    memcpy(d_config.sourceMACAddr, xsk->source, sizeof(MACAddr));
+    xskInfo->sharedEmptyFrameOffset = xsk->sharedEmptyFrameOffset;
+  }
+#endif /* HAVE_XSK */
   dnsdist::Protocol getProtocol() const
   {
     if (isDoH()) {

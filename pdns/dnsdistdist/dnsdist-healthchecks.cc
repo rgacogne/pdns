@@ -31,29 +31,6 @@
 
 bool g_verboseHealthChecks{false};
 
-struct HealthCheckData
-{
-  enum class TCPState : uint8_t { WritingQuery, ReadingResponseSize, ReadingResponse };
-
-  HealthCheckData(FDMultiplexer& mplexer, const std::shared_ptr<DownstreamState>& ds, DNSName&& checkName, uint16_t checkType, uint16_t checkClass, uint16_t queryID): d_ds(ds), d_mplexer(mplexer), d_udpSocket(-1), d_checkName(std::move(checkName)), d_checkType(checkType), d_checkClass(checkClass), d_queryID(queryID)
-  {
-  }
-
-  const std::shared_ptr<DownstreamState> d_ds;
-  FDMultiplexer& d_mplexer;
-  std::unique_ptr<TCPIOHandler> d_tcpHandler{nullptr};
-  std::unique_ptr<IOStateHandler> d_ioState{nullptr};
-  PacketBuffer d_buffer;
-  Socket d_udpSocket;
-  DNSName d_checkName;
-  struct timeval d_ttd{0, 0};
-  size_t d_bufferPos{0};
-  uint16_t d_checkType;
-  uint16_t d_checkClass;
-  uint16_t d_queryID;
-  TCPState d_tcpState{TCPState::WritingQuery};
-  bool d_initial{false};
-};
 
 void updateHealthCheckResult(const std::shared_ptr<DownstreamState>& dss, bool initial, bool newState)
 {
@@ -110,7 +87,7 @@ void updateHealthCheckResult(const std::shared_ptr<DownstreamState>& dss, bool i
   }
 }
 
-static bool handleResponse(std::shared_ptr<HealthCheckData>& data)
+bool handleResponse(std::shared_ptr<HealthCheckData>& data)
 {
   auto& ds = data->d_ds;
   try {
@@ -223,7 +200,7 @@ private:
 static void healthCheckUDPCallback(int fd, FDMultiplexer::funcparam_t& param)
 {
   auto data = boost::any_cast<std::shared_ptr<HealthCheckData>>(param);
-  data->d_mplexer.removeReadFD(fd);
+  data->d_mplexer->removeReadFD(fd);
 
   ComboAddress from;
   from.sin4.sin_family = data->d_ds->d_config.remote.sin4.sin_family;
@@ -320,38 +297,53 @@ static void healthCheckTCPCallback(int fd, FDMultiplexer::funcparam_t& param)
     }
   }
 }
+PacketBuffer getHealthCheckPacket(const std::shared_ptr<DownstreamState>& ds, FDMultiplexer* mplexer, std::shared_ptr<HealthCheckData>& data)
+{
+  uint16_t queryID = dnsdist::getRandomDNSID();
+  DNSName checkName = ds->d_config.checkName;
+  uint16_t checkType = ds->d_config.checkType.getCode();
+  uint16_t checkClass = ds->d_config.checkClass;
+  dnsheader checkHeader;
+  memset(&checkHeader, 0, sizeof(checkHeader));
 
+  checkHeader.qdcount = htons(1);
+  checkHeader.id = queryID;
+
+  checkHeader.rd = true;
+  if (ds->d_config.setCD) {
+    checkHeader.cd = true;
+  }
+
+  if (ds->d_config.checkFunction) {
+    auto lock = g_lua.lock();
+    auto ret = ds->d_config.checkFunction(checkName, checkType, checkClass, &checkHeader);
+    checkName = std::get<0>(ret);
+    checkType = std::get<1>(ret);
+    checkClass = std::get<2>(ret);
+  }
+  PacketBuffer packet;
+  GenericDNSPacketWriter<PacketBuffer> dpw(packet, checkName, checkType, checkClass);
+  dnsheader* requestHeader = dpw.getHeader();
+  *requestHeader = checkHeader;
+  data = std::make_shared<HealthCheckData>(mplexer, ds, std::move(checkName), checkType, checkClass, queryID);
+  return packet;
+}
+void setHealthCheckTime(const std::shared_ptr<DownstreamState>& ds, const std::shared_ptr<HealthCheckData>& data)
+{
+  gettimeofday(&data->d_ttd, nullptr);
+  data->d_ttd.tv_sec += ds->d_config.checkTimeout / 1000; /* ms to seconds */
+  data->d_ttd.tv_usec += (ds->d_config.checkTimeout % 1000) * 1000; /* remaining ms to us */
+  if (data->d_ttd.tv_usec > 1000000) {
+    ++data->d_ttd.tv_sec;
+    data->d_ttd.tv_usec -= 1000000;
+  }
+}
 bool queueHealthCheck(std::unique_ptr<FDMultiplexer>& mplexer, const std::shared_ptr<DownstreamState>& ds, bool initialCheck)
 {
   try
   {
-    uint16_t queryID = dnsdist::getRandomDNSID();
-    DNSName checkName = ds->d_config.checkName;
-    uint16_t checkType = ds->d_config.checkType.getCode();
-    uint16_t checkClass = ds->d_config.checkClass;
-    dnsheader checkHeader;
-    memset(&checkHeader, 0, sizeof(checkHeader));
-
-    checkHeader.qdcount = htons(1);
-    checkHeader.id = queryID;
-
-    checkHeader.rd = true;
-    if (ds->d_config.setCD) {
-      checkHeader.cd = true;
-    }
-
-    if (ds->d_config.checkFunction) {
-      auto lock = g_lua.lock();
-      auto ret = ds->d_config.checkFunction(checkName, checkType, checkClass, &checkHeader);
-      checkName = std::get<0>(ret);
-      checkType = std::get<1>(ret);
-      checkClass = std::get<2>(ret);
-    }
-
-    PacketBuffer packet;
-    GenericDNSPacketWriter<PacketBuffer> dpw(packet, checkName, checkType, checkClass);
-    dnsheader* requestHeader = dpw.getHeader();
-    *requestHeader = checkHeader;
+    std::shared_ptr<HealthCheckData> data;
+    PacketBuffer packet = getHealthCheckPacket(ds, mplexer.get(), data);
 
     /* we need to compute that _before_ adding the proxy protocol payload */
     uint16_t packetSize = packet.size();
@@ -388,16 +380,9 @@ bool queueHealthCheck(std::unique_ptr<FDMultiplexer>& mplexer, const std::shared
       sock.bind(ds->d_config.sourceAddr);
     }
 
-    auto data = std::make_shared<HealthCheckData>(*mplexer, ds, std::move(checkName), checkType, checkClass, queryID);
     data->d_initial = initialCheck;
 
-    gettimeofday(&data->d_ttd, nullptr);
-    data->d_ttd.tv_sec += ds->d_config.checkTimeout / 1000; /* ms to seconds */
-    data->d_ttd.tv_usec += (ds->d_config.checkTimeout % 1000) * 1000; /* remaining ms to us */
-    if (data->d_ttd.tv_usec > 1000000) {
-      ++data->d_ttd.tv_sec;
-      data->d_ttd.tv_usec -= 1000000;
-    }
+    setHealthCheckTime(ds, data);
 
     if (!ds->doHealthcheckOverTCP()) {
       sock.connect(ds->d_config.remote);

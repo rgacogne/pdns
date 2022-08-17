@@ -26,6 +26,7 @@
 #include "dnsdist-protocols.hh"
 #include "gettime.hh"
 #include "iputils.hh"
+#include "noinitvector.hh"
 #include "uuid-utils.hh"
 
 struct ClientState;
@@ -240,6 +241,7 @@ struct IDState
   std::shared_ptr<DNSDistPacketCache> packetCache{nullptr}; // 16
   std::unique_ptr<DNSCryptQuery> dnsCryptQuery{nullptr}; // 8
   std::unique_ptr<QTag> qTag{nullptr}; // 8
+  std::unique_ptr<PacketBuffer> xskPacketHeader; // 8
   boost::optional<uint32_t> tempFailureTTL; // 8
   const ClientState* cs{nullptr}; // 8
   DOHUnit* du{nullptr}; // 8 (not a unique_ptr because we currently need to be able to peek at it without taking ownership until later)

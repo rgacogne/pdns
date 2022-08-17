@@ -1609,7 +1609,8 @@ fuzz_target_dnsdistcache_SOURCES = \
 	misc.cc misc.hh \
 	packetcache.hh \
 	qtype.cc qtype.hh \
-	svc-records.cc svc-records.hh
+	svc-records.cc svc-records.hh \
+	xsk.cc xsk.hh
 
 fuzz_target_dnsdistcache_DEPENDENCIES = $(fuzz_targets_deps)
 fuzz_target_dnsdistcache_LDFLAGS = $(fuzz_targets_ldflags)

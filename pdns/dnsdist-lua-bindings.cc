@@ -26,6 +26,7 @@
 #include "dnsdist-svc.hh"
 
 #include "dolog.hh"
+#include "xsk.hh"
 
 void setupLuaBindings(LuaContext& luaCtx, bool client)
 {
@@ -688,7 +689,53 @@ void setupLuaBindings(LuaContext& luaCtx, bool client)
       }
     });
 #endif /* HAVE_EBPF */
-
+#ifdef HAVE_XSK
+  using xskopt_t = LuaAssociativeTable<boost::variant<uint32_t, std::string>>;
+  luaCtx.writeFunction("newXsk", [client](xskopt_t opts) {
+    if (g_configurationDone) {
+      throw std::runtime_error("newXsk() only can be used at configuration time!");
+    }
+    if (client) {
+      return std::shared_ptr<XskSocket>(nullptr);
+    }
+    uint32_t queue_id;
+    uint32_t frameNums;
+    std::string ifName;
+    std::string path;
+    std::string poolName;
+    if (opts.count("NIC_queue_id") == 1) {
+      queue_id = boost::get<uint32_t>(opts.at("NIC_queue_id"));
+    }
+    else {
+      throw std::runtime_error("NIC_queue_id field is required!");
+    }
+    if (opts.count("frameNums") == 1) {
+      frameNums = boost::get<uint32_t>(opts.at("frameNums"));
+    }
+    else {
+      throw std::runtime_error("frameNums field is required!");
+    }
+    if (opts.count("ifName") == 1) {
+      ifName = boost::get<std::string>(opts.at("ifName"));
+    }
+    else {
+      throw std::runtime_error("ifName field is required!");
+    }
+    if (opts.count("xskMapPath") == 1) {
+      path = boost::get<std::string>(opts.at("xskMapPath"));
+    }
+    else {
+      throw std::runtime_error("xskMapPath field is required!");
+    }
+    if (opts.count("pool") == 1) {
+      poolName = boost::get<std::string>(opts.at("pool"));
+    }
+    extern std::vector<std::shared_ptr<XskSocket>> g_xsk;
+    auto socket = std::make_shared<XskSocket>(frameNums, ifName, queue_id, path, poolName);
+    g_xsk.push_back(socket); 
+    return socket;
+  });
+#endif /* HAVE_XSK */
   /* EDNSOptionView */
   luaCtx.registerFunction<size_t(EDNSOptionView::*)()const>("count", [](const EDNSOptionView& option) {
       return option.values.size();

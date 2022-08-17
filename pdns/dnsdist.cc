@@ -29,8 +29,14 @@
 #include <limits>
 #include <netinet/tcp.h>
 #include <pwd.h>
+#include <set>
 #include <sys/resource.h>
 #include <unistd.h>
+
+#ifdef HAVE_XSK
+#include <sys/poll.h>
+#include <sys/timerfd.h>
+#endif /* HAVE_XSK */
 
 #ifdef HAVE_LIBEDIT
 #if defined (__OpenBSD__) || defined(__NetBSD__)
@@ -109,7 +115,7 @@ string g_outputBuffer;
 std::vector<std::shared_ptr<TLSFrontend>> g_tlslocals;
 std::vector<std::shared_ptr<DOHFrontend>> g_dohlocals;
 std::vector<std::shared_ptr<DNSCryptContext>> g_dnsCryptLocals;
-
+std::vector<std::shared_ptr<XskSocket>> g_xsk;
 shared_ptr<BPFFilter> g_defaultBPFFilter{nullptr};
 std::vector<std::shared_ptr<DynBPFFilter> > g_dynBPFFilters;
 
@@ -625,147 +631,181 @@ void handleResponseSent(const DNSName& qname, const QType& qtype, double udiff, 
 
   doLatencyStats(incomingProtocol, udiff);
 }
-
+#ifdef HAVE_XSK
+void XskHealthCheck(std::shared_ptr<DownstreamState>& dss, std::unordered_map<uint16_t, std::shared_ptr<HealthCheckData>>& map, bool initial = false)
+{
+  auto& xskInfo = dss->xskInfo;
+  std::shared_ptr<HealthCheckData> data;
+  auto packet = getHealthCheckPacket(dss, nullptr, data);
+  data->d_initial = initial;
+  setHealthCheckTime(dss, data);
+  auto* frame = xskInfo->getEmptyframe();
+  auto *xskPacket = new XskPacket(frame, 0, xskInfo->frameSize);
+  xskPacket->setAddr(dss->d_config.sourceAddr, dss->d_config.sourceMACAddr, dss->d_config.remote, dss->d_config.destMACAddr);
+  xskPacket->setPayload(packet);
+  xskPacket->rewrite();
+  xskInfo->sq.push(xskPacket);
+  const auto queryId = data->d_queryID;
+  map[queryId] = std::move(data);
+}
+#endif /* HAVE_XSK */
+void processResponderPacket(std::shared_ptr<DownstreamState>& dss, PacketBuffer& response, LocalStateHolder<std::vector<DNSDistResponseRuleAction>>& localRespRuleActions, IDState* ids, bool& shouldRelease, int& delayMsec);
 // listens on a dedicated socket, lobs answers from downstream servers to original requestors
 void responderThread(std::shared_ptr<DownstreamState> dss)
 {
   try {
-  setThreadName("dnsdist/respond");
-  auto localRespRuleActions = g_respruleactions.getLocal();
-  const size_t initialBufferSize = getInitialUDPPacketBufferSize();
-  PacketBuffer response(initialBufferSize);
+    setThreadName("dnsdist/respond");
+    auto localRespRuleActions = g_respruleactions.getLocal();
 
-  /* when the answer is encrypted in place, we need to get a copy
-     of the original header before encryption to fill the ring buffer */
-  dnsheader cleartextDH;
-  uint16_t queryId = 0;
-  std::vector<int> sockets;
-  sockets.reserve(dss->sockets.size());
-
-  for(;;) {
-    try {
-      dss->pickSocketsReadyForReceiving(sockets);
-      if (dss->isStopped()) {
-        break;
+#ifdef HAVE_XSK
+    if (dss->xskInfo) {
+      auto xskInfo = dss->xskInfo;
+      auto pollfds = getPollFdsForWorker(*xskInfo);
+      std::unordered_map<uint16_t, std::shared_ptr<HealthCheckData>> healthCheckMap;
+      XskHealthCheck(dss, healthCheckMap, true);
+      itimerspec tm;
+      tm.it_value.tv_sec = dss->d_config.checkTimeout / 1000;
+      tm.it_value.tv_nsec = (dss->d_config.checkTimeout % 1000) * 1000000;
+      tm.it_interval = tm.it_value;
+      auto res = timerfd_settime(pollfds[1].fd, 0, &tm, nullptr);
+      if (res) {
+        throw std::runtime_error("timerfd_settime failed:" + stringerror(errno));
       }
-
-      for (const auto& fd : sockets) {
-        response.resize(initialBufferSize);
-        ssize_t got = recv(fd, response.data(), response.size(), 0);
-
-        if (got == 0 && dss->isStopped()) {
-          break;
+      const auto xskFd = xskInfo->workerWaker.getHandle();
+      while (!dss->isStopped()) {
+        poll(pollfds.data(), pollfds.size(), -1);
+        bool needNotify = false;
+        if (pollfds[0].revents & POLLIN) {
+          needNotify = true;
+          xskInfo->cq.consume_all([&](XskPacket* packet) {
+            if (packet->dataLen() < sizeof(dnsheader)) {
+              xskInfo->sq.push(packet);
+              return;
+            }
+            const auto* dh = reinterpret_cast<const struct dnsheader*>(packet->payloadData());
+            const auto queryId = dh->id;
+            auto* ids = dss->getExistingState(queryId);
+            if (!ids || xskFd != ids->backendFD || !ids->xskPacketHeader) {
+              auto iter = healthCheckMap.find(queryId);
+              if (iter != healthCheckMap.end()) {
+                auto data = std::move(iter->second);
+                healthCheckMap.erase(iter);
+                packet->cloneIntoPacketBuffer(data->d_buffer);
+                updateHealthCheckResult(data->d_ds, data->d_initial, handleResponse(data));
+              }
+              xskInfo->sq.push(packet);
+              return;
+            }
+            bool release = false;
+            int delayMsec = -1;
+            auto response = packet->clonePacketBuffer();
+            processResponderPacket(dss, response, localRespRuleActions, ids, release, delayMsec);
+            if (delayMsec != -1) {
+              packet->setHeader(*ids->xskPacketHeader);
+              packet->setPayload(response);
+              if (delayMsec > 0) {
+                packet->addDelay(delayMsec);
+              }
+            }
+            if (release) {
+              dss->releaseState(queryId);
+            }
+            packet->updatePacket();
+            xskInfo->sq.push(packet);
+          });
+          xskInfo->cleanSocketNotification();
         }
+        if (pollfds[1].revents & POLLIN) {
+          timeval now;
+          gettimeofday(&now, nullptr);
+          for (auto i = healthCheckMap.begin(); i != healthCheckMap.end();) {
+            auto& ttd = i->second->d_ttd;
+            if (ttd < now) {
+              updateHealthCheckResult(dss, i->second->d_initial, false);
+              i = healthCheckMap.erase(i);
+            }
+            else {
+              ++i;
+            }
+          }
+          needNotify = true;
+          dss->updateStatisticsInfo();
+          dss->handleTimeouts();
+          if (dss->d_nextCheck <= 1) {
+            dss->d_nextCheck = dss->d_config.checkInterval;
+            if (dss->d_config.availability == DownstreamState::Availability::Auto) {
+              XskHealthCheck(dss, healthCheckMap);
+            }
+          }
+          else {
+            --dss->d_nextCheck;
+          }
 
-        if (got < 0 || static_cast<size_t>(got) < sizeof(dnsheader)) {
-          continue;
+          uint64_t tmp;
+          res = read(pollfds[1].fd, &tmp, sizeof(tmp));
         }
-
-        response.resize(static_cast<size_t>(got));
-        dnsheader* dh = reinterpret_cast<struct dnsheader*>(response.data());
-        queryId = dh->id;
-
-        IDState* ids = dss->getExistingState(queryId);
-        if (ids == nullptr) {
-          continue;
+        if (needNotify) {
+          xskInfo->notifyXskSocket();
         }
-
-        int64_t usageIndicator = ids->usageIndicator;
-
-        if (!IDState::isInUse(usageIndicator)) {
-          /* the corresponding state is marked as not in use, meaning that:
-             - it was already cleaned up by another thread and the state is gone ;
-             - we already got a response for this query and this one is a duplicate.
-             Either way, we don't touch it.
-          */
-          continue;
-        }
-
-        /* read the potential DOHUnit state as soon as possible, but don't use it
-           until we have confirmed that we own this state by updating usageIndicator */
-        auto du = DOHUnitUniquePtr(ids->du, DOHUnit::release);
-        /* setting age to 0 to prevent the maintainer thread from
-           cleaning this IDS while we process the response.
-        */
-        ids->age = 0;
-        int origFD = ids->origFD;
-
-        unsigned int qnameWireLength = 0;
-        if (fd != ids->backendFD || !responseContentMatches(response, ids->qname, ids->qtype, ids->qclass, dss, qnameWireLength)) {
-          continue;
-        }
-
-        /* atomically mark the state as available, but only if it has not been altered
-           in the meantime */
-        if (ids->tryMarkUnused(usageIndicator)) {
-          /* clear the potential DOHUnit asap, it's ours now
-           and since we just marked the state as unused,
-           someone could overwrite it. */
-          ids->du = nullptr;
-          /* we only decrement the outstanding counter if the value was not
-             altered in the meantime, which would mean that the state has been actively reused
-             and the other thread has not incremented the outstanding counter, so we don't
-             want it to be decremented twice. */
-          --dss->outstanding;  // you'd think an attacker could game this, but we're using connected socket
-        } else {
-          /* someone updated the state in the meantime, we can't touch the existing pointer */
-          du.release();
-          /* since the state has been updated, we can't safely access it so let's just drop
-             this response */
-          continue;
-        }
-
-        dh->id = ids->origID;
-        ++dss->responses;
-
-        double udiff = ids->sentTime.udiff();
-        // do that _before_ the processing, otherwise it's not fair to the backend
-        dss->latencyUsec = (127.0 * dss->latencyUsec / 128.0) + udiff / 128.0;
-
-        /* don't call processResponse for DOH */
-        if (du) {
-#ifdef HAVE_DNS_OVER_HTTPS
-          // DoH query, we cannot touch du after that
-          handleUDPResponseForDoH(std::move(du), std::move(response), std::move(*ids));
-#endif
-          dss->releaseState(queryId);
-          continue;
-        }
-
-        DNSResponse dr = makeDNSResponseFromIDState(*ids, response);
-        if (dh->tc && g_truncateTC) {
-          truncateTC(response, dr.getMaximumSize(), qnameWireLength);
-        }
-        memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
-
-        if (!processResponse(response, localRespRuleActions, dr, ids->cs && ids->cs->muted, true)) {
-          dss->releaseState(queryId);
-          continue;
-        }
-
-        ++g_stats.responses;
-        if (ids->cs) {
-          ++ids->cs->responses;
-        }
-
-        if (ids->cs && !ids->cs->muted) {
-          ComboAddress empty;
-          empty.sin4.sin_family = 0;
-          sendUDPResponse(origFD, response, dr.delayMsec, ids->hopLocal, ids->hopRemote);
-        }
-
-        udiff = ids->sentTime.udiff();
-        vinfolog("Got answer from %s, relayed to %s, took %f usec", dss->d_config.remote.toStringWithPort(), ids->origRemote.toStringWithPort(), udiff);
-
-        handleResponseSent(*ids, udiff, *dr.remote, dss->d_config.remote, static_cast<unsigned int>(got), cleartextDH, dss->getProtocol());
-        dss->releaseState(queryId);
       }
     }
-    catch (const std::exception& e){
-      vinfolog("Got an error in UDP responder thread while parsing a response from %s, id %d: %s", dss->d_config.remote.toStringWithPort(), queryId, e.what());
+    else {
+#endif /* HAVE_XSK */
+      const size_t initialBufferSize = getInitialUDPPacketBufferSize();
+      PacketBuffer response(initialBufferSize);
+
+      /* when the answer is encrypted in place, we need to get a copy
+         of the original header before encryption to fill the ring buffer */
+      std::vector<int> sockets;
+      sockets.reserve(dss->sockets.size());
+
+      uint16_t queryId;
+      for (;;) {
+        try {
+          dss->pickSocketsReadyForReceiving(sockets);
+          if (dss->isStopped()) {
+            break;
+          }
+
+          for (const auto& fd : sockets) {
+            response.resize(initialBufferSize);
+            ssize_t got = recv(fd, response.data(), response.size(), 0);
+
+            if (got == 0 && dss->isStopped()) {
+              break;
+            }
+
+            if (got < 0 || static_cast<size_t>(got) < sizeof(dnsheader)) {
+              continue;
+            }
+
+            response.resize(static_cast<size_t>(got));
+            auto* dh = reinterpret_cast<struct dnsheader*>(response.data());
+
+            queryId = dh->id;
+            IDState* ids = dss->getExistingState(queryId);
+            if (ids == nullptr || fd != ids->backendFD) {
+              continue;
+            }
+            bool release = false;
+            int delayMsec = -1;
+            processResponderPacket(dss, response, localRespRuleActions, ids, release, delayMsec);
+            if (delayMsec != -1) {
+              sendUDPResponse(ids->origFD, response, delayMsec, ids->hopLocal, ids->hopRemote);
+            }
+            if (release) {
+              dss->releaseState(queryId);
+            }
+          }
+        }
+        catch (const std::exception& e) {
+          vinfolog("Got an error in UDP responder thread while parsing a response from %s, id %d: %s", dss->d_config.remote.toStringWithPort(), queryId, e.what());
+        }
+      }
+#ifdef HAVE_XSK
     }
+#endif /* HAVE_XSK */
   }
-}
 catch (const std::exception& e)
 {
   errlog("UDP responder thread died because of exception: %s", e.what());
@@ -778,6 +818,100 @@ catch (...)
 {
   errlog("UDP responder thread died because of an exception: %s", "unknown");
 }
+}
+void processResponderPacket(std::shared_ptr<DownstreamState>& dss, PacketBuffer& response, LocalStateHolder<std::vector<DNSDistResponseRuleAction>>& localRespRuleActions, IDState* ids, bool& shouldRelease, int& delayMsec)
+{
+
+  auto* dh = reinterpret_cast<struct dnsheader*>(response.data());
+  dnsheader cleartextDH;
+
+  int64_t usageIndicator = ids->usageIndicator;
+
+  if (!IDState::isInUse(usageIndicator)) {
+    /* the corresponding state is marked as not in use, meaning that:
+       - it was already cleaned up by another thread and the state is gone ;
+       - we already got a response for this query and this one is a duplicate.
+       Either way, we don't touch it.
+    */
+    return;
+  }
+
+  /* read the potential DOHUnit state as soon as possible, but don't use it
+     until we have confirmed that we own this state by updating usageIndicator */
+  auto du = DOHUnitUniquePtr(ids->du, DOHUnit::release);
+  /* setting age to 0 to prevent the maintainer thread from
+     cleaning this IDS while we process the response.
+  */
+  ids->age = 0;
+
+  unsigned int qnameWireLength = 0;
+  if (!responseContentMatches(response, ids->qname, ids->qtype, ids->qclass, dss, qnameWireLength)) {
+    return;
+  }
+
+  /* atomically mark the state as available, but only if it has not been altered
+     in the meantime */
+  if (ids->tryMarkUnused(usageIndicator)) {
+    /* clear the potential DOHUnit asap, it's ours now
+     and since we just marked the state as unused,
+     someone could overwrite it. */
+    ids->du = nullptr;
+    /* we only decrement the outstanding counter if the value was not
+       altered in the meantime, which would mean that the state has been actively reused
+       and the other thread has not incremented the outstanding counter, so we don't
+       want it to be decremented twice. */
+    --dss->outstanding; // you'd think an attacker could game this, but we're using connected socket
+  }
+  else {
+    /* someone updated the state in the meantime, we can't touch the existing pointer */
+    du.release();
+    /* since the state has been updated, we can't safely access it so let's just drop
+       this response */
+    return;
+  }
+  shouldRelease = true;
+  dh->id = ids->origID;
+  ++dss->responses;
+
+  double udiff = ids->sentTime.udiff();
+  // do that _before_ the processing, otherwise it's not fair to the backend
+  dss->latencyUsec = (127.0 * dss->latencyUsec / 128.0) + udiff / 128.0;
+
+  /* don't call processResponse for DOH */
+  if (du) {
+#ifdef HAVE_DNS_OVER_HTTPS
+    // DoH query, we cannot touch du after that
+    handleUDPResponseForDoH(std::move(du), std::move(response), std::move(*ids));
+#endif
+    return;
+  }
+
+  DNSResponse dr = makeDNSResponseFromIDState(*ids, response);
+  if (dh->tc && g_truncateTC) {
+    truncateTC(response, dr.getMaximumSize(), qnameWireLength);
+  }
+  memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
+
+  if (!processResponse(response, localRespRuleActions, dr, ids->cs && ids->cs->muted, true)) {
+    return;
+  }
+
+  ++g_stats.responses;
+  if (ids->cs) {
+    ++ids->cs->responses;
+  }
+
+  if (ids->cs && !ids->cs->muted) {
+    ComboAddress empty;
+    empty.sin4.sin_family = 0;
+    delayMsec = std::max(dr.delayMsec,0);
+  }
+
+  udiff = ids->sentTime.udiff();
+  vinfolog("Got answer from %s, relayed to %s, took %f usec", dss->d_config.remote.toStringWithPort(), ids->origRemote.toStringWithPort(), udiff);
+
+  handleResponseSent(*ids, udiff, *dr.remote, dss->d_config.remote, static_cast<unsigned int>(response.size()), cleartextDH, dss->getProtocol());
+
 }
 
 LockGuarded<LuaContext> g_lua{LuaContext()};
@@ -1105,7 +1239,22 @@ ssize_t udpClientSendRequestToBackend(const std::shared_ptr<DownstreamState>& ss
 
   return result;
 }
+#ifdef HAVE_XSK
+static bool isXskQueryAcceptable(const XskPacket& packet, ClientState& cs, LocalHolders& holders, bool& expectProxyProtocol) noexcept
+{
+  const auto& from = packet.getFromAddr();
+  expectProxyProtocol = expectProxyProtocolFrom(from);
+  if (!holders.acl->match(from) && !expectProxyProtocol) {
+    vinfolog("Query from %s dropped because of ACL", from.toStringWithPort());
+    ++g_stats.aclDrops;
+    return false;
+  }
+  cs.queries++;
+  ++g_stats.queries;
 
+  return true;
+}
+#endif /* HAVE_XSK */
 static bool isUDPQueryAcceptable(ClientState& cs, LocalHolders& holders, const struct msghdr* msgh, const ComboAddress& remote, ComboAddress& dest, bool& expectProxyProtocol)
 {
   if (msgh->msg_flags & MSG_TRUNC) {
@@ -1271,7 +1420,11 @@ ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& 
       ++cs.responses;
       return ProcessQueryResult::SendAnswer;
     }
-
+#ifdef HAVE_XSK
+    if (cs.xskInfo) {
+      dq.poolname = cs.xskInfo->poolName;
+    }
+#endif /* HAVE_XSK */
     std::shared_ptr<ServerPool> serverPool = getPool(*holders.pools, dq.poolname);
     std::shared_ptr<ServerPolicy> poolPolicy = serverPool->policy;
     dq.packetCache = serverPool->packetCache;
@@ -1638,6 +1791,151 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
   }
 }
 
+#ifdef HAVE_XSK
+static void ProcessXskQuery(ClientState& cs, LocalHolders& holders, XskPacket& packet)
+{
+  uint16_t queryId = 0;
+  const auto& remote = packet.getFromAddr();
+  const auto& dest = packet.getToAddr();
+  ComboAddress proxiedRemote = remote;
+  ComboAddress proxiedDestination = dest;
+
+  try {
+    bool expectProxyProtocol = false;
+    if (!isXskQueryAcceptable(packet, cs, holders, expectProxyProtocol)) {
+      return;
+    }
+    auto query = packet.clonePacketBuffer();
+    std::vector<ProxyProtocolValue> proxyProtocolValues;
+    if (expectProxyProtocol && !handleProxyProtocol(remote, false, *holders.acl, query, proxiedRemote, proxiedDestination, proxyProtocolValues)) {
+      return;
+    }
+
+    /* we need an accurate ("real") value for the response and
+       to store into the IDS, but not for insertion into the
+       rings for example */
+    struct timespec queryRealTime;
+    gettime(&queryRealTime, true);
+
+    std::unique_ptr<DNSCryptQuery> dnsCryptQuery = nullptr;
+    auto dnsCryptResponse = checkDNSCryptQuery(cs, query, dnsCryptQuery, queryRealTime.tv_sec, false);
+    if (dnsCryptResponse) {
+      packet.setPayload(query);
+      return;
+    }
+
+    {
+      /* this pointer will be invalidated the second the buffer is resized, don't hold onto it! */
+      struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(query.data());
+      queryId = ntohs(dh->id);
+
+      if (!checkQueryHeaders(dh, cs)) {
+        return;
+      }
+
+      if (dh->qdcount == 0) {
+        dh->rcode = RCode::NotImp;
+        dh->qr = true;
+        packet.setPayload(query);
+        return;
+      }
+    }
+
+    uint16_t qtype, qclass;
+    unsigned int qnameWireLength = 0;
+    DNSName qname(reinterpret_cast<const char*>(query.data()), query.size(), sizeof(dnsheader), false, &qtype, &qclass, &qnameWireLength);
+    DNSQuestion dq(&qname, qtype, qclass, proxiedDestination.sin4.sin_family != 0 ? &proxiedDestination : &cs.local, &proxiedRemote, query, dnsCryptQuery ? dnsdist::Protocol::DNSCryptUDP : dnsdist::Protocol::DoUDP, &queryRealTime);
+    dq.dnsCryptQuery = std::move(dnsCryptQuery);
+    if (!proxyProtocolValues.empty()) {
+      dq.proxyProtocolValues = make_unique<std::vector<ProxyProtocolValue>>(std::move(proxyProtocolValues));
+    }
+    dq.hopRemote = &remote;
+    dq.hopLocal = &dest;
+    std::shared_ptr<DownstreamState> ss{nullptr};
+    auto result = processQuery(dq, cs, holders, ss);
+
+    if (result == ProcessQueryResult::Drop) {
+      return;
+    }
+
+    // the buffer might have been invalidated by now (resized)
+    struct dnsheader* dh = dq.getHeader();
+    if (result == ProcessQueryResult::SendAnswer) {
+      packet.setPayload(query);
+      if (dq.delayMsec > 0) {
+        packet.addDelay(dq.delayMsec);
+      }
+      return;
+    }
+
+    if (result != ProcessQueryResult::PassToBackend || ss == nullptr) {
+      return;
+    }
+
+    if (ss->isTCPOnly()) {
+      std::string proxyProtocolPayload;
+      /* we need to do this _before_ creating the cross protocol query because
+         after that the buffer will have been moved */
+      if (ss->d_config.useProxyProtocol) {
+        proxyProtocolPayload = getProxyProtocolPayload(dq);
+      }
+
+      IDState ids;
+      ids.cs = &cs;
+      ids.origFD = cs.udpFD;
+      ids.origID = dh->id;
+      ids.xskPacketHeader = packet.cloneHeadertoPacketBuffer();
+
+      setIDStateFromDNSQuestion(ids, dq, std::move(qname));
+      if (dest.sin4.sin_family != 0) {
+        ids.origDest = dest;
+      }
+      else {
+        ids.origDest = cs.local;
+      }
+      auto cpq = std::make_unique<UDPCrossProtocolQuery>(std::move(query), std::move(ids), ss);
+      cpq->query.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
+
+      ss->passCrossProtocolQuery(std::move(cpq));
+      return;
+    }
+
+    unsigned int idOffset = 0;
+    int64_t generation;
+    IDState* ids = ss->getIDState(idOffset, generation);
+
+    ids->cs = &cs;
+    ids->origFD = cs.xskInfo->workerWaker;
+    ids->origID = dh->id;
+    ids->xskPacketHeader = packet.cloneHeadertoPacketBuffer();
+    setIDStateFromDNSQuestion(*ids, dq, std::move(qname));
+
+    if (dest.sin4.sin_family != 0) {
+      ids->origDest = dest;
+    }
+    else {
+      ids->origDest = cs.local;
+    }
+
+    dh = dq.getHeader();
+    dh->id = idOffset;
+
+    if (ss->d_config.useProxyProtocol) {
+      addProxyProtocol(dq);
+    }
+
+    int fd = ss->xskInfo->workerWaker;
+    ids->backendFD = fd;
+    packet.setAddr(ss->d_config.sourceAddr,ss->d_config.sourceMACAddr, ss->d_config.remote,ss->d_config.destMACAddr);
+    packet.setPayload(query);
+    packet.rewrite();
+    vinfolog("Got query for %s|%s from %s, relayed to %s", ids->qname.toLogString(), QType(ids->qtype).toString(), proxiedRemote.toStringWithPort(), ss->getNameWithAddr());
+  }
+  catch (const std::exception& e) {
+    vinfolog("Got an error in UDP question thread while parsing a query from %s, id %d: %s", proxiedRemote.toStringWithPort(), queryId, e.what());
+  }
+}
+#endif /* HAVE_XSK */
 #ifndef DISABLE_RECVMMSG
 #if defined(HAVE_RECVMMSG) && defined(HAVE_SENDMMSG) && defined(MSG_WAITFORONE)
 static void MultipleMessagesUDPClientThread(ClientState* cs, LocalHolders& holders)
@@ -1725,7 +2023,26 @@ static void MultipleMessagesUDPClientThread(ClientState* cs, LocalHolders& holde
 }
 #endif /* defined(HAVE_RECVMMSG) && defined(HAVE_SENDMMSG) && defined(MSG_WAITFORONE) */
 #endif /* DISABLE_RECVMMSG */
+#ifdef HAVE_XSK
+static void xskClientThread(ClientState* cs)
+{
+  setThreadName("dnsdist/xskClient");
+  auto xskInfo = cs->xskInfo;
+  LocalHolders holders;
 
+  for (;;) {
+    while (!xskInfo->cq.read_available()) {
+      xskInfo->waitForXskSocket();
+    }
+    xskInfo->cq.consume_all([&](XskPacket* packet) {
+      ProcessXskQuery(*cs, holders, *packet);
+      packet->updatePacket();
+      xskInfo->sq.push(packet);
+    });
+    xskInfo->notifyXskSocket();
+  }
+}
+#endif /* HAVE_XSK */
 // listens to incoming queries, sends out to downstream servers, noting the intended return path
 static void udpClientThread(ClientState* cs)
 {
@@ -1906,12 +2223,12 @@ static void healthChecksThread()
 
     auto states = g_dstates.getLocal(); // this points to the actual shared_ptrs!
     for (auto& dss : *states) {
-      auto delta = dss->sw.udiffAndSet()/1000000.0;
-      dss->queryLoad.store(1.0*(dss->queries.load() - dss->prev.queries.load())/delta);
-      dss->dropRate.store(1.0*(dss->reuseds.load() - dss->prev.reuseds.load())/delta);
-      dss->prev.queries.store(dss->queries.load());
-      dss->prev.reuseds.store(dss->reuseds.load());
-
+#ifdef HAVE_XSK
+      if (dss->xskInfo) {
+        continue;
+      }
+#endif /* HAVE_XSK */
+      dss->updateStatisticsInfo();
       dss->handleTimeouts();
 
       if (dss->d_nextCheck > 1) {
@@ -2263,6 +2580,9 @@ static void sigTermHandler(int)
   _exit(EXIT_SUCCESS);
 }
 #endif /* COVERAGE */
+#ifdef HAVE_XSK
+void XskRouter(std::shared_ptr<XskSocket> xsk);
+#endif /* HAVE_XSK */
 
 int main(int argc, char** argv)
 {
@@ -2703,6 +3023,11 @@ int main(int argc, char** argv)
       auto states = g_dstates.getCopy(); // it is a copy, but the internal shared_ptrs are the real deal
       auto mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent(states.size()));
       for (auto& dss : states) {
+#ifdef HAVE_XSK
+        if (dss->xskInfo) {
+          continue;
+        }
+#endif /* HAVE_XSK */
         if (dss->d_config.availability == DownstreamState::Availability::Auto) {
           dss->d_nextCheck = dss->d_config.checkInterval;
           if (!queueHealthCheck(mplexer, dss, true)) {
@@ -2712,9 +3037,26 @@ int main(int argc, char** argv)
         }
       }
       handleQueuedHealthChecks(*mplexer, true);
+#ifdef HAVE_XSK
+      for (auto i : g_xsk) {
+        std::thread t1(XskRouter, std::move(i));
+        t1.detach();
+      }
+#endif /* HAVE_XSK */
     }
 
     for(auto& cs : g_frontends) {
+#ifdef HAVE_XSK
+      if (cs->xskInfo) {
+        std::thread t1(xskClientThread, cs.get());
+        if (!cs->cpus.empty()) {
+          mapThreadToCPUList(t1.native_handle(), cs->cpus);
+        }
+        t1.detach();
+        continue;
+      }
+#endif /* HAVE_XSK */
+
       if (cs->dohFrontend != nullptr) {
 #ifdef HAVE_DNS_OVER_HTTPS
         std::thread t1(dohThread, cs.get());
@@ -2816,3 +3158,63 @@ int main(int argc, char** argv)
 #endif
   }
 }
+#ifdef HAVE_XSK
+void XskRouter(std::shared_ptr<XskSocket> xsk)
+{
+  setThreadName("dnsdist/XskRouter");
+  uint32_t failed;
+  vector<XskPacketPtr> fillInTx;
+  const auto size = xsk->fds.size();
+  std::set<int> needNotify;
+  const auto& xskWakerIdx = xsk->workers.get<0>();
+  const auto& destIdx = xsk->workers.get<1>();
+  while (true) {
+    auto ready = xsk->wait(-1);
+    if (xsk->fds[0].revents & POLLIN) {
+      auto packets = xsk->recv(64, &failed);
+      g_stats.nonCompliantQueries += failed;
+      for (auto &packet : packets) {
+        const auto dest = packet->getToAddr();
+        auto res = destIdx.find(dest);
+        if (res == destIdx.end()) {
+          xsk->uniqueEmptyFrameOffset.push_back(xsk->frameOffset(*packet));
+          continue;
+        }
+        res->worker->cq.push(packet.release());
+        needNotify.insert(res->workerWaker);
+      }
+      for (auto i : needNotify) {
+        uint64_t x = 1;
+        write(i, &x, sizeof(x));
+      }
+      needNotify.clear();
+      ready--;
+    }
+    const auto backup = ready;
+    for (size_t i = 1; i < size && ready > 0; i++) {
+      if (xsk->fds[i].revents & POLLIN) {
+        ready--;
+        auto& info = xskWakerIdx.find(xsk->fds[i].fd)->worker;
+        info->sq.consume_all([&](XskPacket* x) {
+          if (!(x->getFlags() & XskPacket::UPDATE)) {
+            xsk->uniqueEmptyFrameOffset.push_back(xsk->frameOffset(*x));
+            return;
+          }
+          auto ptr = std::unique_ptr<XskPacket>(x);
+          if (x->getFlags() & XskPacket::DELAY) {
+            xsk->waitForDelay.push(std::move(ptr));
+            return;
+          }
+          fillInTx.push_back(std::move(ptr));
+        });
+        info->cleanWorkerNotification();
+      }
+    }
+    xsk->pickUpReadyPacket(fillInTx);
+    xsk->recycle(64);
+    xsk->fillFq();
+    xsk->send(fillInTx);
+    ready = backup;
+  }
+}
+#endif /* HAVE_XSK */

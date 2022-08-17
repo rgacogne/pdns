@@ -412,6 +412,12 @@ void DownstreamState::releaseState(unsigned int stateId)
     }
     map->erase(it);
   }
+  else {
+    if (stateId >= idStates.size()) {
+      return;
+    }
+    idStates[stateId].xskPacketHeader = nullptr;
+  }
 }
 
 IDState* DownstreamState::getIDState(unsigned int& selectedID, int64_t& generation)
