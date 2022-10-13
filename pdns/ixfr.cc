@@ -124,7 +124,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > processIXFRRecords(const Co
 
 // Returns pairs of "remove & add" vectors. If you get an empty remove, it means you got an AXFR!
 vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAddress& primary, const DNSName& zone, const DNSRecord& oursr, 
-                                                                   const TSIGTriplet& tt, const ComboAddress* laddr, size_t maxReceivedBytes)
+                                                                   const TSIGTriplet& tt, const ComboAddress* laddr, size_t maxReceivedBytes, uint16_t xfrTimeout)
 {
   vector<pair<vector<DNSRecord>, vector<DNSRecord> > >  ret;
   vector<uint8_t> packet;
@@ -156,13 +156,24 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
   string msg((const char*)&len, 2);
   msg.append((const char*)&packet[0], packet.size());
 
+  struct timeval idleTimeout = { .tv_sec = xfrTimeout, .tv_usec = 0 };
+  struct timeval totalTimeout = { .tv_sec = xfrTimeout, .tv_usec = 0 };
+
   Socket s(primary.sin4.sin_family, SOCK_STREAM);
   //  cout<<"going to connect"<<endl;
-  if(laddr)
+  if (laddr) {
     s.bind(*laddr);
-  s.connect(primary);
+  }
+
+  if (xfrTimeout > 0) {
+    s.setNonBlocking();
+  }
+
+  time_t xfrStart = time(nullptr);
+
+  s.connect(primary, xfrTimeout);
   //  cout<<"Connected"<<endl;
-  s.writen(msg);
+  s.writenWithTimeout(msg.data(), msg.size(), xfrTimeout);
 
   // CURRENT PRIMARY SOA
   // REPEAT:
@@ -181,7 +192,7 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
   const unsigned int expectedSOAForIXFR = 3;
   unsigned int primarySOACount = 0;
 
-  for(;;) {
+  for (;;) {
     // IXFR or AXFR style end reached? We don't want to process trailing data after the closing SOA
     if (style == AXFR && primarySOACount == expectedSOAForAXFR) {
       break;
@@ -190,32 +201,47 @@ vector<pair<vector<DNSRecord>, vector<DNSRecord> > > getIXFRDeltas(const ComboAd
       break;
     }
 
-    if(s.read((char*)&len, sizeof(len)) != sizeof(len))
+    if (s.readWithTimeout(reinterpret_cast<char*>(&len), sizeof(len), xfrTimeout) != sizeof(len)) {
       break;
+    }
 
-    len=ntohs(len);
+    len = ntohs(len);
     //    cout<<"Got chunk of "<<len<<" bytes"<<endl;
-    if(!len)
+    if (len == 0) {
       break;
+    }
 
-    if (maxReceivedBytes > 0 && (maxReceivedBytes - receivedBytes) < (size_t) len)
+    if (maxReceivedBytes > 0 && (maxReceivedBytes - receivedBytes) < (size_t) len) {
       throw std::runtime_error("Reached the maximum number of received bytes in an IXFR delta for zone '"+zone.toLogString()+"' from primary "+primary.toStringWithPort());
+    }
 
     reply.resize(len);
-    readn2(s.getHandle(), &reply.at(0), len);
+    if (time(nullptr) < xfrStart) {
+      throw std::runtime_error("Reached the maximum elapsed time in an IXFR delta for zone '" + zone.toLogString() + "' from primary " + primary.toStringWithPort());
+    }
+
+    auto elapsed = time(nullptr) - xfrStart;
+    if (elapsed >= totalTimeout.tv_sec) {
+      throw std::runtime_error("Reached the maximum elapsed time in an IXFR delta for zone '" + zone.toLogString() + "' from primary " + primary.toStringWithPort());
+    }
+
+    totalTimeout.tv_sec -= elapsed;
+
+    readn2WithTimeout(s.getHandle(), &reply.at(0), len, idleTimeout, totalTimeout, false);
     receivedBytes += len;
 
     MOADNSParser mdp(false, reply);
-    if(mdp.d_header.rcode) 
+    if (mdp.d_header.rcode) {
       throw std::runtime_error("Got an error trying to IXFR zone '"+zone.toLogString()+"' from primary '"+primary.toStringWithPort()+"': "+RCode::to_s(mdp.d_header.rcode));
+    }
 
     //    cout<<"Got a response, rcode: "<<mdp.d_header.rcode<<", got "<<mdp.d_answers.size()<<" answers"<<endl;
 
-    if(!tt.algo.empty()) { // TSIG verify message
+    if (!tt.algo.empty()) { // TSIG verify message
       tsigVerifier.check(reply, mdp);
     }
 
-    for(auto& r: mdp.d_answers) {
+    for (auto& r: mdp.d_answers) {
       //      cout<<r.first.d_name<< " " <<r.first.d_content->getZoneRepresentation()<<endl;
       if(!primarySOA) {
         // we have not seen the first SOA record yet
