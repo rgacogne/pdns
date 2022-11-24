@@ -1413,7 +1413,7 @@ ProcessQueryResult processQuery(DNSQuestion& dq, ClientState& cs, LocalHolders& 
 class UDPTCPCrossQuerySender : public TCPQuerySender
 {
 public:
-  UDPTCPCrossQuerySender(const ClientState& cs, std::shared_ptr<DownstreamState>& ds, uint16_t payloadSize): d_cs(cs), d_ds(ds), d_payloadSize(payloadSize)
+  UDPTCPCrossQuerySender(const ClientState& cs, const std::shared_ptr<DownstreamState>& ds, uint16_t payloadSize): d_cs(cs), d_ds(ds), d_payloadSize(payloadSize)
   {
   }
 
@@ -1460,7 +1460,7 @@ public:
   }
 private:
   const ClientState& d_cs;
-  std::shared_ptr<DownstreamState> d_ds{nullptr};
+  const std::shared_ptr<DownstreamState> d_ds{nullptr};
   uint16_t d_payloadSize{0};
 };
 
@@ -1594,7 +1594,6 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
 
       IDState ids;
       ids.cs = &cs;
-      ids.origFD = cs.udpFD;
       ids.origID = dh->id;
       setIDStateFromDNSQuestion(ids, dq, std::move(qname));
       if (dest.sin4.sin_family != 0) {
@@ -1615,7 +1614,6 @@ static void processUDPQuery(ClientState& cs, LocalHolders& holders, const struct
     IDState* ids = ss->getIDState(idOffset, generation);
 
     ids->cs = &cs;
-    ids->origFD = cs.udpFD;
     ids->origID = dh->id;
     setIDStateFromDNSQuestion(*ids, dq, std::move(qname));
 

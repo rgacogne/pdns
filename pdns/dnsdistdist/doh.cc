@@ -677,7 +677,6 @@ static void processDOHQuery(DOHUnitUniquePtr&& du)
     int64_t generation;
     IDState* ids = du->downstream->getIDState(idOffset, generation);
 
-    ids->origFD = 0;
     /* increase the ref count since we are about to store the pointer */
     du->get();
     duRefCountIncremented = true;
@@ -698,11 +697,9 @@ static void processDOHQuery(DOHUnitUniquePtr&& du)
     */
     if (dest.sin4.sin_family != 0) {
       ids->origDest = dest;
-      ids->destHarvested = true;
     }
     else {
       ids->origDest = cs.local;
-      ids->destHarvested = false;
     }
 
     bool failed = false;
