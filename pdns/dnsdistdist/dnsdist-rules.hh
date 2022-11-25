@@ -96,9 +96,9 @@ public:
 
   bool matches(const DNSQuestion* dq) const override
   {
-    cleanupIfNeeded(*dq->queryTime);
+    cleanupIfNeeded(dq->queryTime);
 
-    ComboAddress zeroport(*dq->remote);
+    ComboAddress zeroport(dq->ids.origRemote);
     zeroport.sin4.sin_port=0;
     zeroport.truncate(zeroport.sin4.sin_family == AF_INET ? d_ipv4trunc : d_ipv6trunc);
     {
@@ -196,9 +196,9 @@ public:
   bool matches(const DNSQuestion* dq) const override
   {
     if(!d_src) {
-        return d_nmg.match(*dq->local);
+        return d_nmg.match(dq->ids.origDest);
     }
-    return d_nmg.match(*dq->remote);
+    return d_nmg.match(dq->ids.origRemote);
   }
 
   string toString() const override
@@ -242,16 +242,16 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    if (dq->remote->sin4.sin_family == AF_INET) {
+    if (dq->ids.origRemote.sin4.sin_family == AF_INET) {
       auto ip4s = d_ip4s.read_lock();
-      auto fnd = ip4s->find(dq->remote->sin4.sin_addr.s_addr);
+      auto fnd = ip4s->find(dq->ids.origRemote.sin4.sin_addr.s_addr);
       if (fnd == ip4s->end()) {
         return false;
       }
       return time(nullptr) < fnd->second;
     } else {
       auto ip6s = d_ip6s.read_lock();
-      auto fnd = ip6s->find({*dq->remote});
+      auto fnd = ip6s->find({dq->ids.origRemote});
       if (fnd == ip6s->end()) {
         return false;
       }
@@ -471,7 +471,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    return d_regex.match(dq->qname->toStringNoDot());
+    return d_regex.match(dq->ids.qname.toStringNoDot());
   }
 
   string toString() const override
@@ -494,7 +494,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    return RE2::FullMatch(dq->qname->toStringNoDot(), d_re2);
+    return RE2::FullMatch(dq->ids.qname.toStringNoDot(), d_re2);
   }
 
   string toString() const override
@@ -568,7 +568,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    return d_smn.check(*dq->qname);
+    return d_smn.check(dq->ids.qname);
   }
   string toString() const override
   {
@@ -591,7 +591,7 @@ public:
 
   bool matches(const DNSQuestion* dq) const override
   {
-    return d_qname==*dq->qname;
+    return d_qname==dq->ids.qname;
   }
   string toString() const override
   {
@@ -606,7 +606,7 @@ public:
     QNameSetRule(const DNSNameSet& names) : qname_idx(names) {}
 
     bool matches(const DNSQuestion* dq) const override {
-        return qname_idx.find(*dq->qname) != qname_idx.end();
+        return qname_idx.find(dq->ids.qname) != qname_idx.end();
     }
 
     string toString() const override {
@@ -626,7 +626,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    return d_qtype == dq->qtype;
+    return d_qtype == dq->ids.qtype;
   }
   string toString() const override
   {
@@ -645,7 +645,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    return d_qclass == dq->qclass;
+    return d_qclass == dq->ids.qclass;
   }
   string toString() const override
   {
@@ -681,7 +681,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    return htons(d_port) == dq->local->sin4.sin_port;
+    return htons(d_port) == dq->ids.origDest.sin4.sin_port;
   }
   string toString() const override
   {
@@ -858,7 +858,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    unsigned int count = dq->qname->countLabels();
+    unsigned int count = dq->ids.qname.countLabels();
     return count < d_min || count > d_max;
   }
   string toString() const override
@@ -878,7 +878,7 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    size_t const wirelength = dq->qname->wirelength();
+    size_t const wirelength = dq->ids.qname.wirelength();
     return wirelength < d_min || wirelength > d_max;
   }
   string toString() const override
@@ -1041,12 +1041,12 @@ public:
   }
   bool matches(const DNSQuestion* dq) const override
   {
-    if (!dq->qTag) {
+    if (!dq->ids.qTag) {
       return false;
     }
 
-    const auto it = dq->qTag->find(d_tag);
-    if (it == dq->qTag->cend()) {
+    const auto it = dq->ids.qTag->find(d_tag);
+    if (it == dq->ids.qTag->cend()) {
       return false;
     }
 

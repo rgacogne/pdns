@@ -15,8 +15,11 @@ ConnectionToBackend::~ConnectionToBackend()
     struct timeval now;
     gettimeofday(&now, nullptr);
 
+    cerr<<__PRETTY_FUNCTION__<<endl;
     if (d_handler->isTLS()) {
+      cerr<<"was TLS"<<endl;
       if (d_handler->hasTLSSessionBeenResumed()) {
+        cerr<<"was resumed"<<endl;
         ++d_ds->tlsResumptions;
       }
       try {
@@ -38,10 +41,13 @@ ConnectionToBackend::~ConnectionToBackend()
 bool ConnectionToBackend::reconnect()
 {
   std::unique_ptr<TLSSession> tlsSession{nullptr};
-  if (d_handler) {
+  if (d_handler) { 
+    cerr<<__PRETTY_FUNCTION__<<endl;
     DEBUGLOG("closing socket "<<d_handler->getDescriptor());
     if (d_handler->isTLS()) {
+      cerr<<"reco was TLS"<<endl;
       if (d_handler->hasTLSSessionBeenResumed()) {
+        cerr<<"reco was resumed"<<endl;
         ++d_ds->tlsResumptions;
       }
       try {
@@ -109,6 +115,7 @@ bool ConnectionToBackend::reconnect()
         tlsSession = g_sessionCache.getSession(d_ds->getID(), d_connectionStartTime.tv_sec);
       }
       if (tlsSession) {
+        cerr<<"attempting resumption"<<endl;
         handler->setTLSSession(tlsSession);
       }
       handler->tryConnect(d_ds->d_config.tcpFastOpen && isFastOpenEnabled(), d_ds->d_config.remote);
