@@ -151,6 +151,7 @@ struct InternalQueryState
   bool dnssecOK{false};
   bool useZeroScope{false};
   bool forwardedOverUDP{false};
+  bool selfGenerated{false};
 };
 
 struct IDState
