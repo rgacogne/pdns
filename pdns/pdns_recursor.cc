@@ -1809,6 +1809,19 @@ void startDoResolve(void* p)
 
   runTaskOnce(g_logCommonErrors);
 
+  static const size_t stackSizeThreshold = ::arg().asNum("stack-size") / 4 * 3;
+  if (MT->getMaxStackUsage() >= stackSizeThreshold) {
+    SLOG(g_log << Logger::Error << "Reached stack usage of " << MT->getMaxStackUsage() << " " << makeLoginfo(dc) << " after " << sr.d_outqueries << " out queries, " << sr.d_tcpoutqueries << " TCP out queries, " << sr.d_dotoutqueries << " DoT out queries" << endl,
+         sr.d_slog->error(Logr::Error, "Reached stack usage",
+                          "stackUsage", Logging::Loggable(MT->getMaxStackUsage()),
+                          "outqueries", Logging::Loggable(sr.d_outqueries),
+                          "netms", Logging::Loggable(sr.d_totUsec / 1000.0),
+                          "throttled", Logging::Loggable(sr.d_throttledqueries),
+                          "timeouts", Logging::Loggable(sr.d_timeouts),
+                          "tcpout", Logging::Loggable(sr.d_tcpoutqueries),
+                          "dotout", Logging::Loggable(sr.d_dotoutqueries),
+                          "validationState", Logging::Loggable(sr.getValidationState())));
+  }
   g_stats.maxMThreadStackUsage = max(MT->getMaxStackUsage(), g_stats.maxMThreadStackUsage.load());
 }
 
