@@ -136,23 +136,28 @@ uint64_t pruneMutexCollectionsVector(C& container, std::vector<T>& maps, uint64_
   uint64_t toTrim = 0;
   uint64_t lookAt = 0;
 
-  // two modes - if toTrim is 0, just look through 10%  of the cache and nuke everything that is expired
-  // otherwise, scan first 5*toTrim records, and stop once we've nuked enough
+  // two modes - if toTrim is 0, just look through 10% of the cache and nuke everything that is expired
+  // otherwise, scan first max(5*toTrim, 10%) records, and stop once we've nuked enough
   if (cacheSize > maxCached) {
     toTrim = cacheSize - maxCached;
-    lookAt = 5 * toTrim;
+    lookAt = std::max(5 * toTrim, cacheSize / 10);
   }
   else {
     lookAt = cacheSize / 10;
   }
 
-  uint64_t maps_size = maps.size();
-  if (maps_size == 0) {
+  uint64_t numberOfShards = maps.size();
+  if (numberOfShards == 0 || cacheSize == 0) {
     return 0;
   }
 
+  /* first we scan a fraction of the shards for expired entries,
+     ordered by LRU */
   for (auto& content : maps) {
     auto mc = content.lock();
+    const auto shardSize = mc->d_map.size();
+    const uint64_t toScanForThisShard = std::ceil(lookAt * ((1.0 * shardSize) / cacheSize));
+    const uint64_t toTrimForThisShard = toTrim > 0 ? std::ceil(toTrim * ((1.0 * shardSize) / cacheSize)) : 0;
     mc->invalidate();
     auto& sidx = boost::multi_index::get<S>(mc->d_map);
     uint64_t erased = 0, lookedAt = 0;
@@ -167,43 +172,48 @@ uint64_t pruneMutexCollectionsVector(C& container, std::vector<T>& maps, uint64_
         ++i;
       }
 
-      if (toTrim && erased >= toTrim / maps_size)
+      if (toTrimForThisShard && erased >= toTrimForThisShard) {
         break;
+      }
 
-      if (lookedAt > lookAt / maps_size)
+      if (lookedAt >= toScanForThisShard) {
         break;
+      }
     }
+
     totErased += erased;
-    if (toTrim && totErased >= toTrim)
-      break;
   }
 
   if (totErased >= toTrim) { // done
     return totErased;
   }
 
+  /* it was not enough, so we need to remove entries that are not expired,
+     still using the LRU */
   toTrim -= totErased;
 
-  while (true) {
-    size_t pershard = toTrim / maps_size + 1;
-    for (auto& content : maps) {
-      auto mc = content.lock();
-      mc->invalidate();
-      auto& sidx = boost::multi_index::get<S>(mc->d_map);
-      size_t removed = 0;
-      for (auto i = sidx.begin(); i != sidx.end() && removed < pershard; removed++) {
-        container.preRemoval(*mc, *i);
-        i = sidx.erase(i);
-        --content.d_entriesCount;
-        totErased++;
-        toTrim--;
-        if (toTrim == 0) {
-          return totErased;
-        }
+  for (auto& content : maps) {
+    auto mc = content.lock();
+    const auto shardSize = mc->d_map.size();
+    uint64_t toTrimForThisShard = toTrim > 0 ? std::ceil(toTrim * ((1.0 * shardSize) / cacheSize)) : 0;
+    if (toTrimForThisShard == 0) {
+      continue;
+    }
+    mc->invalidate();
+    auto& sidx = boost::multi_index::get<S>(mc->d_map);
+    size_t removed = 0;
+    for (auto i = sidx.begin(); i != sidx.end() && removed < toTrimForThisShard; removed++) {
+      container.preRemoval(*mc, *i);
+      i = sidx.erase(i);
+      --content.d_entriesCount;
+      totErased++;
+      toTrim--;
+      if (toTrim == 0) {
+        return totErased;
       }
     }
   }
-  // Not reached
+
   return totErased;
 }
 
