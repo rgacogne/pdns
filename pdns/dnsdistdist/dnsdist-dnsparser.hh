@@ -47,4 +47,6 @@ public:
   uint16_t d_qclass;
   dnsheader d_header;
 };
+
+bool rebaseDNSPacket(PacketBuffer& initialPacket, const DNSName& from, const DNSName& to);
 }
