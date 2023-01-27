@@ -1,6 +1,7 @@
 name: "Various daily checks"
 
 on:
+  push:
   schedule:
     - cron: '34 4 * * *'
 
