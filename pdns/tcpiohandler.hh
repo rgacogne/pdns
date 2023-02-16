@@ -136,7 +136,9 @@ protected:
 class TLSFrontend
 {
 public:
-  TLSFrontend()
+  enum class ALPN : uint8_t { Unset, DoT, DoH };
+
+  TLSFrontend(ALPN alpn): d_alpn(alpn)
   {
   }
 
@@ -223,7 +225,7 @@ public:
   TLSErrorCounters d_tlsCounters;
   ComboAddress d_addr;
   std::string d_provider;
-
+  ALPN d_alpn{ALPN::Unset};
 protected:
   std::shared_ptr<TLSCtx> d_ctx{nullptr};
 };
@@ -231,7 +233,6 @@ protected:
 class TCPIOHandler
 {
 public:
-  enum class Type : uint8_t { Client, Server };
 
   TCPIOHandler(const std::string& host, bool hostIsAddr, int socket, const struct timeval& timeout, std::shared_ptr<TLSCtx> ctx): d_socket(socket)
   {
@@ -582,3 +583,4 @@ struct TLSContextParameters
 
 std::shared_ptr<TLSCtx> getTLSContext(const TLSContextParameters& params);
 bool setupDoTProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx);
+bool setupDoHProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx);

@@ -89,6 +89,8 @@ private:
   bool d_needRealTime;
 };
 
+class CrossProtocolContext;
+
 struct InternalQueryState
 {
   struct ProtoBufData
@@ -130,6 +132,7 @@ struct InternalQueryState
   std::unique_ptr<ProtoBufData> d_protoBufData{nullptr};
   boost::optional<uint32_t> tempFailureTTL{boost::none}; // 8
   ClientState* cs{nullptr}; // 8
+  std::unique_ptr<CrossProtocolContext> crossProtocolContext; // 8
   std::unique_ptr<DOHUnit, void (*)(DOHUnit*)> du; // 8
   uint32_t cacheKey{0}; // 4
   uint32_t cacheKeyNoECS{0}; // 4
@@ -248,4 +251,60 @@ struct IDState
 
 private:
   std::atomic<bool> locked{false}; // 1
+};
+
+struct DownstreamState;
+
+class CrossProtocolContext
+{
+public:
+  CrossProtocolContext(PacketBuffer&& buffer): d_buffer(std::move(buffer))
+  {
+  }
+
+  virtual std::optional<std::string> getHTTPPath() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::string> getHTTPScheme() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::string> getHTTPHost() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::string> getHTTPQueryString() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::unordered_map<std::string, std::string>> getHTTPHeaders() const
+  {
+    return std::nullopt;
+  }
+
+  virtual void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType = "") const
+  {
+  }
+
+  void setProxyProtocolPayloadSize(size_t size)
+  {
+    d_proxyPayloadSize = size;
+  }
+
+  virtual void handleResponse(PacketBuffer&& response, InternalQueryState&& state) = 0;
+  virtual void handleTimeout() = 0;
+
+  virtual ~CrossProtocolContext()
+  {
+  }
+
+private:
+  std::shared_ptr<DownstreamState> d_downstream{nullptr};
+  PacketBuffer d_buffer;
+  size_t d_proxyPayloadSize{0};
 };

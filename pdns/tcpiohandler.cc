@@ -1817,38 +1817,50 @@ bool setupDoTProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx)
   return true;
 }
 
+bool setupDoHProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx)
+{
+  if (ctx == nullptr) {
+    return false;
+  }
+  /* we want to set the ALPN to doh */
+  const std::vector<std::vector<uint8_t>> dohAlpns = {{'h', '2'}};
+  ctx->setALPNProtos(dohAlpns);
+  return true;
+}
+
 bool TLSFrontend::setupTLS()
 {
 #ifdef HAVE_DNS_OVER_TLS
   std::shared_ptr<TLSCtx> newCtx{nullptr};
   /* get the "best" available provider */
-  if (!d_provider.empty()) {
 #ifdef HAVE_GNUTLS
-    if (d_provider == "gnutls") {
-      newCtx = std::make_shared<GnuTLSIOCtx>(*this);
-      setupDoTProtocolNegotiation(newCtx);
-      std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
-      return true;
-    }
-#endif /* HAVE_GNUTLS */
-#ifdef HAVE_LIBSSL
-    if (d_provider == "openssl") {
-      newCtx = std::make_shared<OpenSSLTLSIOCtx>(*this);
-      setupDoTProtocolNegotiation(newCtx);
-      std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
-      return true;
-    }
-#endif /* HAVE_LIBSSL */
+  if (d_provider == "gnutls") {
+    newCtx = std::make_shared<GnuTLSIOCtx>(*this);
   }
-#ifdef HAVE_LIBSSL
-  newCtx = std::make_shared<OpenSSLTLSIOCtx>(*this);
-#else /* HAVE_LIBSSL */
-#ifdef HAVE_GNUTLS
-  newCtx = std::make_shared<GnuTLSIOCtx>(*this);
 #endif /* HAVE_GNUTLS */
+#ifdef HAVE_LIBSSL
+  if (d_provider == "openssl") {
+    newCtx = std::make_shared<OpenSSLTLSIOCtx>(*this);
+  }
 #endif /* HAVE_LIBSSL */
 
-  setupDoTProtocolNegotiation(newCtx);
+  if (!newCtx) {
+#ifdef HAVE_LIBSSL
+    newCtx = std::make_shared<OpenSSLTLSIOCtx>(*this);
+#else /* HAVE_LIBSSL */
+#ifdef HAVE_GNUTLS
+    newCtx = std::make_shared<GnuTLSIOCtx>(*this);
+#endif /* HAVE_GNUTLS */
+#endif /* HAVE_LIBSSL */
+  }
+
+  if (d_alpn == ALPN::DoT) {
+    setupDoTProtocolNegotiation(newCtx);
+  }
+  else if (d_alpn == ALPN::DoH) {
+    setupDoHProtocolNegotiation(newCtx);
+  }
+
   std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
 #endif /* HAVE_DNS_OVER_TLS */
   return true;

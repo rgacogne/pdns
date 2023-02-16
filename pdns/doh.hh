@@ -30,6 +30,7 @@
 #include "libssl.hh"
 #include "noinitvector.hh"
 #include "stat_t.hh"
+#include "tcpiohandler.hh"
 
 struct DOHServerConfig;
 
@@ -79,11 +80,10 @@ struct DOHFrontend
 
   std::shared_ptr<DOHServerConfig> d_dsc{nullptr};
   std::shared_ptr<std::vector<std::shared_ptr<DOHResponseMapEntry>>> d_responsesMap;
-  TLSConfig d_tlsConfig;
-  TLSErrorCounters d_tlsCounters;
+  TLSFrontend d_tlsContext{TLSFrontend::ALPN::DoH};
   std::string d_serverTokens{"h2o/dnsdist"};
   std::unordered_map<std::string, std::string> d_customResponseHeaders;
-  ComboAddress d_local;
+  std::string d_library;
 
   uint32_t d_idleTimeout{30};             // HTTP idle timeout in seconds
   std::vector<std::string> d_urls;
@@ -125,12 +125,12 @@ struct DOHFrontend
 
   time_t getTicketsKeyRotationDelay() const
   {
-    return d_tlsConfig.d_ticketsKeyRotationDelay;
+    return d_tlsContext.d_tlsConfig.d_ticketsKeyRotationDelay;
   }
 
   bool isHTTPS() const
   {
-    return !d_tlsConfig.d_certKeyPairs.empty();
+    return !d_tlsContext.d_tlsConfig.d_certKeyPairs.empty();
   }
 
 #ifndef HAVE_DNS_OVER_HTTPS
@@ -154,9 +154,9 @@ struct DOHFrontend
   {
   }
 
-  time_t getNextTicketsKeyRotation() const
+  std::string getNextTicketsKeyRotation()
   {
-    return 0;
+    return std::string();
   }
 
   size_t getTicketsKeysCount() const
@@ -172,8 +172,8 @@ struct DOHFrontend
   void rotateTicketsKey(time_t now);
   void loadTicketsKeys(const std::string& keyFile);
   void handleTicketsKeyRotation();
-  time_t getNextTicketsKeyRotation() const;
-  size_t getTicketsKeysCount() const;
+  std::string getNextTicketsKeyRotation() const;
+  size_t getTicketsKeysCount();
 #endif /* HAVE_DNS_OVER_HTTPS */
 };
 

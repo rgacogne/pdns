@@ -1587,9 +1587,6 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint1
       auto cleared = ds->getState(idOffset);
       if (cleared) {
         dq.ids.du = std::move(cleared->du);
-        if (dq.ids.du) {
-          dq.ids.du->status_code = 502;
-        }
       }
       ++g_stats.downstreamSendErrors;
       ++ds->sendErrors;
@@ -2915,7 +2912,7 @@ int main(int argc, char** argv)
     std::vector<ClientState*> tcpStates;
     std::vector<ClientState*> udpStates;
     for(auto& cs : g_frontends) {
-      if (cs->dohFrontend != nullptr) {
+      if (cs->dohFrontend != nullptr && cs->dohFrontend->d_library == "h2o") {
 #ifdef HAVE_DNS_OVER_HTTPS
         std::thread t1(dohThread, cs.get());
         if (!cs->cpus.empty()) {

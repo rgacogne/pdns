@@ -153,7 +153,9 @@ void DoHConnectionToBackend::handleResponse(PendingRequest&& request)
       }
     }
 
-    request.d_sender->handleResponse(now, TCPResponse(std::move(request.d_buffer), std::move(request.d_query.d_idstate), shared_from_this(), d_ds));
+    TCPResponse response(std::move(request.d_buffer), std::move(request.d_query.d_idstate), shared_from_this(), d_ds);
+    response.d_streamID = request.d_query.d_streamID;
+    request.d_sender->handleResponse(now, std::move(response));
   }
   catch (const std::exception& e) {
     vinfolog("Got exception while handling response for cross-protocol DoH: %s", e.what());
