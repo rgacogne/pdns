@@ -2,6 +2,7 @@
 
 #include "dolog.hh"
 #include "dnsdist-tcp.hh"
+#include "dnsdist-tcp-downstream.hh"
 
 class TCPClientThreadData
 {

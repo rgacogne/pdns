@@ -27,6 +27,7 @@
 #include "dnsdist.hh"
 #include "dnsdist-concurrent-connections.hh"
 #include "dnsdist-ecs.hh"
+#include "dnsdist-nghttp2-in.hh"
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsdist-rings.hh"
 #include "dnsdist-tcp.hh"
@@ -1483,8 +1484,9 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
     else {
       struct timeval now;
       gettimeofday(&now, nullptr);
-      auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);
-      IncomingTCPConnectionState::handleIO(state, now);
+      //auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);
+      //IncomingTCPConnectionState::handleIO(state, now);
+      auto state = std::make_shared<IncomingHTTP2Connection>(std::move(ci), *threadData, now);
     }
   }
   catch (const std::exception& e) {

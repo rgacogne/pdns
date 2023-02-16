@@ -175,6 +175,7 @@ dnsdist_SOURCES = \
 	dnsdist-lua.cc dnsdist-lua.hh \
 	dnsdist-mac-address.cc dnsdist-mac-address.hh \
 	dnsdist-nghttp2.cc dnsdist-nghttp2.hh \
+	dnsdist-nghttp2-in.cc dnsdist-nghttp2-in.hh \
 	dnsdist-prometheus.hh \
 	dnsdist-protobuf.cc dnsdist-protobuf.hh \
 	dnsdist-protocols.cc dnsdist-protocols.hh \
