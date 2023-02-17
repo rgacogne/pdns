@@ -1173,11 +1173,16 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
 
     struct timeval now;
     gettimeofday(&now, nullptr);
-    auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*citmp), *threadData, now);
+
+    //auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*citmp), *threadData, now);
+    cerr<<"creating a IncomingHTTP2Connection"<<endl;
+    auto state = std::make_shared<IncomingHTTP2Connection>(std::move(*citmp), *threadData, now);
     delete citmp;
     citmp = nullptr;
 
-    IncomingTCPConnectionState::handleIO(state, now);
+    state->handleIO();
+
+//    IncomingTCPConnectionState::handleIO(state, now);
   }
   catch (...) {
     delete citmp;
@@ -1474,6 +1479,7 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
     vinfolog("Got TCP connection from %s", remote.toStringWithPort());
 
     ci.remote = remote;
+
     if (threadData == nullptr) {
       if (!g_tcpclientthreads->passConnectionToThread(std::make_unique<ConnectionInfo>(std::move(ci)))) {
         if (tcpClientCountIncremented) {
@@ -1484,9 +1490,8 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
     else {
       struct timeval now;
       gettimeofday(&now, nullptr);
-      //auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);
-      //IncomingTCPConnectionState::handleIO(state, now);
-      auto state = std::make_shared<IncomingHTTP2Connection>(std::move(ci), *threadData, now);
+      auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);
+      IncomingTCPConnectionState::handleIO(state, now);
     }
   }
   catch (const std::exception& e) {

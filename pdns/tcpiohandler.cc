@@ -1817,6 +1817,17 @@ bool setupDoTProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx)
   return true;
 }
 
+bool setupDoHProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx)
+{
+  if (ctx == nullptr) {
+    return false;
+  }
+  /* we want to set the ALPN to doh */
+  const std::vector<std::vector<uint8_t>> dohAlpns = {{'h', '2'}};
+  ctx->setALPNProtos(dohAlpns);
+  return true;
+}
+
 bool TLSFrontend::setupTLS()
 {
 #ifdef HAVE_DNS_OVER_TLS
@@ -1834,7 +1845,7 @@ bool TLSFrontend::setupTLS()
 #ifdef HAVE_LIBSSL
     if (d_provider == "openssl") {
       newCtx = std::make_shared<OpenSSLTLSIOCtx>(*this);
-      setupDoTProtocolNegotiation(newCtx);
+      setupDoHProtocolNegotiation(newCtx);
       std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
       return true;
     }
@@ -1848,7 +1859,7 @@ bool TLSFrontend::setupTLS()
 #endif /* HAVE_GNUTLS */
 #endif /* HAVE_LIBSSL */
 
-  setupDoTProtocolNegotiation(newCtx);
+  setupDoHProtocolNegotiation(newCtx);
   std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
 #endif /* HAVE_DNS_OVER_TLS */
   return true;
