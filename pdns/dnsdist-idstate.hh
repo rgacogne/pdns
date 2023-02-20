@@ -33,6 +33,60 @@ struct DOHUnit;
 class DNSCryptQuery;
 class DNSDistPacketCache;
 
+
+class CrossProtocolContext
+{
+
+  virtual std::optional<std::string> getHTTPPath() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::string> getHTTPScheme() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::string> getHTTPHost() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::string> getHTTPQueryString() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::unordered_map<std::string, std::string>> getHTTPHeaders() const
+  {
+    return std::nullopt;
+  }
+
+  virtual std::optional<std::string> getSNI() const
+  {
+    return std::nullopt;
+  }
+
+  virtual void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType = "") const
+  {
+  }
+
+  void setProxyProtocolPayloadSize(size_t size)
+  {
+    d_proxyPayloadSize = size;
+  }
+
+  virtual void handleResponse(PacketBuffer&& response);
+  virtual void handleTimeout();
+
+  virtual ~CrossProtocolContext() = 0;
+
+private:
+  std::shared_ptr<DownstreamState> d_downstream{nullptr};
+  PacketBuffer d_buffer;
+  size_t d_proxyPayloadSize{0};
+};
+
 using QTag = std::unordered_map<string, string>;
 
 struct StopWatch

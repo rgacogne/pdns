@@ -1569,9 +1569,6 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint1
       auto cleared = ds->getState(idOffset);
       if (cleared) {
         dq.ids.du = std::move(cleared->du);
-        if (dq.ids.du) {
-          dq.ids.du->status_code = 502;
-        }
       }
       ++g_stats.downstreamSendErrors;
       ++ds->sendErrors;

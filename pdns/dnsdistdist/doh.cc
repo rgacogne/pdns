@@ -161,7 +161,6 @@ public:
 
 private:
   h2o_accept_ctx_t d_h2o_accept_ctx;
-  std::atomic<uint64_t> d_refcnt{1};
   time_t d_ticketsKeyNextRotation{0};
   std::atomic_flag d_rotatingTicketsKey;
 };

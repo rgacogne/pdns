@@ -53,14 +53,22 @@ public:
   
 private:
   bool checkALPN();
+  void readHTTPData();
 
   enum class State : uint8_t { doingHandshake, readingProxyProtocolHeader, running };
 
   class PendingQuery
   {
   public:
+    enum class Method : uint8_t { Unknown, Get, Post };
+
     PacketBuffer d_buffer;
+    std::string d_path;
+    std::string d_scheme;
+    std::string d_host;
+    std::unique_ptr<std::unordered_map<std::string, std::string>> d_headers;
     size_t d_queryPos{0};
+    Method d_method{Method::Unknown};
     bool d_finished{false};
   };
 
