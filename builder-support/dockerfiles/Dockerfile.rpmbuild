@@ -1,7 +1,11 @@
 FROM dist-base as package-builder
-RUN touch /var/lib/rpm/* && \
-    yum upgrade -y && \
-    yum install -y rpm-build rpmdevtools python3 "@Development Tools"
+RUN touch /var/lib/rpm/* && if $(grep -q 'release 7' /etc/redhat-release); then \
+      yum upgrade -y && \
+      yum install -y rpm-build rpmdevtools python2 python3 "@Development Tools"; \
+    else \
+      yum upgrade -y && \
+      yum install -y rpm-build rpmdevtools python3 "@Development Tools"; \
+    fi
 
 RUN mkdir /dist /pdns
 WORKDIR /pdns
@@ -53,6 +57,13 @@ RUN touch /var/lib/rpm/* && if $(grep -q 'release 7' /etc/redhat-release); then 
       builder/helpers/build-specs.sh builder-support/specs/dnsdist.spec; \
     fi
 @ENDIF
+
+# Generate provenance
+RUN if $(grep -q 'release 7' /etc/redhat-release); then \
+@EVAL      python builder/helpers/generate-yum-provenance.py /dist/packages-${BUILDER_TARGET}.json; \
+    else \
+@EVAL      builder/helpers/generate-dnf-provenance.py /dist/packages-${BUILDER_TARGET}.json; \
+    fi
 
 # mv across layers with overlay2 is buggy in some kernel versions (results in empty dirs)
 # See: https://github.com/moby/moby/issues/33733

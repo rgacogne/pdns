@@ -80,11 +80,19 @@ jobs:
           name: ${{ github.event.inputs.product }}-${{ matrix.os }}-${{ steps.getversion.outputs.version }}
           path: built_pkgs/
           retention-days: 7
+      - name: Extract packages from the tarball
+        # so we get provenance for individual packages (and the JSON package manifests from the builder)
+        id: extract
+        run: |
+          find ./built_pkgs/ -type f
+          mkdir -m 700 -p ./source_tarball_and_packages/
+          cp ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}.tar.bz2 ./source_tarball_and_packages/
+          tar xvf ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}-${{ matrix.os }}.tar.bz2 -C ./source_tarball_and_packages/ --transform='s/.*\///'
       - name: Generate hashes for provenance
         shell: bash
         id: hash
         run: |
-          echo "hashes=$(sha256sum ./built_pkgs/*/*/* | base64 -w0)" >> $GITHUB_OUTPUT
+          echo "hashes=$(sha256sum ./source_tarball_and_packages/*.tar.bz2 ./source_tarball_and_packages/*.rpm ./source_tarball_and_packages/*.deb ./source_tarball_and_packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
 
   provenance:
     needs: build
@@ -100,17 +108,20 @@ jobs:
       provenance-name: "${{ github.event.inputs.product }}-${{ needs.build.outputs.version }}.intoto.jsonl"
 
   upload:
+    runs-on: ubuntu-20.04
     needs: [build, provenance]
     name: Upload packages to downloads.powerdns.com
-    env:
-      SSHKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_SECRET }}
-      RSYNCTARGET: ${{ secrets.DOWNLOADS_AUTOBUILT_RSYNCTARGET }}
-      HOSTKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_HOSTKEY }}
-    if:
-      "${{ env.SSHKEY != '' }}"
-    run: |
-      mkdir -m 700 -p ~/.ssh
-      echo "$SSHKEY" > ~/.ssh/id_ed25519
-      chmod 600 ~/.ssh/id_ed25519
-      echo "$HOSTKEY" > ~/.ssh/known_hosts
-      rsync -4rlptD built_pkgs/* *.intoto.json.l "$RSYNCTARGET"
+    steps:
+      - name: Upload packages
+        env:
+          SSHKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_SECRET }}
+          RSYNCTARGET: ${{ secrets.DOWNLOADS_AUTOBUILT_RSYNCTARGET }}
+          HOSTKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_HOSTKEY }}
+        if:
+          "${{ env.SSHKEY != '' }}"
+        run: |
+          mkdir -m 700 -p ~/.ssh
+          echo "$SSHKEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "$HOSTKEY" > ~/.ssh/known_hosts
+          rsync -4rlptD built_pkgs/* *.intoto.jsonl "$RSYNCTARGET"
