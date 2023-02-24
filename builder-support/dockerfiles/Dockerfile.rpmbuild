@@ -59,7 +59,12 @@ RUN touch /var/lib/rpm/* && if $(grep -q 'release 7' /etc/redhat-release); then 
 @ENDIF
 
 # Generate provenance
-@EVAL RUN if $(grep -q 'release 7' /etc/redhat-release); then python builder/helpers/generate-yum-provenance.py /dist/packages-${BUILDER_TARGET}.json || python3 builder/helpers/generate-yum-provenance.py /dist/packages-${BUILDER_TARGET}.json; else python builder/helpers/generate-dnf-provenance.py /dist/packages-${BUILDER_TARGET}.json || python3 builder/helpers/generate-dnf-provenance.py /dist/packages-${BUILDER_TARGET}.json; fi
+@IF [ ${BUILDER_TARGET} = el-7 ]
+@EVAL RUN python builder/helpers/generate-yum-provenance.py /dist/packages-${BUILDER_TARGET}.json || python3 builder/helpers/generate-yum-provenance.py /dist/packages-${BUILDER_TARGET}.json
+@ENDIF
+@IF [ ${BUILDER_TARGET} != el-7 ]
+@EVAL RUN python builder/helpers/generate-dnf-provenance.py /dist/packages-${BUILDER_TARGET}.json || python3 builder/helpers/generate-dnf-provenance.py /dist/packages-${BUILDER_TARGET}.json
+@ENDIF
 
 # mv across layers with overlay2 is buggy in some kernel versions (results in empty dirs)
 # See: https://github.com/moby/moby/issues/33733
