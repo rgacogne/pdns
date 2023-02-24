@@ -60,8 +60,6 @@ jobs:
       matrix:
         os: ${{fromJson(needs.prepare.outputs.oslist)}}
       fail-fast: false
-    outputs:
-      version: ${{ steps.getversion.outputs.version }}
     steps:
       - uses: actions/checkout@v3.1.0
         with:
@@ -83,42 +81,39 @@ jobs:
         # so we get provenance for individual packages (and the JSON package manifests from the builder)
         id: extract
         run: |
-          mkdir -m 700 -p ./source_tarball_and_packages/
-          cp ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}.tar.bz2 ./source_tarball_and_packages/
-          tar xvf ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}-${{ matrix.os }}.tar.bz2 -C ./source_tarball_and_packages/ --transform='s/.*\///'
-
-  hashes:
-    runs-on: ubuntu-20.04
-    needs: build
-    name: Generate hashes for provenance
-    outputs:
-      hashes: ${{ steps.hash.outputs.hashes }}
-    steps:
-      - name: Generate hashes for provenance
+          mkdir -m 700 -p ./packages/
+          tar xvf ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}-${{ matrix.os }}.tar.bz2 -C ./packages/ --transform='s/.*\///'
+      - name: Generate package hashes for provenance
         shell: bash
-        id: hash
+        id: pkghashes
         run: |
-          echo "hashes=$(sha256sum ./source_tarball_and_packages/*.tar.bz2 ./source_tarball_and_packages/*.rpm ./source_tarball_and_packages/*.deb ./source_tarball_and_packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
-
-  provenance:
-    needs: [build, hashes]
-    name: Generate build provenance
-    permissions:
-      actions: read   # To read the workflow path.
-      id-token: write # To sign the provenance.
-      contents: write # To be able to upload assets as release artifacts
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
-    with:
-      base64-subjects: "${{ needs.hashes.outputs.hashes }}"
-      upload-assets: false
-      provenance-name: "${{ github.event.inputs.product }}-${{ needs.build.outputs.version }}.intoto.jsonl"
-
-  upload:
-    runs-on: ubuntu-20.04
-    needs: [build, provenance]
-    name: Upload packages to downloads.powerdns.com
-    steps:
-      - name: Upload packages
+          echo "pkghashes=$(sha256sum ./packages/*.rpm ./packages/*.deb ./packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
+      - name: Generate source hash for provenance
+        shell: bash
+        id: srchashes
+        run: |
+          echo "srchashes=$(sha256sum ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}.tar.bz2 ./packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
+      - name: Generate build provenance for packages
+        permissions:
+          actions: read   # To read the workflow path.
+          id-token: write # To sign the provenance.
+          contents: write # To be able to upload assets as release artifacts
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
+        with:
+          base64-subjects: "${{ steps.pkghashes.outputs.pkghashes }}"
+          upload-assets: false
+          provenance-name: "./built_pkgs/${{ github.event.inputs.product }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}-${{ matrix.os}}.intoto.jsonl"
+      - name: Generate provenance for the source tarball
+        permissions:
+          actions: read   # To read the workflow path.
+          id-token: write # To sign the provenance.
+          contents: write # To be able to upload assets as release artifacts
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
+        with:
+          base64-subjects: "${{ steps.srchashes.outputs.srchashes }}"
+          upload-assets: false
+          provenance-name: "./built_pkgs/${{ github.event.inputs.product }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}.src.intoto.jsonl"
+      - name: Upload packages to downloads.powerdns.com
         env:
           SSHKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_SECRET }}
           RSYNCTARGET: ${{ secrets.DOWNLOADS_AUTOBUILT_RSYNCTARGET }}
@@ -130,4 +125,4 @@ jobs:
           echo "$SSHKEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           echo "$HOSTKEY" > ~/.ssh/known_hosts
-          rsync -4rlptD built_pkgs/* *.intoto.jsonl "$RSYNCTARGET"
+          rsync -4rlptD built_pkgs/* "$RSYNCTARGET"
