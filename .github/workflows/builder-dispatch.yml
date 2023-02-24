@@ -130,9 +130,9 @@ jobs:
       contents: write # To be able to upload assets as release artifacts
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
     with:
-      base64-subjects: "${{ needs.build.outputs[format('hash-{0}', matrix.os)] }}"
+      base64-subjects: "${{ needs.build.outputs[format('pkghashes-{0}', matrix.os)] }}"
       upload-assets: false
-      provenance-name: "${{ github.event.inputs.product }}-${{ needs.build.version }}-${{ matrix.os}}.intoto.jsonl"
+      provenance-name: "${{ github.event.inputs.product }}-${{ needs.build.outputs.version }}-${{ matrix.os}}.intoto.jsonl"
 
   provenance-src:
     needs: build
