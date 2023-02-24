@@ -60,6 +60,17 @@ jobs:
       matrix:
         os: ${{fromJson(needs.prepare.outputs.oslist)}}
       fail-fast: false
+    outputs:
+      version: ${{ steps.getversion.outputs.version }}
+      pkghashes-el-7: ${{ steps.pkghashes.outputs.pkghashes-el-7 }}
+      pkghashes-el-8: ${{ steps.pkghashes.outputs.pkghashes-el-8 }}
+      pkghashes-el-9: ${{ steps.pkghashes.outputs.pkghashes-el-9 }}
+      pkghashes-debian-buster: ${{ steps.pkghashes.outputs.pkghashes-debian-buster }}
+      pkghashes-debian-bullseye: ${{ steps.pkghashes.outputs.pkghashes-debian-bullseye }}
+      pkghashes-ubuntu-bionic: ${{ steps.pkghashes.outputs.pkghashes-ubuntu-bionic }}
+      pkghashes-ubuntu-focal: ${{ steps.pkghashes.outputs.pkghashes-ubuntu-focal }}
+      pkghashes-ubuntu-jammy: ${{ steps.pkghashes.outputs.pkghashes-ubuntu-jammy }}
+      srchashes: ${{ steps.srchashes.outputs.srchashes }}
     steps:
       - uses: actions/checkout@v3.1.0
         with:
@@ -87,32 +98,12 @@ jobs:
         shell: bash
         id: pkghashes
         run: |
-          echo "pkghashes=$(sha256sum ./packages/*.rpm ./packages/*.deb ./packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
+          echo "pkghashes-${{ matrix.os }}=$(sha256sum ./packages/*.rpm ./packages/*.deb ./packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
       - name: Generate source hash for provenance
         shell: bash
         id: srchashes
         run: |
           echo "srchashes=$(sha256sum ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}.tar.bz2 ./packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
-      - name: Generate build provenance for packages
-        permissions:
-          actions: read   # To read the workflow path.
-          id-token: write # To sign the provenance.
-          contents: write # To be able to upload assets as release artifacts
-        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
-        with:
-          base64-subjects: "${{ steps.pkghashes.outputs.pkghashes }}"
-          upload-assets: false
-          provenance-name: "./built_pkgs/${{ github.event.inputs.product }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}-${{ matrix.os}}.intoto.jsonl"
-      - name: Generate provenance for the source tarball
-        permissions:
-          actions: read   # To read the workflow path.
-          id-token: write # To sign the provenance.
-          contents: write # To be able to upload assets as release artifacts
-        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
-        with:
-          base64-subjects: "${{ steps.srchashes.outputs.srchashes }}"
-          upload-assets: false
-          provenance-name: "./built_pkgs/${{ github.event.inputs.product }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}.src.intoto.jsonl"
       - name: Upload packages to downloads.powerdns.com
         env:
           SSHKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_SECRET }}
@@ -126,3 +117,32 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "$HOSTKEY" > ~/.ssh/known_hosts
           rsync -4rlptD built_pkgs/* "$RSYNCTARGET"
+
+  provenance-pkgs:
+    needs: build
+    name: Generate provenance for ${{ github.event.inputs.product }} (${{ github.event.inputs.ref }}) for ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ${{fromJson(needs.prepare.outputs.oslist)}}
+    permissions:
+      actions: read   # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: write # To be able to upload assets as release artifacts
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
+    with:
+      base64-subjects: "${{ needs.build.outputs[format('hash-{0}', matrix.os)] }}"
+      upload-assets: false
+      provenance-name: "${{ github.event.inputs.product }}-${{ needs.build.version }}-${{ matrix.os}}.intoto.jsonl"
+
+  provenance-src:
+    needs: build
+    name: Generate provenance for ${{ github.event.inputs.product }} (${{ github.event.inputs.ref }}) source tarball
+    permissions:
+      actions: read   # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: write # To be able to upload assets as release artifacts
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
+    with:
+      base64-subjects: "${{ needs.build.outputs.srchashes }}"
+      upload-assets: false
+      provenance-name: "${{ github.event.inputs.product }}-${{ needs.build.outputs.version }}-src.intoto.jsonl"
