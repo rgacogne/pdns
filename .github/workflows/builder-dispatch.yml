@@ -119,7 +119,7 @@ jobs:
           rsync -4rlptD built_pkgs/* "$RSYNCTARGET"
 
   provenance-pkgs:
-    needs: build
+    needs: [prepare, build]
     name: Generate provenance for ${{ github.event.inputs.product }} (${{ github.event.inputs.ref }}) for ${{ matrix.os }}
     strategy:
       matrix:
