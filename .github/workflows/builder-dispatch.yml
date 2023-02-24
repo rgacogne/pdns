@@ -61,7 +61,6 @@ jobs:
         os: ${{fromJson(needs.prepare.outputs.oslist)}}
       fail-fast: false
     outputs:
-      hashes: ${{ steps.hash.outputs.hashes }}
       version: ${{ steps.getversion.outputs.version }}
     steps:
       - uses: actions/checkout@v3.1.0
@@ -84,10 +83,17 @@ jobs:
         # so we get provenance for individual packages (and the JSON package manifests from the builder)
         id: extract
         run: |
-          find ./built_pkgs/ -type f
           mkdir -m 700 -p ./source_tarball_and_packages/
           cp ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}.tar.bz2 ./source_tarball_and_packages/
           tar xvf ./built_pkgs/*/*/${{ github.event.inputs.product }}-${{ steps.getversion.outputs.version }}-${{ matrix.os }}.tar.bz2 -C ./source_tarball_and_packages/ --transform='s/.*\///'
+
+  hashes:
+    runs-on: ubuntu-20.04
+    needs: build
+    name: Generate hashes for provenance
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+    steps:
       - name: Generate hashes for provenance
         shell: bash
         id: hash
@@ -95,7 +101,7 @@ jobs:
           echo "hashes=$(sha256sum ./source_tarball_and_packages/*.tar.bz2 ./source_tarball_and_packages/*.rpm ./source_tarball_and_packages/*.deb ./source_tarball_and_packages/*.json | base64 -w0)" >> $GITHUB_OUTPUT
 
   provenance:
-    needs: build
+    needs: [build, hashes]
     name: Generate build provenance
     permissions:
       actions: read   # To read the workflow path.
@@ -103,7 +109,7 @@ jobs:
       contents: write # To be able to upload assets as release artifacts
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
     with:
-      base64-subjects: "${{ needs.build.outputs.hashes }}"
+      base64-subjects: "${{ needs.hashes.outputs.hashes }}"
       upload-assets: false
       provenance-name: "${{ github.event.inputs.product }}-${{ needs.build.outputs.version }}.intoto.jsonl"
 
