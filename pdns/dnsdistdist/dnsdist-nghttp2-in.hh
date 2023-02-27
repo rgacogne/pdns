@@ -30,10 +30,35 @@
 
 class IncomingHTTP2Connection :  public std::enable_shared_from_this<IncomingHTTP2Connection>
 {
+public:
+  using StreamID = int32_t;
+  enum class State : uint8_t { doingHandshake, readingProxyProtocolHeader, running };
+
+  class PendingQuery
+  {
+  public:
+    enum class Method : uint8_t { Unknown, Get, Post };
+
+    PacketBuffer d_buffer;
+    std::string d_path;
+    std::string d_scheme;
+    std::string d_host;
+    std::string d_queryString;
+    std::string d_sni;
+    std::unique_ptr<std::unordered_map<std::string, std::string>> d_headers;
+    size_t d_queryPos{0};
+    Method d_method{Method::Unknown};
+    bool d_finished{false};
+  };
+
+  IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);
+  void handleIO();
+
+private:
   static ssize_t send_callback(nghttp2_session* session, const uint8_t* data, size_t length, int flags, void* user_data);
   static int on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data);
-  static int on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, int32_t stream_id, const uint8_t* data, size_t len, void* user_data);
-  static int on_stream_close_callback(nghttp2_session* session, int32_t stream_id, uint32_t error_code, void* user_data);
+  static int on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, StreamID stream_id, const uint8_t* data, size_t len, void* user_data);
+  static int on_stream_close_callback(nghttp2_session* session, StreamID stream_id, uint32_t error_code, void* user_data);
   static int on_header_callback(nghttp2_session* session, const nghttp2_frame* frame, const uint8_t* name, size_t namelen, const uint8_t* value, size_t valuelen, uint8_t flags, void* user_data);
   static int on_begin_headers_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data);
   static int on_error_callback(nghttp2_session* session, int lib_error_code, const char* msg, size_t len, void* user_data);
@@ -46,37 +71,16 @@ class IncomingHTTP2Connection :  public std::enable_shared_from_this<IncomingHTT
   void updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback, bool noTTD = false);
   void watchForRemoteHostClosingConnection();
   void handleIOError();
-
-public:
-  IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);
-  void handleIO();
-  
-private:
+  bool sendResponse(StreamID streamID, uint8_t responseCode, const PacketBuffer& responseBody);
+  void handleIncomingQuery(PendingQuery&& query, StreamID streamID);
   bool checkALPN();
   void readHTTPData();
-
-  enum class State : uint8_t { doingHandshake, readingProxyProtocolHeader, running };
-
-  class PendingQuery
-  {
-  public:
-    enum class Method : uint8_t { Unknown, Get, Post };
-
-    PacketBuffer d_buffer;
-    std::string d_path;
-    std::string d_scheme;
-    std::string d_host;
-    std::unique_ptr<std::unordered_map<std::string, std::string>> d_headers;
-    size_t d_queryPos{0};
-    Method d_method{Method::Unknown};
-    bool d_finished{false};
-  };
 
   TCPClientThreadData& d_threadData;
   TCPIOHandler d_handler;
   std::unique_ptr<IOStateHandler> d_ioState{nullptr};
   std::unique_ptr<nghttp2_session, decltype(&nghttp2_session_del)> d_session{nullptr, nghttp2_session_del};
-  std::unordered_map<int32_t, PendingQuery> d_currentStreams;
+  std::unordered_map<StreamID, PendingQuery> d_currentStreams;
   PacketBuffer d_out;
   PacketBuffer d_in;
   size_t d_outPos{0};

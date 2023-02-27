@@ -23,6 +23,74 @@
 #include "base64.hh"
 #include "dnsdist-nghttp2-in.hh"
 
+class IncomingDoHEndpoint
+{
+  TLSFrontend
+};
+
+class IncomingDoHCrossProtocolContext : public CrossProtocolContext
+{
+public:
+  IncomingDoHCrossProtocolContext(IncomingHTTP2Connection::PendingQuery&& query, std::shared_ptr<IncomingHTTP2Connection> connection, IncomingHTTP2Connection::StreamID streamID): CrossProtocolContext(std::move(query.d_buffer)), d_connection(connection), d_query(std::move(query))
+  {
+  }
+
+  std::optional<std::string> getHTTPPath() const override
+  {
+    return d_query.d_path;
+  }
+
+  std::optional<std::string> getHTTPScheme() const override
+  {
+    return d_query.d_scheme;
+  }
+
+  std::optional<std::string> getHTTPHost() const override
+  {
+    return d_query.d_host;
+  }
+
+  std::optional<std::string> getHTTPQueryString() const override
+  {
+    return d_query.d_queryString;
+  }
+
+  std::optional<std::unordered_map<std::string, std::string>> getHTTPHeaders() const override
+  {
+    if (!d_query.d_headers) {
+      return std::nullopt;
+    }
+    return *d_query.d_headers;
+  }
+
+  void handleResponse(PacketBuffer&& response, InternalQueryState&& state) override
+  {
+    auto conn = d_connection.lock();
+    if (!conn) {
+      /* the connection has been closed in the meantime */
+      return;
+    }
+  }
+
+  void handleTimeout() override
+  {
+    auto conn = d_connection.lock();
+    if (!conn) {
+      /* the connection has been closed in the meantime */
+      return;
+    }
+  }
+
+  ~IncomingDoHCrossProtocolContext() override
+  {
+  }
+
+private:
+  std::weak_ptr<IncomingHTTP2Connection> d_connection;
+  IncomingHTTP2Connection::PendingQuery d_query;
+  IncomingHTTP2Connection::StreamID d_streamID{-1};
+};
+
 IncomingHTTP2Connection::IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_threadData(threadData), d_handler(ci.fd, timeval{g_tcpRecvTimeout,0}, ci.cs->tlsFrontend->getContext(), now.tv_sec)
   {
     ci.fd = -1;
@@ -208,6 +276,200 @@ static void addDynamicHeader(std::vector<nghttp2_nv>& headers, const std::string
   headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.c_str())), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.c_str())), name.size(), value.size(), NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE});
 }
 
+bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint8_t responseCode, const PacketBuffer& responseBody)
+{
+  /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
+   */
+  nghttp2_data_provider data_provider;
+
+  data_provider.source.ptr = this;
+  data_provider.read_callback = [](nghttp2_session*, IncomingHTTP2Connection::StreamID stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* cb_data) -> ssize_t {
+    auto connection = reinterpret_cast<IncomingHTTP2Connection*>(cb_data);
+    auto& obj = connection->d_currentStreams.at(stream_id);
+    size_t toCopy = 0;
+    if (obj.d_queryPos < obj.d_buffer.size()) {
+      size_t remaining = obj.d_buffer.size() - obj.d_queryPos;
+      toCopy = length > remaining ? remaining : length;
+      memcpy(buf, &obj.d_buffer.at(obj.d_queryPos), toCopy);
+      obj.d_queryPos += toCopy;
+    }
+
+    cerr<<"in read callback, returning "<<toCopy<<endl;
+    if (obj.d_queryPos >= obj.d_buffer.size()) {
+      *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+      cerr<<"done"<<endl;
+    }
+    return toCopy;
+  };
+
+  cerr<<"adding headers"<<endl;
+  const std::string contentLength = std::to_string(responseBody.size());
+  std::vector<nghttp2_nv> headers;
+  if (responseCode == 200) {
+    addStaticHeader(headers, "status-name", "200-value");
+  }
+  else {
+    std::string responseCodeStr = std::to_string(responseCode);
+    addDynamicHeader(headers, "status-name", responseCodeStr);
+  }
+  addDynamicHeader(headers, "content-length-name", contentLength);
+
+  cerr<<"submitting response"<<endl;
+  auto ret = nghttp2_submit_response(d_session.get(), streamID, headers.data(), headers.size(), &data_provider);
+  if (ret != 0) {
+    d_currentStreams.erase(streamID);
+    vinfolog("Error submitting HTTP response for stream %d: %s", streamID, nghttp2_strerror(ret));
+    return false;
+  }
+
+  ret = nghttp2_session_send(d_session.get());
+  if (ret != 0) {
+    d_currentStreams.erase(streamID);
+    vinfolog("Error flushing HTTP response for stream %d: %s", streamID, nghttp2_strerror(ret));
+    return false;
+  }
+
+  return true;
+}
+
+
+void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::PendingQuery&& query, IncomingHTTP2Connection::StreamID streamID)
+{
+  const auto handleImmediateResponse = [&query, streamID](uint8_t code, const char* reason, PacketBuffer&& response = PacketBuffer()) {
+#warning writeme
+  };
+
+  try {
+    //DOHServerConfig* dsc = du->dsc;
+    //auto& holders = dsc->holders;
+    //ClientState& cs = *dsc->cs;
+    InternalQueryState ids;
+    uint16_t queryId;
+
+    if (query.d_buffer.size() < sizeof(dnsheader)) {
+      ++g_stats.nonCompliantQueries;
+      ++cs.nonCompliantQueries;
+      handleImmediateResponse(400, "DoH non-compliant query");
+      return;
+    }
+
+    ++cs.queries;
+    ++g_stats.queries;
+    ids.queryRealTime.start();
+
+    {
+      /* don't keep that pointer around, it will be invalidated if the buffer is ever resized */
+      struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(query.d_buffer.data());
+      
+      if (!checkQueryHeaders(dh, cs)) {
+        handleImmediateResponse(400, "DoH invalid headers");
+      return;
+    }
+
+    if (dh->qdcount == 0) {
+      dh->rcode = RCode::NotImp;
+      dh->qr = true;
+      handleImmediateResponse(200, "DoH empty query", std::move(query.d_buffer));
+      return;
+    }
+    
+    queryId = ntohs(dh->id);
+    }
+
+    ids.qname = DNSName(reinterpret_cast<const char*>(query.d_buffer.data()), query.d_buffer.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+    DNSQuestion dq(ids, query.d_buffer);
+    const uint16_t* flags = getFlagsFromDNSHeader(dq.getHeader());
+    ids.origFlags = *flags;
+    ids.cs = &cs;
+    dq.sni = std::move(du->sni);
+
+    {
+      // if there was no EDNS, we add it with a large buffer size
+      // so we can use UDP to talk to the backend.
+      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(query.d_buffer.data()));
+
+      if (!dh->arcount) {
+        if (generateOptRR(std::string(), query.d_buffer, 4096, 4096, 0, false)) {
+          dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(query.d_buffer.data())); // may have reallocated
+          dh->arcount = htons(1);
+          ids.ednsAdded = true;
+        }
+      }
+      else {
+        // we leave existing EDNS in place
+      }
+    }
+
+    std::shared_ptr<DownstreamState> downstream;
+    auto result = processQuery(dq, holders, downstream);
+
+    if (result == ProcessQueryResult::Drop) {
+      handleImmediateResponse(403, "DoH dropped query");
+      return;
+    }
+    else if (result == ProcessQueryResult::Asynchronous) {
+      return;
+    }
+    else if (result == ProcessQueryResult::SendAnswer) {
+      if (response.empty()) {
+        response = std::move(query.d_buffer);
+      }
+      if (response.size() >= sizeof(dnsheader) && contentType.empty()) {
+        auto dh = reinterpret_cast<const struct dnsheader*>(response.data());
+
+        handleResponseSent(ids.qname, QType(ids.qtype), 0., ids.origDest, ComboAddress(), response.size(), *dh, dnsdist::Protocol::DoH, dnsdist::Protocol::DoH);
+      }
+      handleImmediateResponse(200, "DoH self-answered response", response);
+      return;
+    }
+
+    if (result != ProcessQueryResult::PassToBackend) {
+      handleImmediateResponse(500, "DoH no backend available");
+      return;
+    }
+
+    if (downstream == nullptr) {
+      handleImmediateResponse(502, "DoH no backend available");
+      return;
+    }
+
+    if (downstream->isTCPOnly()) {
+      std::string proxyProtocolPayload;
+      /* we need to do this _before_ creating the cross protocol query because
+         after that the buffer will have been moved */
+      if (downstream->d_config.useProxyProtocol) {
+        proxyProtocolPayload = getProxyProtocolPayload(dq);
+      }
+
+      ids.origID = htons(queryId);
+      du->tcp = true;
+
+      /* this moves ids, careful! */
+      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du), false);
+      cpq->query.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
+
+      if (downstream->passCrossProtocolQuery(std::move(cpq))) {
+        return;
+      }
+      else {
+        handleImmediateResponse(502, "DoH internal error");
+        return;
+      }
+    }
+
+    ComboAddress dest = dq.ids.origDest;
+    ids.crossProtocolContext = std::make_unique<IncomingDoHCrossProtocolContext>(std::move(query), shared_from_this(), streamID);
+    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, query.d_buffer, dest)) {
+      handleImmediateResponse(502, "DoH internal error");
+      return;
+    }
+  }
+  catch (const std::exception& e) {
+    vinfolog("Got an error in DOH question thread while parsing a query from %s, id %d: %s", remote.toStringWithPort(), queryId, e.what());
+    handleImmediateResponse(500, "DoH internal error");
+    return;
+  }
+}
 
 int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data)
 {
@@ -245,64 +507,15 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
 
   /* is this the last frame for this stream? */
   else if ((frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA) && frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-    auto streamId = frame->hd.stream_id;
-    auto stream = conn->d_currentStreams.find(streamId);
+    auto streamID = frame->hd.stream_id;
+    auto stream = conn->d_currentStreams.find(streamID);
     if (stream != conn->d_currentStreams.end()) {
       stream->second.d_finished = true;
       cerr<<"got query of size "<<stream->second.d_buffer.size()<<endl;
 
-      /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
-       */
-      nghttp2_data_provider data_provider;
+      conn->handleIncomingQuery(std::move(stream->second), streamID);
 
-      data_provider.source.ptr = conn;
-      data_provider.read_callback = [](nghttp2_session*, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* cb_data) -> ssize_t {
-        auto connection = reinterpret_cast<IncomingHTTP2Connection*>(cb_data);
-        auto& obj = connection->d_currentStreams.at(stream_id);
-        size_t toCopy = 0;
-        if (obj.d_queryPos < obj.d_buffer.size()) {
-          size_t remaining = obj.d_buffer.size() - obj.d_queryPos;
-          toCopy = length > remaining ? remaining : length;
-          memcpy(buf, &obj.d_buffer.at(obj.d_queryPos), toCopy);
-          obj.d_queryPos += toCopy;
-        }
-
-        cerr<<"in read callback, returning "<<toCopy<<endl;
-        if (obj.d_queryPos >= obj.d_buffer.size()) {
-          *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-          cerr<<"done"<<endl;
-        }
-        return toCopy;
-      };
-
-      cerr<<"adding headers"<<endl;
-      const std::string contentLength = std::to_string(stream->second.d_buffer.size());
-      std::vector<nghttp2_nv> headers;
-      try {
-        addStaticHeader(headers, "status-name", "200-value");
-        addDynamicHeader(headers, "content-length-name", contentLength);
-      }
-      catch (const std::exception& e)
-      {
-        cerr<<"error adding header: "<<e.what()<<endl;
-        throw;
-      }
-      
-
-      cerr<<"submitting response"<<endl;
-      auto ret = nghttp2_submit_response(conn->d_session.get(), streamId, headers.data(), headers.size(), &data_provider);
-      if (ret != 0) {
-        conn->d_currentStreams.erase(streamId);
-        cerr<<"Error submitting HTTP response:"<<ret<<endl;
-        throw std::runtime_error("Error submitting HTTP response: " + std::string(nghttp2_strerror(ret)));
-      }
-
-      ret = nghttp2_session_send(conn->d_session.get());
-      if (ret != 0) {
-        conn->d_currentStreams.erase(streamId);
-        cerr<<"Error in session_send:"<<ret<<endl;
-        throw std::runtime_error("Error in nghttp2_session_send: " + std::string(nghttp2_strerror(ret)));
-      }
+//      conn->sendResponse(streamID, 200, stream->second.d_buffer);
 
       if (conn->isIdle()) {
         conn->stopIO();
@@ -310,7 +523,7 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
       }
     }
     else {
-      vinfolog("Stream %d NOT FOUND", streamId);
+      vinfolog("Stream %d NOT FOUND", streamID);
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
   }
@@ -318,7 +531,7 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
   return 0;
 }
 
-int IncomingHTTP2Connection::on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, int32_t stream_id, const uint8_t* data, size_t len, void* user_data)
+int IncomingHTTP2Connection::on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, IncomingHTTP2Connection::StreamID stream_id, const uint8_t* data, size_t len, void* user_data)
 {
   cerr<<__PRETTY_FUNCTION__<<" with "<<len<<endl;
   IncomingHTTP2Connection* conn = reinterpret_cast<IncomingHTTP2Connection*>(user_data);
@@ -351,7 +564,7 @@ int IncomingHTTP2Connection::on_data_chunk_recv_callback(nghttp2_session* sessio
   return 0;
 }
 
-int IncomingHTTP2Connection::on_stream_close_callback(nghttp2_session* session, int32_t stream_id, uint32_t error_code, void* user_data)
+int IncomingHTTP2Connection::on_stream_close_callback(nghttp2_session* session, IncomingHTTP2Connection::StreamID stream_id, uint32_t error_code, void* user_data)
 {
   cerr<<__PRETTY_FUNCTION__<<endl;
   IncomingHTTP2Connection* conn = reinterpret_cast<IncomingHTTP2Connection*>(user_data);
