@@ -22,10 +22,13 @@
 #include "bpf-filter.hh"
 #include "config.h"
 #include "dnsdist.hh"
+#include "dnsdist-dynbpf.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-svc.hh"
 
 #include "dolog.hh"
+
+#include <boost/algorithm/string/case_conv.hpp>
 
 void setupLuaBindings(LuaContext& luaCtx, bool client)
 {

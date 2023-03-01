@@ -22,6 +22,7 @@
 #pragma once
 
 #include <thread>
+#include <list>
 
 #include <boost/multi_index_container.hpp>
 #include <boost/multi_index/ordered_index.hpp>

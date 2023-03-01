@@ -40,6 +40,7 @@
 #include "dnsdist-concurrent-connections.hh"
 #include "dnsdist-console.hh"
 #include "dnsdist-dynblocks.hh"
+#include "dnsdist-dynbpf.hh"
 #include "dnsdist-discovery.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-healthchecks.hh"
@@ -66,6 +67,8 @@
 
 #include <boost/logic/tribool.hpp>
 #include <boost/uuid/string_generator.hpp>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/trim.hpp>
 
 #ifdef HAVE_SYSTEMD
 #include <systemd/sd-daemon.h>
@@ -1826,8 +1829,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     setLuaNoSideEffect();
     std::unordered_map<string, uint64_t> res;
     for (const auto& entry : g_stats.entries) {
-      if (const auto& val = boost::get<pdns::stat_t*>(&entry.second))
-        res[entry.first] = (*val)->load();
+      if (const auto& val = std::get<pdns::stat_t*>(entry.second)) {
+        res[entry.first] = val->load();
+      }
     }
     return res;
   });

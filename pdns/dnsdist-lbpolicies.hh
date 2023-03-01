@@ -34,8 +34,8 @@ class ServerPolicy
 public:
   template <class T> using NumberedVector = std::vector<std::pair<unsigned int, T> >;
   using NumberedServerVector = NumberedVector<shared_ptr<DownstreamState>>;
-  typedef std::function<shared_ptr<DownstreamState>(const NumberedServerVector& servers, const DNSQuestion*)> policyfunc_t;
-  typedef std::function<unsigned int(dnsdist_ffi_servers_list_t* servers, dnsdist_ffi_dnsquestion_t* dq)> ffipolicyfunc_t;
+  using policyfunc_t = std::function<shared_ptr<DownstreamState>(const NumberedServerVector& servers, const DNSQuestion*)>;
+  using ffipolicyfunc_t = std::function<unsigned int(dnsdist_ffi_servers_list_t* servers, dnsdist_ffi_dnsquestion_t* dq)>;
 
   ServerPolicy(const std::string& name_, policyfunc_t policy_, bool isLua_): d_name(name_), d_policy(policy_), d_isLua(isLua_)
   {
@@ -64,16 +64,8 @@ public:
   }
 
 private:
-  struct PerThreadState
-  {
-    LuaContext d_luaContext;
-    std::unordered_map<std::string, ffipolicyfunc_t> d_policies;
-    bool d_initialized{false};
-  };
 
   const ffipolicyfunc_t& getPerThreadPolicy() const;
-  static thread_local PerThreadState t_perThreadState;
-
 
 public:
   std::string d_name;

@@ -29,10 +29,13 @@
 #include "ext/json11/json11.hpp"
 #include <yahttp/yahttp.hpp>
 
+#include <boost/algorithm/string/replace.hpp>
+
 #include "base64.hh"
 #include "connection-management.hh"
 #include "dnsdist.hh"
 #include "dnsdist-dynblocks.hh"
+#include "dnsdist-dynbpf.hh"
 #include "dnsdist-healthchecks.hh"
 #include "dnsdist-prometheus.hh"
 #include "dnsdist-web.hh"
@@ -500,16 +503,16 @@ static void handlePrometheus(const YaHTTP::Request& req, YaHTTP::Response& resp)
     output << "# TYPE " << prometheusMetricName << " " << prometheusTypeName << "\n";
     output << prometheusMetricName << " ";
 
-    if (const auto& val = boost::get<pdns::stat_t*>(&std::get<1>(e))) {
+    if (const auto& val = std::get_if<pdns::stat_t*>(&std::get<1>(e))) {
       output << (*val)->load();
     }
-    else if (const auto& adval = boost::get<pdns::stat_t_trait<double>*>(&std::get<1>(e))) {
+    else if (const auto& adval = std::get_if<pdns::stat_t_trait<double>*>(&std::get<1>(e))) {
       output << (*adval)->load();
     }
-    else if (const auto& dval = boost::get<double*>(&std::get<1>(e))) {
+    else if (const auto& dval = std::get_if<double*>(&std::get<1>(e))) {
       output << **dval;
     }
-    else if (const auto& func = boost::get<DNSDistStats::statfunction_t>(&std::get<1>(e))) {
+    else if (const auto& func = std::get_if<DNSDistStats::statfunction_t>(&std::get<1>(e))) {
       output << (*func)(std::get<0>(e));
     }
 
@@ -894,13 +897,13 @@ static void addStatsToJSONObject(Json::object& obj)
     if (e.first == "special-memory-usage") {
       continue; // Too expensive for get-all
     }
-    if (const auto& val = boost::get<pdns::stat_t*>(&e.second)) {
+    if (const auto& val = std::get_if<pdns::stat_t*>(&e.second)) {
       obj.emplace(e.first, (double)(*val)->load());
-    } else if (const auto& adval = boost::get<pdns::stat_t_trait<double>*>(&e.second)) {
+    } else if (const auto& adval = std::get_if<pdns::stat_t_trait<double>*>(&e.second)) {
       obj.emplace(e.first, (*adval)->load());
-    } else if (const auto& dval = boost::get<double*>(&e.second)) {
+    } else if (const auto& dval = std::get_if<double*>(&e.second)) {
       obj.emplace(e.first, (**dval));
-    } else if (const auto& func = boost::get<DNSDistStats::statfunction_t>(&e.second)) {
+    } else if (const auto& func = std::get_if<DNSDistStats::statfunction_t>(&e.second)) {
       obj.emplace(e.first, (double)(*func)(e.first));
     }
   }
@@ -1333,28 +1336,28 @@ static void handleStatsOnly(const YaHTTP::Request& req, YaHTTP::Response& resp)
     if (item.first == "special-memory-usage")
       continue; // Too expensive for get-all
 
-    if (const auto& val = boost::get<pdns::stat_t*>(&item.second)) {
+    if (const auto& val = std::get_if<pdns::stat_t*>(&item.second)) {
       doc.push_back(Json::object {
           { "type", "StatisticItem" },
           { "name", item.first },
           { "value", (double)(*val)->load() }
         });
     }
-    else if (const auto& adval = boost::get<pdns::stat_t_trait<double>*>(&item.second)) {
+    else if (const auto& adval = std::get_if<pdns::stat_t_trait<double>*>(&item.second)) {
       doc.push_back(Json::object {
           { "type", "StatisticItem" },
           { "name", item.first },
           { "value", (*adval)->load() }
         });
     }
-    else if (const auto& dval = boost::get<double*>(&item.second)) {
+    else if (const auto& dval = std::get_if<double*>(&item.second)) {
       doc.push_back(Json::object {
           { "type", "StatisticItem" },
           { "name", item.first },
-          { "value", (**dval) }
+          { "value", **dval }
         });
     }
-    else if (const auto& func = boost::get<DNSDistStats::statfunction_t>(&item.second)) {
+    else if (const auto& func = std::get_if<DNSDistStats::statfunction_t>(&item.second)) {
       doc.push_back(Json::object {
           { "type", "StatisticItem" },
           { "name", item.first },
@@ -1374,7 +1377,7 @@ static void handleConfigDump(const YaHTTP::Request& req, YaHTTP::Response& resp)
   resp.status = 200;
 
   Json::array doc;
-  typedef boost::variant<bool, double, std::string> configentry_t;
+  using configentry_t = std::variant<bool, double, std::string>;
   std::vector<std::pair<std::string, configentry_t> > configEntries {
     { "acl", g_ACL.getLocal()->toString() },
     { "allow-empty-response", g_allowEmptyResponse },
@@ -1393,21 +1396,21 @@ static void handleConfigDump(const YaHTTP::Request& req, YaHTTP::Response& resp)
     { "verbose-health-checks", g_verboseHealthChecks }
   };
   for(const auto& item : configEntries) {
-    if (const auto& bval = boost::get<bool>(&item.second)) {
+    if (const auto& bval = std::get_if<bool>(&item.second)) {
       doc.push_back(Json::object {
           { "type", "ConfigSetting" },
           { "name", item.first },
           { "value", *bval }
         });
     }
-    else if (const auto& sval = boost::get<string>(&item.second)) {
+    else if (const auto& sval = std::get_if<string>(&item.second)) {
       doc.push_back(Json::object {
           { "type", "ConfigSetting" },
           { "name", item.first },
           { "value", *sval }
         });
     }
-    else if (const auto& dval = boost::get<double>(&item.second)) {
+    else if (const auto& dval = std::get_if<double>(&item.second)) {
       doc.push_back(Json::object {
           { "type", "ConfigSetting" },
           { "name", item.first },

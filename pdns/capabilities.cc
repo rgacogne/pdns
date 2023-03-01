@@ -22,8 +22,9 @@
 
 #include "config.h"
 
-#include <cstring>
+#include <string>
 #include <stdexcept>
+#include <vector>
 
 #ifdef HAVE_LIBCAP
 #include <sys/capability.h>

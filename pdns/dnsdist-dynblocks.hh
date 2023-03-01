@@ -22,9 +22,11 @@
 #pragma once
 
 #ifndef DISABLE_DYNBLOCKS
+#include <list>
 #include <unordered_set>
 
 #include "dolog.hh"
+#include "dnsdist-lua.hh"
 #include "dnsdist-rings.hh"
 #include "statnode.hh"
 

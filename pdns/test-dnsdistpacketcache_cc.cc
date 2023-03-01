@@ -551,7 +551,7 @@ static void threadMangler(unsigned int offset)
   }
 }
 
-AtomicCounter g_missing;
+static std::atomic<uint64_t> g_missing{0};
 
 static void threadReader(unsigned int offset)
 {

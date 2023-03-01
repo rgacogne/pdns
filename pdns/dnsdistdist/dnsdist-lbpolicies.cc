@@ -335,10 +335,18 @@ ServerPolicy::ServerPolicy(const std::string& name_, const std::string& code): d
   auto ret = tmpContext.executeCode<ServerPolicy::ffipolicyfunc_t>(code);
 }
 
-thread_local ServerPolicy::PerThreadState ServerPolicy::t_perThreadState;
+  struct ServerPolicyPerThreadState
+  {
+    LuaContext d_luaContext;
+    std::unordered_map<std::string, ServerPolicy::ffipolicyfunc_t> d_policies;
+    bool d_initialized{false};
+  };
+//  static thread_local PerThreadState t_perThreadState;
+
 
 const ServerPolicy::ffipolicyfunc_t& ServerPolicy::getPerThreadPolicy() const
 {
+  static thread_local ServerPolicyPerThreadState t_perThreadState;
   auto& state = t_perThreadState;
   if (!state.d_initialized) {
     setupLuaLoadBalancingContext(state.d_luaContext);

@@ -66,6 +66,7 @@
 #  include <pthread.h>
 #  include <sched.h>
 #endif
+#include <syslog.h>
 
 #if defined(HAVE_LIBCRYPTO)
 #include <openssl/err.h>

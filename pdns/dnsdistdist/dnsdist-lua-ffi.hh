@@ -23,6 +23,8 @@
 
 #include "dnsdist.hh"
 
+#include "ext/luawrapper/include/LuaContext.hpp"
+
 extern "C" {
 #include "dnsdist-lua-ffi-interface.h"
 }

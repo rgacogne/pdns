@@ -26,8 +26,6 @@
 #include "misc.hh"
 #include <stdexcept>
 #include <iostream>
-#include <boost/algorithm/string.hpp>
-#include <boost/assign/list_of.hpp>
 #include "dnsparser.hh"
 
 const std::array<std::string, 24> RCode::rcodes_s = {

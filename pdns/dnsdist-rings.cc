@@ -21,6 +21,7 @@
  */
 
 #include <fstream>
+#include <boost/algorithm/string/trim.hpp>
 
 #include "dnsdist-rings.hh"
 

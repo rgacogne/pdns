@@ -31,6 +31,8 @@
 #include "sstuff.hh"
 #include "threadname.hh"
 
+#include <boost/algorithm/string/replace.hpp>
+
 namespace dnsdist
 {
 
@@ -53,16 +55,16 @@ static bool doOneCarbonExport(const Carbon::Endpoint& endpoint)
 
     for (const auto& e : g_stats.entries) {
       str << namespace_name << "." << hostname << "." << instance_name << "." << e.first << ' ';
-      if (const auto& val = boost::get<pdns::stat_t*>(&e.second)) {
+      if (const auto& val = std::get_if<pdns::stat_t*>(&e.second)) {
         str << (*val)->load();
       }
-      else if (const auto& adval = boost::get<pdns::stat_t_trait<double>*>(&e.second)) {
+      else if (const auto& adval = std::get_if<pdns::stat_t_trait<double>*>(&e.second)) {
         str << (*adval)->load();
       }
-      else if (const auto& dval = boost::get<double*>(&e.second)) {
+      else if (const auto& dval = std::get_if<double*>(&e.second)) {
         str << **dval;
       }
-      else if (const auto& func = boost::get<DNSDistStats::statfunction_t>(&e.second)) {
+      else if (const auto& func = std::get_if<DNSDistStats::statfunction_t>(&e.second)) {
         str << (*func)(e.first);
       }
       str << ' ' << now << "\r\n";

@@ -27,6 +27,8 @@
 #ifndef DISABLE_PROTOBUF
 #include "protozero.hh"
 
+#include <boost/algorithm/string/case_conv.hpp>
+
 class DNSDistProtoBufMessage
 {
 public:

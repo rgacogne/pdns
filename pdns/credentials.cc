@@ -43,6 +43,8 @@
 #include "credentials.hh"
 #include "misc.hh"
 
+#include <boost/algorithm/string/predicate.hpp>
+
 #if !defined(DISABLE_HASHED_CREDENTIALS) && defined(HAVE_EVP_PKEY_CTX_SET1_SCRYPT_SALT)
 static size_t const pwhash_max_size = 128U; /* maximum size of the output */
 static size_t const pwhash_output_size = 32U; /* size of the hashed output (before base64 encoding) */

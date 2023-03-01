@@ -701,16 +701,16 @@ void setupLuaInspection(LuaContext& luaCtx)
       boost::format flt("    %9.1f");
       for (const auto& e : entries) {
         string second;
-        if (const auto& val = boost::get<pdns::stat_t*>(&e.second)) {
+        if (const auto& val = std::get_if<pdns::stat_t*>(&e.second)) {
           second = std::to_string((*val)->load());
         }
-        else if (const auto& adval = boost::get<pdns::stat_t_trait<double>*>(&e.second)) {
+        else if (const auto& adval = std::get_if<pdns::stat_t_trait<double>*>(&e.second)) {
           second = (flt % (*adval)->load()).str();
         }
-        else if (const auto& dval = boost::get<double*>(&e.second)) {
-          second = (flt % (**dval)).str();
+        else if (const auto& dval = std::get_if<double*>(&e.second)) {
+          second = (flt % *dval).str();
         }
-        else if (const auto& func = boost::get<DNSDistStats::statfunction_t>(&e.second)) {
+        else if (const auto& func = std::get_if<DNSDistStats::statfunction_t>(&e.second)) {
           second = std::to_string((*func)(e.first));
         }
 

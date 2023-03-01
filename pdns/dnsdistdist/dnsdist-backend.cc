@@ -20,6 +20,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include <boost/format.hpp>
+
 #include "dnsdist.hh"
 #include "dnsdist-nghttp2.hh"
 #include "dnsdist-random.hh"

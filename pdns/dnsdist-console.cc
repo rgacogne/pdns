@@ -37,14 +37,18 @@
 #endif
 #endif /* HAVE_LIBEDIT */
 
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "ext/json11/json11.hpp"
 
 #include "connection-management.hh"
 #include "dolog.hh"
 #include "dnsdist.hh"
 #include "dnsdist-console.hh"
+#include "dnsdist-lua.hh"
 #include "sodcrypto.hh"
 #include "threadname.hh"
+
 
 GlobalStateHolder<NetmaskGroup> g_consoleACL;
 vector<pair<struct timeval, string> > g_confDelta;

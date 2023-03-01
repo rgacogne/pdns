@@ -21,10 +21,13 @@
  */
 #pragma once
 
+#include <random>
+
+#include "ext/luawrapper/include/LuaContext.hpp"
+
 #include "dolog.hh"
 #include "dnsdist.hh"
 #include "dnsparser.hh"
-#include <random>
 
 struct ResponseConfig
 {
@@ -237,3 +240,5 @@ static inline void checkAllParametersConsumed(const std::string& func, const boo
     warnlog("%s: Unknown key '%s' given - ignored", func, key);
   }
 }
+
+extern LockGuarded<LuaContext> g_lua;

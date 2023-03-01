@@ -29,6 +29,8 @@
 #include <sodium.h>
 #endif /* HAVE_LIBSODIUM */
 
+#include <boost/algorithm/string/replace.hpp>
+
 #include "dnsparser.hh"
 #include "dolog.hh"
 #include "iputils.hh"

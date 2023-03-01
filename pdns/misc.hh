@@ -20,27 +20,25 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #pragma once
-#include <cinttypes>
-#include <cstring>
-#include <cstdio>
-#include <regex.h>
-#include <climits>
-#include <type_traits>
 
-#include <boost/algorithm/string.hpp>
+//#include <cstring>
+//#include <type_traits>
 
-#include "dns.hh"
 #include <atomic>
+#include <cinttypes>
+//#include <cstdio>
+#include <limits>
+#include <optional>
+#include <vector>
+#include <stdexcept>
+#include <string>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <ctime>
-#include <syslog.h>
-#include <stdexcept>
-#include <string>
-#include <cctype>
-#include <vector>
 
+#include <regex.h>
+
+#include "dns.hh"
 #include "namespaces.hh"
 
 class DNSName;
@@ -400,8 +398,8 @@ inline bool pdns_iequals_ch(const char a, const char b)
 }
 
 
-typedef unsigned long AtomicCounterInner;
-typedef std::atomic<AtomicCounterInner> AtomicCounter ;
+using AtomicCounterInner = unsigned long ;
+using AtomicCounter = std::atomic<AtomicCounterInner>;
 
 // FIXME400 this should probably go?
 struct CIStringCompare

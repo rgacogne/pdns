@@ -1,5 +1,7 @@
 #pragma once
 
+#include <list>
+
 #include "sstuff.hh"
 #include "tcpiohandler-mplexer.hh"
 #include "dnsdist.hh"

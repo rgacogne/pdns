@@ -80,7 +80,7 @@ static int handleCounter64Stats(netsnmp_mib_handler* handler,
     return SNMP_ERR_GENERR;
   }
 
-  if (const auto& val = boost::get<pdns::stat_t*>(&it->second)) {
+  if (const auto& val = std::get_if<pdns::stat_t*>(&it->second)) {
     return DNSDistSNMPAgent::setCounter64Value(requests, (*val)->load());
   }
 
@@ -125,7 +125,7 @@ static int handleFloatStats(netsnmp_mib_handler* handler,
     return SNMP_ERR_GENERR;
   }
 
-  if (const auto& val = boost::get<double*>(&it->second)) {
+  if (const auto& val = std::get_if<double*>(&it->second)) {
     std::string str(std::to_string(**val));
     snmp_set_var_typed_value(requests->requestvb,
                              ASN_OCTET_STR,
@@ -176,7 +176,7 @@ static int handleGauge64Stats(netsnmp_mib_handler* handler,
   }
 
   std::string str;
-  uint64_t value = (*boost::get<DNSDistStats::statfunction_t>(&it->second))(str);
+  uint64_t value = (std::get<DNSDistStats::statfunction_t>(it->second))(str);
   return DNSDistSNMPAgent::setCounter64Value(requests, value);
 }
 

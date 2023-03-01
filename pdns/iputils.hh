@@ -35,6 +35,8 @@
 
 #include "namespaces.hh"
 
+#include <boost/algorithm/string/join.hpp>
+
 #ifdef __APPLE__
 #include <libkern/OSByteOrder.h>
 

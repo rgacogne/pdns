@@ -24,6 +24,8 @@
 #include <netinet/tcp.h>
 #include <queue>
 
+#include <boost/format.hpp>
+
 #include "dnsdist.hh"
 #include "dnsdist-concurrent-connections.hh"
 #include "dnsdist-ecs.hh"

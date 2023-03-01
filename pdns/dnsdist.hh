@@ -21,7 +21,6 @@
  */
 #pragma once
 #include "config.h"
-#include "ext/luawrapper/include/LuaContext.hpp"
 
 #include <memory>
 #include <mutex>
@@ -30,13 +29,12 @@
 #include <time.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <variant>
 
-#include <boost/variant.hpp>
-
+#include "bpf-filter.hh"
 #include "circular_buffer.hh"
 #include "dnscrypt.hh"
 #include "dnsdist-cache.hh"
-#include "dnsdist-dynbpf.hh"
 #include "dnsdist-idstate.hh"
 #include "dnsdist-lbpolicies.hh"
 #include "dnsdist-protocols.hh"
@@ -368,8 +366,8 @@ struct DNSDistStats
   double latencyTCPAvg100{0}, latencyTCPAvg1000{0}, latencyTCPAvg10000{0}, latencyTCPAvg1000000{0};
   double latencyDoTAvg100{0}, latencyDoTAvg1000{0}, latencyDoTAvg10000{0}, latencyDoTAvg1000000{0};
   double latencyDoHAvg100{0}, latencyDoHAvg1000{0}, latencyDoHAvg10000{0}, latencyDoHAvg1000000{0};
-  typedef std::function<uint64_t(const std::string&)> statfunction_t;
-  typedef boost::variant<stat_t*, pdns::stat_t_trait<double>*, double*, statfunction_t> entry_t;
+  using statfunction_t = std::function<uint64_t(const std::string&)>;
+  using entry_t = std::variant<stat_t*, pdns::stat_t_trait<double>*, double*, statfunction_t>;
 
   std::vector<std::pair<std::string, entry_t>> entries{
     {"responses", &responses},
@@ -1058,7 +1056,6 @@ private:
 using servers_t = vector<std::shared_ptr<DownstreamState>>;
 
 void responderThread(std::shared_ptr<DownstreamState> state);
-extern LockGuarded<LuaContext> g_lua;
 extern std::string g_outputBuffer; // locking for this is ok, as locked by g_luamutex
 
 class DNSRule
@@ -1172,7 +1169,6 @@ extern uint32_t g_socketUDPSendBuffer;
 extern uint32_t g_socketUDPRecvBuffer;
 
 extern shared_ptr<BPFFilter> g_defaultBPFFilter;
-extern std::vector<std::shared_ptr<DynBPFFilter> > g_dynBPFFilters;
 
 struct LocalHolders
 {

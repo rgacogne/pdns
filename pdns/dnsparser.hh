@@ -29,6 +29,9 @@
 #include <vector>
 #include <cerrno>
 // #include <netinet/in.h>
+
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "misc.hh"
 
 #include "dns.hh"

@@ -28,6 +28,8 @@
 #include "qtype.hh"
 #include "misc.hh"
 
+#include <boost/algorithm/string/predicate.hpp>
+
 static_assert(sizeof(QType) == 2, "QType is not 2 bytes in size, something is wrong!");
 
 const map<const string, uint16_t> QType::names = {

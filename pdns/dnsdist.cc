@@ -47,6 +47,8 @@
 #include <systemd/sd-daemon.h>
 #endif
 
+#include <boost/algorithm/string/trim.hpp>
+
 #include "dnsdist.hh"
 #include "dnsdist-async.hh"
 #include "dnsdist-cache.hh"
@@ -112,7 +114,6 @@ std::vector<std::shared_ptr<DOHFrontend>> g_dohlocals;
 std::vector<std::shared_ptr<DNSCryptContext>> g_dnsCryptLocals;
 
 shared_ptr<BPFFilter> g_defaultBPFFilter{nullptr};
-std::vector<std::shared_ptr<DynBPFFilter> > g_dynBPFFilters;
 
 std::vector<std::unique_ptr<ClientState>> g_frontends;
 GlobalStateHolder<pools_t> g_pools;
