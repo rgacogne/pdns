@@ -428,20 +428,23 @@ def ci_dnsdist_configure(c, features):
                           -DDISABLE_NPN'
     unittests = ' --enable-unit-tests' if os.getenv('UNIT_TESTS') == 'yes' else ''
     sanitizers = ' '.join('--enable-'+x for x in os.getenv('SANITIZERS').split('+')) if os.getenv('SANITIZERS') != '' else ''
-    cflags = '-O1 -Werror=vla -Werror=shadow -Wformat=2 -Werror=format-security -Werror=string-plus-int'
+    autovarinit = '--enable-auto-var-init=pattern' if os.getenv('CLANG_STATIC_ANALYZER') != 'yes' else ''
+    lto = '--enable-lto=thin' if os.getenv('CLANG_STATIC_ANALYZER') != 'yes' else ''
+    cflags = '-O1 -Werror=vla -Werror=shadow -Wformat=2 -Werror=format-security -Werror=string-plus-int' if os.getenv('CLANG_STATIC_ANALYZER') != 'yes' else '-O1 -Werror=vla -Werror=shadow -Wformat=2 -Werror=format-security'
     cxxflags = cflags + ' -Wp,-D_GLIBCXX_ASSERTIONS ' + additional_flags
+    scanbuild = 'scan-build-12' if os.getenv('CLANG_STATIC_ANALYZER') == 'yes' else ''
     res = c.run('''CFLAGS="%s" \
                    CXXFLAGS="%s" \
                    AR=llvm-ar-12 \
                    RANLIB=llvm-ranlib-12 \
-                   ./configure \
+                   %s ./configure \
                      CC='clang-12' \
                      CXX='clang++-12' \
                      --enable-option-checking=fatal \
                      --enable-fortify-source=auto \
-                     --enable-auto-var-init=pattern \
-                     --enable-lto=thin \
-                     --prefix=/opt/dnsdist %s %s %s''' % (cflags, cxxflags, features_set, sanitizers, unittests), warn=True)
+                     %s \
+                     %s \
+                     --prefix=/opt/dnsdist %s %s %s''' % (cflags, cxxflags, scanbuild, autovarinit, lto, features_set, sanitizers, unittests), warn=True)
     if res.exited != 0:
         c.run('cat config.log')
         raise UnexpectedExit(res)
@@ -456,7 +459,8 @@ def ci_rec_make(c):
 
 @task
 def ci_dnsdist_make(c):
-    c.run('make -j4 -k V=1')
+    scanbuild = 'scan-build-12 --status-bugs' if os.getenv('CLANG_STATIC_ANALYZER') == 'yes' else ''
+    c.run('%s make -j4 -k V=1' % (scanbuild))
 
 @task
 def ci_auth_install_remotebackend_test_deps(c):
