@@ -21,6 +21,7 @@
  */
 #pragma once
 
+#include <optional>
 #include <unistd.h>
 #include "iputils.hh"
 #include "dnsdist.hh"
@@ -98,6 +99,7 @@ public:
   InternalQueryState d_idstate;
   std::string d_proxyProtocolPayload;
   PacketBuffer d_buffer;
+  std::optional<int32_t> d_streamID{std::nullopt};
   uint32_t d_proxyProtocolPayloadAddedSize{0};
   uint32_t d_ixfrQuerySerial{0};
   uint32_t d_xfrMasterSerial{0};

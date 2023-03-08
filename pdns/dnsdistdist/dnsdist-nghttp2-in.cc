@@ -23,10 +23,12 @@
 #include "base64.hh"
 #include "dnsdist-nghttp2-in.hh"
 
+/*
 class IncomingDoHEndpoint
 {
   TLSFrontend
 };
+*/
 
 class IncomingDoHCrossProtocolContext : public CrossProtocolContext
 {
@@ -276,7 +278,14 @@ static void addDynamicHeader(std::vector<nghttp2_nv>& headers, const std::string
   headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.c_str())), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.c_str())), name.size(), value.size(), NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE});
 }
 
-bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint8_t responseCode, const PacketBuffer& responseBody)
+IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResponse&& response)
+{
+  assert(response.streamID.has_value == true);
+  sendResponse(response.streamID.value(), 200, response.d_buffer);
+  return IOState::Done;
+}
+
+bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint16_t responseCode, const PacketBuffer& responseBody)
 {
   /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
    */
@@ -332,143 +341,41 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
   return true;
 }
 
-
 void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::PendingQuery&& query, IncomingHTTP2Connection::StreamID streamID)
 {
-  const auto handleImmediateResponse = [&query, streamID](uint8_t code, const char* reason, PacketBuffer&& response = PacketBuffer()) {
+  const auto handleImmediateResponse = [&query, streamID](uint16_t code, const char* reason, PacketBuffer&& response = PacketBuffer()) {
 #warning writeme
   };
 
-  try {
-    //DOHServerConfig* dsc = du->dsc;
-    //auto& holders = dsc->holders;
-    //ClientState& cs = *dsc->cs;
-    InternalQueryState ids;
-    uint16_t queryId;
-
-    if (query.d_buffer.size() < sizeof(dnsheader)) {
-      ++g_stats.nonCompliantQueries;
-      ++cs.nonCompliantQueries;
-      handleImmediateResponse(400, "DoH non-compliant query");
-      return;
-    }
-
-    ++cs.queries;
-    ++g_stats.queries;
-    ids.queryRealTime.start();
-
-    {
-      /* don't keep that pointer around, it will be invalidated if the buffer is ever resized */
-      struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(query.d_buffer.data());
-      
-      if (!checkQueryHeaders(dh, cs)) {
-        handleImmediateResponse(400, "DoH invalid headers");
-      return;
-    }
-
-    if (dh->qdcount == 0) {
-      dh->rcode = RCode::NotImp;
-      dh->qr = true;
-      handleImmediateResponse(200, "DoH empty query", std::move(query.d_buffer));
-      return;
-    }
-    
-    queryId = ntohs(dh->id);
-    }
-
-    ids.qname = DNSName(reinterpret_cast<const char*>(query.d_buffer.data()), query.d_buffer.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
-    DNSQuestion dq(ids, query.d_buffer);
-    const uint16_t* flags = getFlagsFromDNSHeader(dq.getHeader());
-    ids.origFlags = *flags;
-    ids.cs = &cs;
-    dq.sni = std::move(du->sni);
-
-    {
-      // if there was no EDNS, we add it with a large buffer size
-      // so we can use UDP to talk to the backend.
-      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(query.d_buffer.data()));
-
-      if (!dh->arcount) {
-        if (generateOptRR(std::string(), query.d_buffer, 4096, 4096, 0, false)) {
-          dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(query.d_buffer.data())); // may have reallocated
-          dh->arcount = htons(1);
-          ids.ednsAdded = true;
-        }
-      }
-      else {
-        // we leave existing EDNS in place
-      }
-    }
-
-    std::shared_ptr<DownstreamState> downstream;
-    auto result = processQuery(dq, holders, downstream);
-
-    if (result == ProcessQueryResult::Drop) {
-      handleImmediateResponse(403, "DoH dropped query");
-      return;
-    }
-    else if (result == ProcessQueryResult::Asynchronous) {
-      return;
-    }
-    else if (result == ProcessQueryResult::SendAnswer) {
-      if (response.empty()) {
-        response = std::move(query.d_buffer);
-      }
-      if (response.size() >= sizeof(dnsheader) && contentType.empty()) {
-        auto dh = reinterpret_cast<const struct dnsheader*>(response.data());
-
-        handleResponseSent(ids.qname, QType(ids.qtype), 0., ids.origDest, ComboAddress(), response.size(), *dh, dnsdist::Protocol::DoH, dnsdist::Protocol::DoH);
-      }
-      handleImmediateResponse(200, "DoH self-answered response", response);
-      return;
-    }
-
-    if (result != ProcessQueryResult::PassToBackend) {
-      handleImmediateResponse(500, "DoH no backend available");
-      return;
-    }
-
-    if (downstream == nullptr) {
-      handleImmediateResponse(502, "DoH no backend available");
-      return;
-    }
-
-    if (downstream->isTCPOnly()) {
-      std::string proxyProtocolPayload;
-      /* we need to do this _before_ creating the cross protocol query because
-         after that the buffer will have been moved */
-      if (downstream->d_config.useProxyProtocol) {
-        proxyProtocolPayload = getProxyProtocolPayload(dq);
-      }
-
-      ids.origID = htons(queryId);
-      du->tcp = true;
-
-      /* this moves ids, careful! */
-      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du), false);
-      cpq->query.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
-
-      if (downstream->passCrossProtocolQuery(std::move(cpq))) {
-        return;
-      }
-      else {
-        handleImmediateResponse(502, "DoH internal error");
-        return;
-      }
-    }
-
-    ComboAddress dest = dq.ids.origDest;
-    ids.crossProtocolContext = std::make_unique<IncomingDoHCrossProtocolContext>(std::move(query), shared_from_this(), streamID);
-    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, query.d_buffer, dest)) {
-      handleImmediateResponse(502, "DoH internal error");
-      return;
-    }
-  }
-  catch (const std::exception& e) {
-    vinfolog("Got an error in DOH question thread while parsing a query from %s, id %d: %s", remote.toStringWithPort(), queryId, e.what());
-    handleImmediateResponse(500, "DoH internal error");
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+  auto processingResult = handleQuery(std::move(query.d_buffer), now, streamID);
+  switch (processingResult) {
+  case QueryProcessingResult::TooSmall:
+    handleImmediateResponse(400, "DoH non-compliant query");
+    break;
+  case QueryProcessingResult::InvalidHeaders:
+    handleImmediateResponse(400, "DoH invalid headers");
+    break;
+  case QueryProcessingResult::Empty:
+    handleImmediateResponse(200, "DoH empty query", std::move(query.d_buffer));
+    break;
+  case QueryProcessingResult::Dropped:
+    handleImmediateResponse(403, "DoH dropped query");
+    break;
+  case QueryProcessingResult::NoBackend:
+    handleImmediateResponse(502, "DoH no backend available");
     return;
+  case QueryProcessingResult::Forwarded:
+  case QueryProcessingResult::Asynchronous:
+  case QueryProcessingResult::SelfAnswered:
+    break;
   }
+//    ids.crossProtocolContext = std::make_unique<IncomingDoHCrossProtocolContext>(std::move(query), shared_from_this(), streamID);
+//    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, query.d_buffer, dest)) {
+//      handleImmediateResponse(502, "DoH internal error");
+//      return;
+//    }
 }
 
 int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data)

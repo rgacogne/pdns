@@ -22,6 +22,8 @@ public:
 class IncomingTCPConnectionState : public TCPQuerySender, public std::enable_shared_from_this<IncomingTCPConnectionState>
 {
 public:
+  enum class QueryProcessingResult : uint8_t { Forwarded, TooSmall, InvalidHeaders, Empty, Dropped, SelfAnswered, NoBackend, Asynchronous };
+
   IncomingTCPConnectionState(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_buffer(s_maxPacketCacheEntrySize), d_ci(std::move(ci)), d_handler(d_ci.fd, timeval{g_tcpRecvTimeout,0}, d_ci.cs->tlsFrontend ? d_ci.cs->tlsFrontend->getContext() : nullptr, now.tv_sec), d_connectionStartTime(now), d_ioState(make_unique<IOStateHandler>(*threadData.mplexer, d_ci.fd)), d_threadData(threadData), d_creatorThreadID(std::this_thread::get_id())
   {
     d_origDest.reset();
@@ -119,19 +121,19 @@ public:
   static void handleAsyncReady(int fd, FDMultiplexer::funcparam_t& param);
   static void updateIO(std::shared_ptr<IncomingTCPConnectionState>& state, IOState newState, const struct timeval& now);
 
-  static IOState sendResponse(std::shared_ptr<IncomingTCPConnectionState>& state, const struct timeval& now, TCPResponse&& response);
   static void queueResponse(std::shared_ptr<IncomingTCPConnectionState>& state, const struct timeval& now, TCPResponse&& response);
-static void handleTimeout(std::shared_ptr<IncomingTCPConnectionState>& state, bool write);
+  static void handleTimeout(std::shared_ptr<IncomingTCPConnectionState>& state, bool write);
 
-  /* we take a copy of a shared pointer, not a reference, because the initial shared pointer might be released during the handling of the response */
+  QueryProcessingResult handleQuery(PacketBuffer&& query, const struct timeval& now, std::optional<int32_t> streamID);
   void handleResponse(const struct timeval& now, TCPResponse&& response) override;
   void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override;
   void notifyIOError(InternalQueryState&& query, const struct timeval& now) override;
-
+  IOState sendResponse(const struct timeval& now, TCPResponse&& response);
+  void handleResponseSent(TCPResponse& currentResponse);
+  
   void handleCrossProtocolResponse(const struct timeval& now, TCPResponse&& response);
 
   void terminateClientConnection();
-  void queueQuery(TCPQuery&& query);
 
   bool canAcceptNewQueries(const struct timeval& now);
 
