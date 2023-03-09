@@ -28,11 +28,11 @@
 
 #include "dnsdist-tcp-upstream.hh"
 
-class IncomingHTTP2Connection :  public std::enable_shared_from_this<IncomingHTTP2Connection>
+class IncomingHTTP2Connection :  public IncomingTCPConnectionState
 {
 public:
   using StreamID = int32_t;
-  enum class State : uint8_t { doingHandshake, readingProxyProtocolHeader, running };
+//  enum class State : uint8_t { doingHandshake, readingProxyProtocolHeader, running };
 
   class PendingQuery
   {
@@ -52,7 +52,8 @@ public:
   };
 
   IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);
-  void handleIO();
+  ~IncomingHTTP2Connection() = default;
+  void handleIO() override;
 
 private:
   static ssize_t send_callback(nghttp2_session* session, const uint8_t* data, size_t length, int flags, void* user_data);
@@ -71,19 +72,18 @@ private:
   void updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback, bool noTTD = false);
   void watchForRemoteHostClosingConnection();
   void handleIOError();
-  bool sendResponse(StreamID streamID, uint8_t responseCode, const PacketBuffer& responseBody);
+  IOState sendResponse(const struct timeval& now, TCPResponse&& response) override;
+  bool sendResponse(StreamID streamID, uint16_t responseCode);
   void handleIncomingQuery(PendingQuery&& query, StreamID streamID);
   bool checkALPN();
   void readHTTPData();
+  void handleConnectionReady();
 
-  TCPClientThreadData& d_threadData;
-  TCPIOHandler d_handler;
-  std::unique_ptr<IOStateHandler> d_ioState{nullptr};
   std::unique_ptr<nghttp2_session, decltype(&nghttp2_session_del)> d_session{nullptr, nghttp2_session_del};
   std::unordered_map<StreamID, PendingQuery> d_currentStreams;
   PacketBuffer d_out;
   PacketBuffer d_in;
   size_t d_outPos{0};
   size_t d_inPos{0};
-  State d_state{State::doingHandshake};
+  bool d_connectionDied{false};
 };

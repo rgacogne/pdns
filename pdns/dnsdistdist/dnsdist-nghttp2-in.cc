@@ -22,6 +22,7 @@
 
 #include "base64.hh"
 #include "dnsdist-nghttp2-in.hh"
+#include "dnsdist-proxy-protocol.hh"
 
 /*
 class IncomingDoHEndpoint
@@ -93,104 +94,125 @@ private:
   IncomingHTTP2Connection::StreamID d_streamID{-1};
 };
 
-IncomingHTTP2Connection::IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_threadData(threadData), d_handler(ci.fd, timeval{g_tcpRecvTimeout,0}, ci.cs->tlsFrontend->getContext(), now.tv_sec)
-  {
-    ci.fd = -1;
-    d_ioState = make_unique<IOStateHandler>(*d_threadData.mplexer, d_handler.getDescriptor());
-
-    nghttp2_session_callbacks* cbs = nullptr;
-    if (nghttp2_session_callbacks_new(&cbs) != 0) {
-      throw std::runtime_error("Unable to create a callback object for a new incoming HTTP/2 session");
-    }
-    std::unique_ptr<nghttp2_session_callbacks, void (*)(nghttp2_session_callbacks*)> callbacks(cbs, nghttp2_session_callbacks_del);
-    cbs = nullptr;
-
-    nghttp2_session_callbacks_set_send_callback(callbacks.get(), send_callback);
-    nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks.get(), on_frame_recv_callback);
-//    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks.get(), on_data_chunk_recv_callback);
-    nghttp2_session_callbacks_set_on_stream_close_callback(callbacks.get(), on_stream_close_callback);
-    nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks.get(), on_begin_headers_callback);
-    nghttp2_session_callbacks_set_on_header_callback(callbacks.get(), on_header_callback);
-    nghttp2_session_callbacks_set_error_callback2(callbacks.get(), on_error_callback);
-
-    nghttp2_session* sess = nullptr;
-    if (nghttp2_session_server_new(&sess, callbacks.get(), this) != 0) {
-      throw std::runtime_error("Coult not allocate a new incoming HTTP/2 session");
-    }
-
-    d_session = std::unique_ptr<nghttp2_session, decltype(&nghttp2_session_del)>(sess, nghttp2_session_del);
-    sess = nullptr;
+IncomingHTTP2Connection::IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): IncomingTCPConnectionState(std::move(ci), threadData, now)
+{
+  nghttp2_session_callbacks* cbs = nullptr;
+  if (nghttp2_session_callbacks_new(&cbs) != 0) {
+    throw std::runtime_error("Unable to create a callback object for a new incoming HTTP/2 session");
   }
+  std::unique_ptr<nghttp2_session_callbacks, void (*)(nghttp2_session_callbacks*)> callbacks(cbs, nghttp2_session_callbacks_del);
+  cbs = nullptr;
+
+  nghttp2_session_callbacks_set_send_callback(callbacks.get(), send_callback);
+  nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks.get(), on_frame_recv_callback);
+  nghttp2_session_callbacks_set_on_stream_close_callback(callbacks.get(), on_stream_close_callback);
+  nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks.get(), on_begin_headers_callback);
+  nghttp2_session_callbacks_set_on_header_callback(callbacks.get(), on_header_callback);
+  nghttp2_session_callbacks_set_error_callback2(callbacks.get(), on_error_callback);
+
+  nghttp2_session* sess = nullptr;
+  if (nghttp2_session_server_new(&sess, callbacks.get(), this) != 0) {
+    throw std::runtime_error("Coult not allocate a new incoming HTTP/2 session");
+  }
+
+  d_session = std::unique_ptr<nghttp2_session, decltype(&nghttp2_session_del)>(sess, nghttp2_session_del);
+  sess = nullptr;
+}
 
 bool IncomingHTTP2Connection::checkALPN()
 {
-#warning tODO
-#if 0
-  SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
-  if (alpn == NULL) {
-    SSL_get0_alpn_selected(ssl, &alpn, &alpnlen);
+  constexpr std::array<uint8_t, 2> h2{'h', '2'};
+  auto protocols = d_handler.getNextProtocol();
+  if (protocols.size() == h2.size() && memcmp(protocols.data(), h2.data(), h2.size()) == 0) {
+    return true;
   }
-#endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
+  vinfolog("DoH connection from %s expected h2 ALPN, got %s", d_ci.remote.toStringWithPort(), std::string(protocols.begin(), protocols.end()));
+  return false;
+}
 
-  if (alpn == NULL || alpnlen != 2 || memcmp("h2", alpn, 2) != 0) {
-    fprintf(stderr, "%s h2 is not negotiated\n", session_data->client_addr);
-    delete_http2_session_data(session_data);
-    return;
+void IncomingHTTP2Connection::handleConnectionReady()
+{
+  constexpr std::array<nghttp2_settings_entry, 1> iv{
+    {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100}
+  };
+  auto ret = nghttp2_submit_settings(d_session.get(), NGHTTP2_FLAG_NONE, iv.data(), iv.size());
+  if (ret != 0) {
+    throw std::runtime_error("Fatal error: " + std::string(nghttp2_strerror(ret)));
   }
-#endif
-  return true;
+  ret = nghttp2_session_send(d_session.get());
+  if (ret != 0) {
+    throw std::runtime_error("Fatal error: " + std::string(nghttp2_strerror(ret)));
+  }
 }
 
 void IncomingHTTP2Connection::handleIO()
 {
+  cerr<<__PRETTY_FUNCTION__<<endl;
   IOState iostate = IOState::Done;
+  struct timeval now;
+  gettimeofday(&now, nullptr);
 
   try {
-  cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
-  if (d_state == State::doingHandshake) {
-    cerr<<"try handshake"<<endl;
-    iostate = d_handler.tryHandshake();
-    if (iostate == IOState::Done) {
-      cerr<<"handshake done"<<endl;
-#warning handle proxy protocol
-      d_state = State::running;
-      if (d_handler.isTLS()) {
-        cerr<<"is TLS"<<endl;
-        if (!checkALPN()) {
-          cerr<<"ALPN failed"<<endl;
+    if (maxConnectionDurationReached(g_maxTCPConnectionDuration, now)) {
+      vinfolog("Terminating DoH connection from %s because it reached the maximum TCP connection duration", d_ci.remote.toStringWithPort());
+      stopIO();
+      d_connectionDied = true;
+      return;
+    }
+
+    if (d_state == State::doingHandshake) {
+      iostate = d_handler.tryHandshake();
+      if (iostate == IOState::Done) {
+        handleHandshakeDone(now);
+        if (d_handler.isTLS()) {
+          if (!checkALPN()) {
+            d_connectionDied = true;
+            stopIO();
+          }
+        }
+
+        if (expectProxyProtocolFrom(d_ci.remote)) {
+          d_state = IncomingTCPConnectionState::State::readingProxyProtocolHeader;
+          d_buffer.resize(s_proxyProtocolMinimumHeaderSize);
+          d_proxyProtocolNeed = s_proxyProtocolMinimumHeaderSize;
+        }
+        else {
+          d_state = State::waitingForQuery;
+          handleConnectionReady();      
         }
       }
-      const std::array<nghttp2_settings_entry, 1> iv{
-        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100}
-      };
-      auto ret = nghttp2_submit_settings(d_session.get(), NGHTTP2_FLAG_NONE, iv.data(), iv.size());
-      if (ret != 0) {
-        throw std::runtime_error("Fatal error: " + std::string(nghttp2_strerror(ret)));
-      }
-      ret = nghttp2_session_send(d_session.get());
-      if (ret != 0) {
-        throw std::runtime_error("Fatal error: " + std::string(nghttp2_strerror(ret)));
-      }
     }
-    else {
-      cerr<<"not done"<<endl;
-    }
-  }
-  else {
-    readHTTPData();
-  }
 
-//  if (iostate == IOState::Done && d_state == State::running) {
-    if (nghttp2_session_want_read(d_session.get())) {
-      cerr<<"wants read"<<endl;
-      d_ioState->add(IOState::NeedRead, &handleReadableIOCallback, shared_from_this(), boost::none);
+    if (d_state == IncomingTCPConnectionState::State::readingProxyProtocolHeader) {
+      auto status = handleProxyProtocolPayload();
+      if (status == ProxyProtocolResult::Done) {
+        d_currentPos = 0;
+        d_proxyProtocolNeed = 0;
+        d_buffer.clear();
+        d_state = State::waitingForQuery;
+        handleConnectionReady();
+      }
+      else if (status == ProxyProtocolResult::Error) {
+        d_connectionDied = true;
+        stopIO();
+      }
     }
-    if (nghttp2_session_want_write(d_session.get())) {
-      cerr<<"wants write"<<endl;
-      d_ioState->add(IOState::NeedWrite, &handleWritableIOCallback, shared_from_this(), boost::none);
+
+    if (d_state == State::waitingForQuery) {
+      readHTTPData();
     }
-//  }
+
+    if (!d_connectionDied) {
+      auto shared = std::dynamic_pointer_cast<IncomingHTTP2Connection>(shared_from_this());
+      if (nghttp2_session_want_read(d_session.get())) {
+        cerr<<"wants read"<<endl;
+        d_ioState->add(IOState::NeedRead, &handleReadableIOCallback, shared, boost::none);
+      }
+      if (nghttp2_session_want_write(d_session.get())) {
+        cerr<<"wants write"<<endl;
+        d_ioState->add(IOState::NeedWrite, &handleWritableIOCallback, shared, boost::none);
+      }
+    }
   }
   catch (const std::exception& e)
   {
@@ -280,21 +302,26 @@ static void addDynamicHeader(std::vector<nghttp2_nv>& headers, const std::string
 
 IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResponse&& response)
 {
-  assert(response.streamID.has_value == true);
-  sendResponse(response.streamID.value(), 200, response.d_buffer);
+  cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
+  assert(response.d_streamID.has_value() == true);
+  d_currentStreams.at(response.d_streamID.value()).d_buffer = std::move(response.d_buffer);
+  sendResponse(response.d_streamID.value(), 200);
   return IOState::Done;
 }
 
-bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint16_t responseCode, const PacketBuffer& responseBody)
+bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint16_t responseCode)
 {
+  cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
   /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
    */
   nghttp2_data_provider data_provider;
 
   data_provider.source.ptr = this;
   data_provider.read_callback = [](nghttp2_session*, IncomingHTTP2Connection::StreamID stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* cb_data) -> ssize_t {
+    cerr<<"in read callback for stream "<<(int)stream_id<<endl;
     auto connection = reinterpret_cast<IncomingHTTP2Connection*>(cb_data);
     auto& obj = connection->d_currentStreams.at(stream_id);
+    cerr<<"buffer size is "<<obj.d_buffer.size()<<", position is "<<obj.d_queryPos<<endl;
     size_t toCopy = 0;
     if (obj.d_queryPos < obj.d_buffer.size()) {
       size_t remaining = obj.d_buffer.size() - obj.d_queryPos;
@@ -312,6 +339,7 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
   };
 
   cerr<<"adding headers"<<endl;
+  auto& responseBody = d_currentStreams.at(streamID).d_buffer;
   const std::string contentLength = std::to_string(responseBody.size());
   std::vector<nghttp2_nv> headers;
   if (responseCode == 200) {
@@ -323,7 +351,7 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
   }
   addDynamicHeader(headers, "content-length-name", contentLength);
 
-  cerr<<"submitting response"<<endl;
+  cerr<<"submitting response of size "<<responseBody.size()<<endl;
   auto ret = nghttp2_submit_response(d_session.get(), streamID, headers.data(), headers.size(), &data_provider);
   if (ret != 0) {
     d_currentStreams.erase(streamID);
@@ -331,6 +359,7 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
     return false;
   }
 
+  cerr<<"sending data for response of size "<<responseBody.size()<<endl;
   ret = nghttp2_session_send(d_session.get());
   if (ret != 0) {
     d_currentStreams.erase(streamID);
@@ -338,13 +367,22 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
     return false;
   }
 
+  cerr<<"out of sendResponse"<<endl;
   return true;
 }
 
 void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::PendingQuery&& query, IncomingHTTP2Connection::StreamID streamID)
 {
-  const auto handleImmediateResponse = [&query, streamID](uint16_t code, const char* reason, PacketBuffer&& response = PacketBuffer()) {
-#warning writeme
+  const auto handleImmediateResponse = [this, &query, streamID](uint16_t code, const std::string& reason, PacketBuffer&& response = PacketBuffer()) {
+    if (response.empty()) {
+      query.d_buffer.clear();
+      query.d_buffer.insert(query.d_buffer.begin(), reason.begin(), reason.end());
+    }
+    else {
+      query.d_buffer = std::move(response);
+    }
+    vinfolog("Sending an immediate %d response to incoming DoH query: %s", code, reason);
+    sendResponse(streamID, code);
   };
 
   struct timeval now;
@@ -371,11 +409,6 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
   case QueryProcessingResult::SelfAnswered:
     break;
   }
-//    ids.crossProtocolContext = std::make_unique<IncomingDoHCrossProtocolContext>(std::move(query), shared_from_this(), streamID);
-//    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, query.d_buffer, dest)) {
-//      handleImmediateResponse(502, "DoH internal error");
-//      return;
-//    }
 }
 
 int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data)
@@ -409,7 +442,13 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
   }
 
   if (frame->hd.type == NGHTTP2_GOAWAY) {
-    #warning TODO
+    conn->stopIO();
+    if (conn->isIdle()) {
+      if (nghttp2_session_want_write(conn->d_session.get())) {
+        cerr<<"wants write"<<endl;
+        conn->d_ioState->add(IOState::NeedWrite, &handleWritableIOCallback, conn, boost::none);
+      }
+    }
   }
 
   /* is this the last frame for this stream? */
@@ -422,8 +461,6 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
 
       conn->handleIncomingQuery(std::move(stream->second), streamID);
 
-//      conn->sendResponse(streamID, 200, stream->second.d_buffer);
-
       if (conn->isIdle()) {
         conn->stopIO();
         conn->watchForRemoteHostClosingConnection();
@@ -432,39 +469,6 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
     else {
       vinfolog("Stream %d NOT FOUND", streamID);
       return NGHTTP2_ERR_CALLBACK_FAILURE;
-    }
-  }
-
-  return 0;
-}
-
-int IncomingHTTP2Connection::on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, IncomingHTTP2Connection::StreamID stream_id, const uint8_t* data, size_t len, void* user_data)
-{
-  cerr<<__PRETTY_FUNCTION__<<" with "<<len<<endl;
-  IncomingHTTP2Connection* conn = reinterpret_cast<IncomingHTTP2Connection*>(user_data);
-   cerr<<"Got data of size "<<len<<" for stream "<<stream_id<<endl;
-  auto stream = conn->d_currentStreams.find(stream_id);
-  if (stream == conn->d_currentStreams.end()) {
-    vinfolog("Unable to match the stream ID %d to a known one!", stream_id);
-    return NGHTTP2_ERR_CALLBACK_FAILURE;
-  }
-  if (len > std::numeric_limits<uint16_t>::max() || (std::numeric_limits<uint16_t>::max() - stream->second.d_buffer.size()) < len) {
-    vinfolog("Data frame of size %d is too large for a DNS query (we already have %d)", len, stream->second.d_buffer.size());
-    return NGHTTP2_ERR_CALLBACK_FAILURE;
-  }
-
-  stream->second.d_buffer.insert(stream->second.d_buffer.end(), data, data + len);
-  if (stream->second.d_finished) {
-     cerr<<"we now have the full response!"<<endl;
-    // cerr<<std::string(reinterpret_cast<const char*>(data), len)<<endl;
-
-    auto request = std::move(stream->second);
-    conn->d_currentStreams.erase(stream->first);
-    cerr<<"got query"<<endl;
-
-    if (conn->isIdle()) {
-      conn->stopIO();
-      conn->watchForRemoteHostClosingConnection();
     }
   }
 
@@ -510,13 +514,20 @@ int IncomingHTTP2Connection::on_begin_headers_callback(nghttp2_session* session,
 
   IncomingHTTP2Connection* conn = reinterpret_cast<IncomingHTTP2Connection*>(user_data);
   auto insertPair = conn->d_currentStreams.insert({frame->hd.stream_id, PendingQuery()});
-  cerr<<"inserted pending query for "<<frame->hd.stream_id<<endl;
   if (!insertPair.second) {
     /* there is a stream ID collision, something is very wrong! */
-    //d_connectionDied = true;
+    vinfolog("Stream ID collision (%d) on connection from %d", frame->hd.stream_id, conn->d_ci.remote.toStringWithPort());
+    conn->d_connectionDied = true;
     nghttp2_session_terminate_session(conn->d_session.get(), NGHTTP2_NO_ERROR);
-    throw std::runtime_error("Stream ID collision");
+    auto ret = nghttp2_session_send(conn->d_session.get());
+    if (ret != 0) {
+      vinfolog("Error flushing HTTP response for stream %d from %s: %s", frame->hd.stream_id, conn->d_ci.remote.toStringWithPort(), nghttp2_strerror(ret));
+      return NGHTTP2_ERR_CALLBACK_FAILURE;
+    }
+
+    return 0;
   }
+  cerr<<"inserted pending query for "<<frame->hd.stream_id<<endl;
   return 0;
 }
 
@@ -642,10 +653,17 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
 int IncomingHTTP2Connection::on_error_callback(nghttp2_session* session, int lib_error_code, const char* msg, size_t len, void* user_data)
 {
   cerr<<__PRETTY_FUNCTION__<<endl;
-  vinfolog("Error in HTTP/2 connection: %s", std::string(msg, len));
-
   IncomingHTTP2Connection* conn = reinterpret_cast<IncomingHTTP2Connection*>(user_data);
-  #warning TODO
+
+  vinfolog("Error in HTTP/2 connection from %d: %s", conn->d_ci.remote.toStringWithPort(), std::string(msg, len));
+  conn->d_connectionDied = true;
+  nghttp2_session_terminate_session(conn->d_session.get(), NGHTTP2_NO_ERROR);
+  auto ret = nghttp2_session_send(conn->d_session.get());
+  if (ret != 0) {
+    vinfolog("Error flushing HTTP response on connection from %s: %s", conn->d_ci.remote.toStringWithPort(), nghttp2_strerror(ret));
+    return NGHTTP2_ERR_CALLBACK_FAILURE;
+  }
+
   return 0;
 }
 
@@ -703,7 +721,6 @@ void IncomingHTTP2Connection::readHTTPData()
 
 void IncomingHTTP2Connection::handleReadableIOCallback(int fd, FDMultiplexer::funcparam_t& param)
 {
-  cerr<<__PRETTY_FUNCTION__<<endl;
   auto conn = boost::any_cast<std::shared_ptr<IncomingHTTP2Connection>>(param);
   conn->handleIO();
 }
@@ -783,7 +800,7 @@ void IncomingHTTP2Connection::watchForRemoteHostClosingConnection()
 void IncomingHTTP2Connection::handleIOError()
 {
   cerr<<__PRETTY_FUNCTION__<<endl;
-  //d_connectionDied = true;
+  d_connectionDied = true;
   nghttp2_session_terminate_session(d_session.get(), NGHTTP2_PROTOCOL_ERROR);
   d_currentStreams.clear();
   stopIO();

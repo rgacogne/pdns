@@ -704,6 +704,7 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
 
   --conn->d_ds->outstanding;
   auto ids = std::move(it->second.d_query.d_idstate);
+  auto streamID = it->second.d_query.d_streamID;
   const double udiff = ids.queryRealTime.udiff();
   conn->d_ds->updateTCPLatency(udiff);
   if (d_responseBuffer.size() >= sizeof(dnsheader)) {
@@ -726,7 +727,9 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
   if (sender->active()) {
     DEBUGLOG("passing response to client connection for "<<ids.qname);
     // make sure that we still exist after calling handleResponse()
-    sender->handleResponse(now, TCPResponse(std::move(d_responseBuffer), std::move(ids), conn, conn->d_ds));
+    TCPResponse response(std::move(d_responseBuffer), std::move(ids), conn, conn->d_ds);
+    response.d_streamID = streamID;
+    sender->handleResponse(now, std::move(response));
   }
 
   if (!d_pendingQueries.empty()) {

@@ -581,3 +581,4 @@ struct TLSContextParameters
 
 std::shared_ptr<TLSCtx> getTLSContext(const TLSContextParameters& params);
 bool setupDoTProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx);
+bool setupDoHProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx);

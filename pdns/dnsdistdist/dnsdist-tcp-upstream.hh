@@ -23,6 +23,7 @@ class IncomingTCPConnectionState : public TCPQuerySender, public std::enable_sha
 {
 public:
   enum class QueryProcessingResult : uint8_t { Forwarded, TooSmall, InvalidHeaders, Empty, Dropped, SelfAnswered, NoBackend, Asynchronous };
+  enum class ProxyProtocolResult : uint8_t { Reading, Done, Error };
 
   IncomingTCPConnectionState(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): d_buffer(s_maxPacketCacheEntrySize), d_ci(std::move(ci)), d_handler(d_ci.fd, timeval{g_tcpRecvTimeout,0}, d_ci.cs->tlsFrontend ? d_ci.cs->tlsFrontend->getContext() : nullptr, now.tv_sec), d_connectionStartTime(now), d_ioState(make_unique<IOStateHandler>(*threadData.mplexer, d_ci.fd)), d_threadData(threadData), d_creatorThreadID(std::this_thread::get_id())
   {
@@ -44,7 +45,7 @@ public:
   IncomingTCPConnectionState(const IncomingTCPConnectionState& rhs) = delete;
   IncomingTCPConnectionState& operator=(const IncomingTCPConnectionState& rhs) = delete;
 
-  ~IncomingTCPConnectionState();
+  virtual ~IncomingTCPConnectionState();
 
   void resetForNewQuery();
 
@@ -116,7 +117,6 @@ public:
 
   static size_t clearAllDownstreamConnections();
 
-  static void handleIO(std::shared_ptr<IncomingTCPConnectionState>& conn, const struct timeval& now);
   static void handleIOCallback(int fd, FDMultiplexer::funcparam_t& param);
   static void handleAsyncReady(int fd, FDMultiplexer::funcparam_t& param);
   static void updateIO(std::shared_ptr<IncomingTCPConnectionState>& state, IOState newState, const struct timeval& now);
@@ -124,13 +124,17 @@ public:
   static void queueResponse(std::shared_ptr<IncomingTCPConnectionState>& state, const struct timeval& now, TCPResponse&& response);
   static void handleTimeout(std::shared_ptr<IncomingTCPConnectionState>& state, bool write);
 
+  virtual void handleIO();
+
   QueryProcessingResult handleQuery(PacketBuffer&& query, const struct timeval& now, std::optional<int32_t> streamID);
   void handleResponse(const struct timeval& now, TCPResponse&& response) override;
   void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override;
   void notifyIOError(InternalQueryState&& query, const struct timeval& now) override;
-  IOState sendResponse(const struct timeval& now, TCPResponse&& response);
+
+  virtual IOState sendResponse(const struct timeval& now, TCPResponse&& response);
   void handleResponseSent(TCPResponse& currentResponse);
-  
+  void handleHandshakeDone(const struct timeval& now);
+  ProxyProtocolResult handleProxyProtocolPayload();  
   void handleCrossProtocolResponse(const struct timeval& now, TCPResponse&& response);
 
   void terminateClientConnection();

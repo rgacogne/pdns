@@ -269,6 +269,7 @@ testrunner_SOURCES = \
 	dnsdist-lua-vars.cc \
 	dnsdist-mac-address.cc dnsdist-mac-address.hh \
 	dnsdist-nghttp2.cc dnsdist-nghttp2.hh \
+	dnsdist-nghttp2-in.cc dnsdist-nghttp2-in.hh \
 	dnsdist-protocols.cc dnsdist-protocols.hh \
 	dnsdist-proxy-protocol.cc dnsdist-proxy-protocol.hh \
 	dnsdist-random.cc dnsdist-random.hh \
