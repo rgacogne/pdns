@@ -942,10 +942,10 @@ void IncomingTCPConnectionState::handleIO()
           d_proxyProtocolNeed = 0;
         }
         else if (status == ProxyProtocolResult::Error) {
-          iostate == IOState::Done;
+          iostate = IOState::Done;
         }
         else {
-          iostate == IOState::NeedRead;
+          iostate = IOState::NeedRead;
         }
       }
 
@@ -1213,13 +1213,18 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
     struct timeval now;
     gettimeofday(&now, nullptr);
 
-    //auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*citmp), *threadData, now);
-    cerr<<"creating a IncomingHTTP2Connection"<<endl;
-    auto state = std::make_shared<IncomingHTTP2Connection>(std::move(*citmp), *threadData, now);
+    if (citmp->cs->dohFrontend) {
+      cerr<<"creating a IncomingHTTP2Connection"<<endl;
+      auto state = std::make_shared<IncomingHTTP2Connection>(std::move(*citmp), *threadData, now);
+      state->handleIO();
+    }
+    else {
+      auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*citmp), *threadData, now);
+      state->handleIO();
+    }
+
     delete citmp;
     citmp = nullptr;
-
-    state->handleIO();
   }
   catch (...) {
     delete citmp;
@@ -1527,6 +1532,7 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
     else {
       struct timeval now;
       gettimeofday(&now, nullptr);
+#warning FIXME: create DoH for DoH
       auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);
       state->handleIO();
     }

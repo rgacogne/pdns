@@ -27,6 +27,7 @@
 #include "libssl.hh"
 #include "noinitvector.hh"
 #include "stat_t.hh"
+#include "tcpiohandler.hh"
 
 struct DOHServerConfig;
 
@@ -76,11 +77,13 @@ struct DOHFrontend
 
   std::shared_ptr<DOHServerConfig> d_dsc{nullptr};
   std::shared_ptr<std::vector<std::shared_ptr<DOHResponseMapEntry>>> d_responsesMap;
-  TLSConfig d_tlsConfig;
-  TLSErrorCounters d_tlsCounters;
+  TLSFrontend d_tlsContext;
+//  TLSConfig d_tlsConfig;
+//  TLSErrorCounters d_tlsCounters;
   std::string d_serverTokens{"h2o/dnsdist"};
   std::unordered_map<std::string, std::string> d_customResponseHeaders;
-  ComboAddress d_local;
+//  ComboAddress d_local;
+  std::string d_library;
 
   uint32_t d_idleTimeout{30};             // HTTP idle timeout in seconds
   std::vector<std::string> d_urls;
@@ -122,12 +125,12 @@ struct DOHFrontend
 
   time_t getTicketsKeyRotationDelay() const
   {
-    return d_tlsConfig.d_ticketsKeyRotationDelay;
+    return d_tlsContext.d_tlsConfig.d_ticketsKeyRotationDelay;
   }
 
   bool isHTTPS() const
   {
-    return !d_tlsConfig.d_certKeyPairs.empty();
+    return !d_tlsContext.d_tlsConfig.d_certKeyPairs.empty();
   }
 
 #ifndef HAVE_DNS_OVER_HTTPS

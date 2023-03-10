@@ -1538,16 +1538,16 @@ static void setupAcceptContext(DOHAcceptContext& ctx, DOHServerConfig& dsc, bool
   auto nativeCtx = ctx.get();
   nativeCtx->ctx = &dsc.h2o_ctx;
   nativeCtx->hosts = dsc.h2o_config.hosts;
-  ctx.d_ticketsKeyRotationDelay = dsc.df->d_tlsConfig.d_ticketsKeyRotationDelay;
+  ctx.d_ticketsKeyRotationDelay = dsc.df->d_tlsContext.d_tlsConfig.d_ticketsKeyRotationDelay;
 
   if (setupTLS && dsc.df->isHTTPS()) {
     try {
       setupTLSContext(ctx,
-                      dsc.df->d_tlsConfig,
-                      dsc.df->d_tlsCounters);
+                      dsc.df->d_tlsContext.d_tlsConfig,
+                      dsc.df->d_tlsContext.d_tlsCounters);
     }
     catch (const std::runtime_error& e) {
-      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + dsc.df->d_local.toStringWithPort() + "': " + e.what());
+      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + dsc.df->d_tlsContext.d_addr.toStringWithPort() + "': " + e.what());
     }
   }
   ctx.d_cs = dsc.cs;
@@ -1607,11 +1607,11 @@ void DOHFrontend::setup()
   if  (isHTTPS()) {
     try {
       setupTLSContext(*d_dsc->accept_ctx,
-                      d_tlsConfig,
-                      d_tlsCounters);
+                      d_tlsContext.d_tlsConfig,
+                      d_tlsContext.d_tlsCounters);
     }
     catch (const std::runtime_error& e) {
-      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + d_local.toStringWithPort() + "': " + e.what());
+      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + d_tlsContext.d_addr.toStringWithPort() + "': " + e.what());
     }
   }
 }
@@ -1653,7 +1653,7 @@ void dohThread(ClientState* cs)
     setThreadName("dnsdist/doh");
     // I wonder if this registers an IP address.. I think it does
     // this may mean we need to actually register a site "name" here and not the IP address
-    h2o_hostconf_t *hostconf = h2o_config_register_host(&dsc->h2o_config, h2o_iovec_init(df->d_local.toString().c_str(), df->d_local.toString().size()), 65535);
+    h2o_hostconf_t *hostconf = h2o_config_register_host(&dsc->h2o_config, h2o_iovec_init(df->d_tlsContext.d_addr.toString().c_str(), df->d_tlsContext.d_addr.toString().size()), 65535);
 
     for(const auto& url : df->d_urls) {
       register_handler(hostconf, url.c_str(), doh_handler);
@@ -1676,11 +1676,11 @@ void dohThread(ClientState* cs)
     setupAcceptContext(*dsc->accept_ctx, *dsc, false);
 
     if (create_listener(dsc, cs->tcpFD) != 0) {
-      throw std::runtime_error("DOH server failed to listen on " + df->d_local.toStringWithPort() + ": " + strerror(errno));
+      throw std::runtime_error("DOH server failed to listen on " + df->d_tlsContext.d_addr.toStringWithPort() + ": " + strerror(errno));
     }
     for (const auto& [addr, fd] : cs->d_additionalAddresses) {
       if (create_listener(dsc, fd) != 0) {
-        throw std::runtime_error("DOH server failed to listen on additional address " + addr.toStringWithPort() + " for DOH local" + df->d_local.toStringWithPort() + ": " + strerror(errno));
+        throw std::runtime_error("DOH server failed to listen on additional address " + addr.toStringWithPort() + " for DOH local" + df->d_tlsContext.d_addr.toStringWithPort() + ": " + strerror(errno));
       }
     }
 
