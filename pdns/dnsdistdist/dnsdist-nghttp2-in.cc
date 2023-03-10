@@ -108,6 +108,7 @@ IncomingHTTP2Connection::IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientT
   nghttp2_session_callbacks_set_on_stream_close_callback(callbacks.get(), on_stream_close_callback);
   nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks.get(), on_begin_headers_callback);
   nghttp2_session_callbacks_set_on_header_callback(callbacks.get(), on_header_callback);
+  nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks.get(), on_data_chunk_recv_callback);
   nghttp2_session_callbacks_set_error_callback2(callbacks.get(), on_error_callback);
 
   nghttp2_session* sess = nullptr;
@@ -259,7 +260,7 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
   return length;
 }
 
-static const std::unordered_map<std::string, std::string> s_constants = {
+static const std::unordered_map<std::string, std::string> s_constants{
   {"200-value", "200"},
   {"method-name", ":method"},
   {"method-value", "POST"},
@@ -456,7 +457,6 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
     auto streamID = frame->hd.stream_id;
     auto stream = conn->d_currentStreams.find(streamID);
     if (stream != conn->d_currentStreams.end()) {
-      stream->second.d_finished = true;
       cerr<<"got query of size "<<stream->second.d_buffer.size()<<endl;
 
       conn->handleIncomingQuery(std::move(stream->second), streamID);
@@ -647,6 +647,26 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
     #warning store headers if needed
     #warning handle x-forwarded-for and the likes
   }
+  return 0;
+}
+
+int IncomingHTTP2Connection::on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, IncomingHTTP2Connection::StreamID stream_id, const uint8_t* data, size_t len, void* user_data)
+{
+  cerr<<__PRETTY_FUNCTION__<<" with "<<len<<endl;
+  IncomingHTTP2Connection* conn = reinterpret_cast<IncomingHTTP2Connection*>(user_data);
+   cerr<<"Got data of size "<<len<<" for stream "<<stream_id<<endl;
+  auto stream = conn->d_currentStreams.find(stream_id);
+  if (stream == conn->d_currentStreams.end()) {
+    vinfolog("Unable to match the stream ID %d to a known one!", stream_id);
+    return NGHTTP2_ERR_CALLBACK_FAILURE;
+  }
+  if (len > std::numeric_limits<uint16_t>::max() || (std::numeric_limits<uint16_t>::max() - stream->second.d_buffer.size()) < len) {
+    vinfolog("Data frame of size %d is too large for a DNS query (we already have %d)", len, stream->second.d_buffer.size());
+    return NGHTTP2_ERR_CALLBACK_FAILURE;
+  }
+
+  stream->second.d_buffer.insert(stream->second.d_buffer.end(), data, data + len);
+
   return 0;
 }
 

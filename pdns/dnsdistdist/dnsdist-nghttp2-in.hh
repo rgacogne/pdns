@@ -24,7 +24,6 @@
 #include "config.h"
 #ifdef HAVE_NGHTTP2
 #include <nghttp2/nghttp2.h>
-#endif /* HAVE_NGHTTP2 */
 
 #include "dnsdist-tcp-upstream.hh"
 
@@ -32,7 +31,6 @@ class IncomingHTTP2Connection :  public IncomingTCPConnectionState
 {
 public:
   using StreamID = int32_t;
-//  enum class State : uint8_t { doingHandshake, readingProxyProtocolHeader, running };
 
   class PendingQuery
   {
@@ -48,7 +46,6 @@ public:
     std::unique_ptr<std::unordered_map<std::string, std::string>> d_headers;
     size_t d_queryPos{0};
     Method d_method{Method::Unknown};
-    bool d_finished{false};
   };
 
   IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);
@@ -87,3 +84,4 @@ private:
   size_t d_inPos{0};
   bool d_connectionDied{false};
 };
+#endif /* HAVE_NGHTTP2 */
