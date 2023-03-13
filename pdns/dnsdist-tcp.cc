@@ -1214,11 +1214,12 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
     gettimeofday(&now, nullptr);
 
     if (citmp->cs->dohFrontend) {
-      cerr<<"creating a IncomingHTTP2Connection"<<endl;
+      cerr<<"creating an IncomingHTTP2Connection"<<endl;
       auto state = std::make_shared<IncomingHTTP2Connection>(std::move(*citmp), *threadData, now);
       state->handleIO();
     }
     else {
+      cerr<<"creating an IncomingTCPConnectionState"<<endl;
       auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*citmp), *threadData, now);
       state->handleIO();
     }

@@ -1555,6 +1555,10 @@ static void setupAcceptContext(DOHAcceptContext& ctx, DOHServerConfig& dsc, bool
 
 void DOHFrontend::rotateTicketsKey(time_t now)
 {
+  if (d_library == "nghttp2") {
+    return d_tlsContext.rotateTicketsKey(now);
+  }
+
   if (d_dsc && d_dsc->accept_ctx) {
     d_dsc->accept_ctx->rotateTicketsKey(now);
   }
@@ -1562,6 +1566,10 @@ void DOHFrontend::rotateTicketsKey(time_t now)
 
 void DOHFrontend::loadTicketsKeys(const std::string& keyFile)
 {
+  if (d_library == "nghttp2") {
+    return d_tlsContext.loadTicketsKeys(keyFile);
+  }
+
   if (d_dsc && d_dsc->accept_ctx) {
     d_dsc->accept_ctx->loadTicketsKeys(keyFile);
   }
@@ -1574,16 +1582,24 @@ void DOHFrontend::handleTicketsKeyRotation()
   }
 }
 
-time_t DOHFrontend::getNextTicketsKeyRotation() const
+std::string DOHFrontend::getNextTicketsKeyRotation() const
 {
+  if (d_library == "nghttp2") {
+    return d_tlsContext.getNextTicketsKeyRotation();
+  }
+
   if (d_dsc && d_dsc->accept_ctx) {
-    return d_dsc->accept_ctx->getNextTicketsKeyRotation();
+    return std::to_string(d_dsc->accept_ctx->getNextTicketsKeyRotation());
   }
   return 0;
 }
 
-size_t DOHFrontend::getTicketsKeysCount() const
+size_t DOHFrontend::getTicketsKeysCount()
 {
+  if (d_library == "nghttp2") {
+    return d_tlsContext.getTicketsKeysCount();
+  }
+
   size_t res = 0;
   if (d_dsc && d_dsc->accept_ctx) {
     res = d_dsc->accept_ctx->getTicketsKeysCount();
@@ -1593,6 +1609,11 @@ size_t DOHFrontend::getTicketsKeysCount() const
 
 void DOHFrontend::reloadCertificates()
 {
+  if (d_library == "nghttp2") {
+    d_tlsContext.setupTLS();
+    return;
+  }
+
   auto newAcceptContext = std::make_shared<DOHAcceptContext>();
   setupAcceptContext(*newAcceptContext, *d_dsc, true);
   std::atomic_store_explicit(&d_dsc->accept_ctx, newAcceptContext, std::memory_order_release);
@@ -1600,6 +1621,13 @@ void DOHFrontend::reloadCertificates()
 
 void DOHFrontend::setup()
 {
+  if (d_library == "nghttp2") {
+    if (!d_tlsContext.setupTLS()) {
+      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + d_tlsContext.d_addr.toStringWithPort());
+    }
+    return;
+  }
+
   registerOpenSSLUser();
 
   d_dsc = std::make_shared<DOHServerConfig>(d_idleTimeout, d_internalPipeBufferSize);

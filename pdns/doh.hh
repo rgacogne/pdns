@@ -77,12 +77,9 @@ struct DOHFrontend
 
   std::shared_ptr<DOHServerConfig> d_dsc{nullptr};
   std::shared_ptr<std::vector<std::shared_ptr<DOHResponseMapEntry>>> d_responsesMap;
-  TLSFrontend d_tlsContext;
-//  TLSConfig d_tlsConfig;
-//  TLSErrorCounters d_tlsCounters;
+  TLSFrontend d_tlsContext{TLSFrontend::ALPN::DoH};
   std::string d_serverTokens{"h2o/dnsdist"};
   std::unordered_map<std::string, std::string> d_customResponseHeaders;
-//  ComboAddress d_local;
   std::string d_library;
 
   uint32_t d_idleTimeout{30};             // HTTP idle timeout in seconds
@@ -154,9 +151,9 @@ struct DOHFrontend
   {
   }
 
-  time_t getNextTicketsKeyRotation() const
+  std::string getNextTicketsKeyRotation()
   {
-    return 0;
+    return std::string();
   }
 
   size_t getTicketsKeysCount() const
@@ -172,8 +169,8 @@ struct DOHFrontend
   void rotateTicketsKey(time_t now);
   void loadTicketsKeys(const std::string& keyFile);
   void handleTicketsKeyRotation();
-  time_t getNextTicketsKeyRotation() const;
-  size_t getTicketsKeysCount() const;
+  std::string getNextTicketsKeyRotation() const;
+  size_t getTicketsKeysCount();
 #endif /* HAVE_DNS_OVER_HTTPS */
 };
 
