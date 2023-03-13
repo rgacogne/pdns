@@ -46,6 +46,7 @@ public:
     std::unique_ptr<std::unordered_map<std::string, std::string>> d_headers;
     size_t d_queryPos{0};
     Method d_method{Method::Unknown};
+    bool d_badRequest{false};
   };
 
   IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);
@@ -70,7 +71,7 @@ private:
   void watchForRemoteHostClosingConnection();
   void handleIOError();
   IOState sendResponse(const struct timeval& now, TCPResponse&& response) override;
-  bool sendResponse(StreamID streamID, uint16_t responseCode);
+  bool sendResponse(StreamID streamID, uint16_t responseCode, const std::unordered_map<std::string, std::string>& customResponseHeaders, const std::string& contentType = "", bool addContentType = true);
   void handleIncomingQuery(PendingQuery&& query, StreamID streamID);
   bool checkALPN();
   void readHTTPData();
@@ -84,4 +85,13 @@ private:
   size_t d_inPos{0};
   bool d_connectionDied{false};
 };
+
+class NGHTTP2Headers
+{
+public:
+  static void addStaticHeader(std::vector<nghttp2_nv>& headers, const std::string& nameKey, const std::string& valueKey);
+  static void addDynamicHeader(std::vector<nghttp2_nv>& headers, const std::string& nameKey, const std::string_view& value);
+  static void addCustomDynamicHeader(std::vector<nghttp2_nv>& headers, const std::string& name, const std::string_view& value);
+};
+
 #endif /* HAVE_NGHTTP2 */
