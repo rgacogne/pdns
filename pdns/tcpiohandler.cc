@@ -1845,6 +1845,7 @@ bool TLSFrontend::setupTLS()
 #ifdef HAVE_LIBSSL
     if (d_provider == "openssl") {
       newCtx = std::make_shared<OpenSSLTLSIOCtx>(*this);
+      #warning ALPN
       setupDoHProtocolNegotiation(newCtx);
       std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
       return true;
@@ -1859,7 +1860,9 @@ bool TLSFrontend::setupTLS()
 #endif /* HAVE_GNUTLS */
 #endif /* HAVE_LIBSSL */
 
+  #warning ALPN
   setupDoHProtocolNegotiation(newCtx);
+
   std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
 #endif /* HAVE_DNS_OVER_TLS */
   return true;
