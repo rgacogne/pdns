@@ -34,6 +34,7 @@ class DNSCryptQuery;
 class DNSDistPacketCache;
 
 using QTag = std::unordered_map<string, string>;
+using HeadersMap = std::unordered_map<std::string, std::string>;
 
 struct StopWatch
 {
@@ -282,7 +283,7 @@ public:
     return std::nullopt;
   }
 
-  virtual std::optional<std::unordered_map<std::string, std::string>> getHTTPHeaders() const
+  virtual std::optional<HeadersMap> getHTTPHeaders() const
   {
     return std::nullopt;
   }

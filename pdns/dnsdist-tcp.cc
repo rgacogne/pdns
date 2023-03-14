@@ -97,6 +97,17 @@ IncomingTCPConnectionState::~IncomingTCPConnectionState()
   d_handler.close();
 }
 
+dnsdist::Protocol IncomingTCPConnectionState::getProtocol() const
+{
+  if (d_ci.cs->dohFrontend) {
+    return dnsdist::Protocol::DoH;
+  }
+  if (d_handler.isTLS()) {
+    return dnsdist::Protocol::DoT;
+  }
+  return dnsdist::Protocol::DoTCP;
+}
+
 size_t IncomingTCPConnectionState::clearAllDownstreamConnections()
 {
   return t_downstreamTCPConnectionsManager.clear();
@@ -242,7 +253,7 @@ void IncomingTCPConnectionState::handleResponseSent(TCPResponse& currentResponse
   if (currentResponse.d_idstate.selfGenerated == false && ds) {
     const auto& ids = currentResponse.d_idstate;
     double udiff = ids.queryRealTime.udiff();
-    vinfolog("Got answer from %s, relayed to %s (%s, %d bytes), took %f usec", ds->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), (d_handler.isTLS() ? "DoT" : "TCP"), currentResponse.d_buffer.size(), udiff);
+    vinfolog("Got answer from %s, relayed to %s (%s, %d bytes), took %f usec", ds->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), getProtocol().toString(), currentResponse.d_buffer.size(), udiff);
 
     auto backendProtocol = ds->getProtocol();
     if (backendProtocol == dnsdist::Protocol::DoUDP) {
@@ -709,18 +720,14 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   }
 
   ids.qname = DNSName(reinterpret_cast<const char*>(query.data()), query.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
-  ids.protocol = dnsdist::Protocol::DoTCP;
+  ids.protocol = getProtocol();
   if (ids.dnsCryptQuery) {
     ids.protocol = dnsdist::Protocol::DNSCryptTCP;
-  }
-  else if (d_handler.isTLS()) {
-    ids.protocol = dnsdist::Protocol::DoT;
   }
 
   DNSQuestion dq(ids, query);
   const uint16_t* flags = getFlagsFromDNSHeader(dq.getHeader());
   ids.origFlags = *flags;
-  #warning uhoh
   dq.d_incomingTCPState = state;
   dq.sni = d_handler.getServerNameIndication();
 
@@ -730,7 +737,6 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
     dq.proxyProtocolValues = make_unique<std::vector<ProxyProtocolValue>>(*d_proxyProtocolValues);
   }
 
-  #warning not allowed on DoH
   if (dq.ids.qtype == QType::AXFR || dq.ids.qtype == QType::IXFR) {
     dq.ids.skipCache = true;
   }
@@ -775,7 +781,7 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
 
   std::string proxyProtocolPayload;
   if (ds->isDoH()) {
-    vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", ids.qname.toLogString(), QType(ids.qtype).toString(), d_proxiedRemote.toStringWithPort(), (d_handler.isTLS() ? "DoT" : "TCP"), query.size(), ds->getNameWithAddr());
+    vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", ids.qname.toLogString(), QType(ids.qtype).toString(), d_proxiedRemote.toStringWithPort(), getProtocol().toString(), query.size(), ds->getNameWithAddr());
 
     /* we need to do this _before_ creating the cross protocol query because
        after that the buffer will have been moved */
@@ -811,8 +817,7 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   tcpquery.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
   tcpquery.d_streamID = streamID;
 
-  #warning wrong for DoH
-  vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", tcpquery.d_idstate.qname.toLogString(), QType(tcpquery.d_idstate.qtype).toString(), d_proxiedRemote.toStringWithPort(), (d_handler.isTLS() ? "DoT" : "TCP"), tcpquery.d_buffer.size(), ds->getNameWithAddr());
+  vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", tcpquery.d_idstate.qname.toLogString(), QType(tcpquery.d_idstate.qtype).toString(), d_proxiedRemote.toStringWithPort(), getProtocol().toString(), tcpquery.d_buffer.size(), ds->getNameWithAddr());
   std::shared_ptr<TCPQuerySender> incoming = state;
   downstreamConnection->queueQuery(incoming, std::move(tcpquery));
   return QueryProcessingResult::Forwarded;
@@ -1533,9 +1538,15 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
     else {
       struct timeval now;
       gettimeofday(&now, nullptr);
-#warning FIXME: create DoH for DoH
-      auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);
-      state->handleIO();
+
+      if (ci.cs->dohFrontend) {
+        auto state = std::make_shared<IncomingHTTP2Connection>(std::move(ci), *threadData, now);
+        state->handleIO();
+      }
+      else {
+        auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);
+        state->handleIO();
+      }
     }
   }
   catch (const std::exception& e) {

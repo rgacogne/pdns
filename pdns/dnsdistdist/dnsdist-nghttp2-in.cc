@@ -52,7 +52,7 @@ public:
     return d_query.d_queryString;
   }
 
-  std::optional<std::unordered_map<std::string, std::string>> getHTTPHeaders() const override
+  std::optional<HeadersMap> getHTTPHeaders() const override
   {
     if (!d_query.d_headers) {
       return std::nullopt;
@@ -173,7 +173,7 @@ void IncomingHTTP2Connection::handleIO()
         }
         else {
           d_state = State::waitingForQuery;
-          handleConnectionReady();      
+          handleConnectionReady();
         }
       }
     }
@@ -279,6 +279,10 @@ static const std::unordered_map<std::string, std::string> s_constants{
   {"x-forwarded-proto-value-dns-over-https", "dns-over-https"},
 };
 
+static const std::string s_pathHeaderName(":path");
+static const std::string s_methodHeaderName(":method");
+static const std::string s_xForwardedForHeaderName("x-forwarded-for");
+
 void NGHTTP2Headers::addStaticHeader(std::vector<nghttp2_nv>& headers, const std::string& nameKey, const std::string& valueKey)
 {
   const auto& name = s_constants.at(nameKey);
@@ -307,7 +311,7 @@ IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResp
   return IOState::Done;
 }
 
-bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint16_t responseCode, const std::unordered_map<std::string, std::string>& customResponseHeaders, const std::string& contentType, bool addContentType)
+bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint16_t responseCode, const HeadersMap& customResponseHeaders, const std::string& contentType, bool addContentType)
 {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
   /* if data_prd is not NULL, it provides data which will be sent in subsequent DATA frames. In this case, a method that allows request message bodies (https://tools.ietf.org/html/rfc7231#section-4) must be specified with :method key (e.g. POST). This function does not take ownership of the data_prd. The function copies the members of the data_prd. If data_prd is NULL, HEADERS have END_STREAM set.
@@ -453,6 +457,41 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
   return true;
 }
 
+static void processForwardedForHeader(const std::unique_ptr<HeadersMap>& headers, ComboAddress& remote)
+{
+  if (!headers) {
+    return;
+  }
+
+  auto it = headers->find(s_xForwardedForHeaderName);
+  if (it == headers->end()) {
+    return;
+  }
+
+  std::string_view value = it->second;
+  try {
+    auto pos = value.rfind(',');
+    if (pos != std::string_view::npos) {
+      ++pos;
+      for (; pos < value.size() && value[pos] == ' '; ++pos)
+      {
+      }
+
+      if (pos < value.size()) {
+        value = value.substr(pos);
+      }
+    }
+    auto newRemote = ComboAddress(std::string(value));
+    remote = newRemote;
+  }
+  catch (const std::exception& e) {
+    vinfolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.what());
+  }
+  catch (const PDNSException& e) {
+    vinfolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.reason);
+  }
+}
+
 void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::PendingQuery&& query, IncomingHTTP2Connection::StreamID streamID)
 {
   const auto handleImmediateResponse = [this, &query, streamID](uint16_t code, const std::string& reason, PacketBuffer&& response = PacketBuffer()) {
@@ -471,9 +510,37 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     handleImmediateResponse(400, "DoH unable to decode BASE64-URL");
   }
 
+
+  ++d_ci.cs->dohFrontend->d_http2Stats.d_nbQueries;
+
+  if (d_ci.cs->dohFrontend->d_trustForwardedForHeader) {
+    processForwardedForHeader(query.d_headers, d_ci.remote);
+
+    /* second ACL lookup based on the updated address */
+    auto& holders = d_threadData.holders;
+    if (!holders.acl->match(d_ci.remote)) {
+      ++g_stats.aclDrops;
+      vinfolog("Query from %s (DoH) dropped because of ACL", d_ci.remote.toStringWithPort());
+      handleImmediateResponse(403, "DoH query not allowed because of ACL (with X-Forwarded-For)");
+      return;
+    }
+
+    if (!d_ci.cs->dohFrontend->d_keepIncomingHeaders) {
+      query.d_headers.reset();
+    }
+  }
+
+  if (query.d_method == PendingQuery::Method::Get) {
+    ++d_ci.cs->dohFrontend->d_getqueries;
+  }
+  else if (query.d_method == PendingQuery::Method::Post) {
+    ++d_ci.cs->dohFrontend->d_postqueries;
+  }
+
   struct timeval now;
   gettimeofday(&now, nullptr);
   auto processingResult = handleQuery(std::move(query.d_buffer), now, streamID);
+
   switch (processingResult) {
   case QueryProcessingResult::TooSmall:
     handleImmediateResponse(400, "DoH non-compliant query");
@@ -543,13 +610,6 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
     auto stream = conn->d_currentStreams.find(streamID);
     if (stream != conn->d_currentStreams.end()) {
       cerr<<"got query of size "<<stream->second.d_buffer.size()<<endl;
-      ++conn->d_ci.cs->dohFrontend->d_http2Stats.d_nbQueries;
-      if (stream->second.d_method == PendingQuery::Method::Get) {
-        ++conn->d_ci.cs->dohFrontend->d_getqueries;
-      }
-      else if (stream->second.d_method == PendingQuery::Method::Post) {
-        ++conn->d_ci.cs->dohFrontend->d_postqueries;
-      }
       conn->handleIncomingQuery(std::move(stream->second), streamID);
 
       if (conn->isIdle()) {
@@ -667,15 +727,13 @@ static std::optional<PacketBuffer> getPayloadFromPath(const std::string_view& pa
   return result;
 }
 
-int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const nghttp2_frame* frame, const uint8_t* name, size_t namelen, const uint8_t* value, size_t valuelen, uint8_t flags, void* user_data)
+int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const nghttp2_frame* frame, const uint8_t* name, size_t nameLen, const uint8_t* value, size_t valuelen, uint8_t flags, void* user_data)
 {
   cerr<<__PRETTY_FUNCTION__<<endl;
   IncomingHTTP2Connection* conn = reinterpret_cast<IncomingHTTP2Connection*>(user_data);
 
-  const std::string path(":path");
-  const std::string method(":method");
   if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
-    if (nghttp2_check_header_name(name, namelen) == 0) {
+    if (nghttp2_check_header_name(name, nameLen) == 0) {
       vinfolog("Invalid header name");
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
@@ -685,6 +743,10 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
 
+    auto headerMatches = [name, nameLen](const std::string& expected) -> bool {
+      return nameLen == expected.size() && memcmp(name, expected.data(), expected.size()) == 0;
+    };
+
     cerr<<"id is "<<frame->hd.stream_id<<endl;
     auto stream = conn->d_currentStreams.find(frame->hd.stream_id);
     if (stream == conn->d_currentStreams.end()) {
@@ -692,30 +754,31 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
       cerr<<"NOT found"<<endl;
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
+    auto& query = stream->second;
     auto valueView = std::string_view(reinterpret_cast<const char*>(value), valuelen);
     // cerr<<"got header for "<<frame->hd.stream_id<<":"<<endl;
-    // cerr<<"- "<<std::string(reinterpret_cast<const char*>(name), namelen)<<endl;
+    // cerr<<"- "<<std::string(reinterpret_cast<const char*>(name), nameLen)<<endl;
     // cerr<<"- "<<std::string(reinterpret_cast<const char*>(value), valuelen)<<endl;
-    if (namelen == path.size() && memcmp(path.data(), name, path.size()) == 0) {
+    if (headerMatches(s_pathHeaderName)) {
       if (nghttp2_check_path(value, valuelen) == 0) {
         vinfolog("Invalid path value");
         return NGHTTP2_ERR_CALLBACK_FAILURE;
       }
 
-      stream->second.d_path = std::string(valueView);
-      cerr<<"Got path: "<<stream->second.d_path<<endl;
+      query.d_path = std::string(valueView);
+      cerr<<"Got path: "<<query.d_path<<endl;
     }
-    else if (namelen == method.size() && memcmp(method.data(), name, method.size()) == 0) {
+    else if (headerMatches(s_methodHeaderName)) {
       cerr<<"Got method: "<<valueView<<endl;
       if (nghttp2_check_method(value, valuelen) == 0) {
         vinfolog("Invalid method value");
         return NGHTTP2_ERR_CALLBACK_FAILURE;
       }
       if (valueView == "GET") {
-        stream->second.d_method = PendingQuery::Method::Get;
+        query.d_method = PendingQuery::Method::Get;
       }
       else if (valueView == "POST") {
-        stream->second.d_method = PendingQuery::Method::Post;
+        query.d_method = PendingQuery::Method::Post;
       }
       else {
         vinfolog("Unsupported method value");
@@ -723,22 +786,26 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
       }
     }
 
-    if (stream->second.d_buffer.empty() && stream->second.d_method == PendingQuery::Method::Get && !stream->second.d_path.empty()) {
+    if (query.d_buffer.empty() && query.d_method == PendingQuery::Method::Get && !query.d_path.empty()) {
       auto payload = getPayloadFromPath(valueView);
       if (payload) {
         cerr<<"Got payload of size "<<payload->size()<<endl;
-        stream->second.d_buffer = std::move(*payload);
-        cerr<<"buffer size is now "<<stream->second.d_buffer.size();
+        query.d_buffer = std::move(*payload);
+        cerr<<"buffer size is now "<<query.d_buffer.size();
       }
       else {
         ++conn->d_ci.cs->dohFrontend->d_badrequests;
         cerr<<"unable to get payload"<<endl;
-        stream->second.d_badRequest = true;
+        query.d_badRequest = true;
       }
     }
 
-    #warning store headers if needed
-    #warning handle x-forwarded-for and the likes
+    if (conn->d_ci.cs->dohFrontend->d_keepIncomingHeaders || (conn->d_ci.cs->dohFrontend->d_trustForwardedForHeader && headerMatches(s_xForwardedForHeaderName))) {
+      if (!query.d_headers) {
+        query.d_headers = std::make_unique<HeadersMap>();
+      }
+      query.d_headers->insert({std::string(reinterpret_cast<const char*>(name), nameLen), std::string(valueView)});
+    }
   }
   return 0;
 }
@@ -890,7 +957,7 @@ uint32_t IncomingHTTP2Connection::getConcurrentStreamsCount() const
 void IncomingHTTP2Connection::updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback, bool noTTD)
 {
   cerr<<__PRETTY_FUNCTION__<<endl;
-  #warning TODO
+  #warning TODO timeouts
   boost::optional<struct timeval> ttd{boost::none};
 
   auto shared = std::dynamic_pointer_cast<IncomingHTTP2Connection>(shared_from_this());

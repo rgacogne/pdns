@@ -43,7 +43,7 @@ public:
     std::string d_host;
     std::string d_queryString;
     std::string d_sni;
-    std::unique_ptr<std::unordered_map<std::string, std::string>> d_headers;
+    std::unique_ptr<HeadersMap> d_headers;
     size_t d_queryPos{0};
     Method d_method{Method::Unknown};
     bool d_badRequest{false};
@@ -71,7 +71,7 @@ private:
   void watchForRemoteHostClosingConnection();
   void handleIOError();
   IOState sendResponse(const struct timeval& now, TCPResponse&& response) override;
-  bool sendResponse(StreamID streamID, uint16_t responseCode, const std::unordered_map<std::string, std::string>& customResponseHeaders, const std::string& contentType = "", bool addContentType = true);
+  bool sendResponse(StreamID streamID, uint16_t responseCode, const HeadersMap& customResponseHeaders, const std::string& contentType = "", bool addContentType = true);
   void handleIncomingQuery(PendingQuery&& query, StreamID streamID);
   bool checkALPN();
   void readHTTPData();

@@ -153,6 +153,8 @@ public:
     return o.str();
   }
 
+  dnsdist::Protocol getProtocol() const;
+
   enum class State : uint8_t { doingHandshake, readingProxyProtocolHeader, waitingForQuery, readingQuerySize, readingQuery, sendingResponse, idle /* in case of XFR, we stop processing queries */ };
 
   TCPResponse d_currentResponse;
