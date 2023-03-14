@@ -22,6 +22,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <set>
 
 #include "iputils.hh"
 #include "libssl.hh"
@@ -83,7 +84,7 @@ struct DOHFrontend
   std::string d_library;
 
   uint32_t d_idleTimeout{30};             // HTTP idle timeout in seconds
-  std::vector<std::string> d_urls;
+  std::set<std::string, std::less<>> d_urls;
 
   pdns::stat_t d_httpconnects{0};   // number of TCP/IP connections established
   pdns::stat_t d_getqueries{0};     // valid DNS queries received via GET
