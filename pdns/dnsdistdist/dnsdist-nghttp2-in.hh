@@ -46,7 +46,6 @@ public:
     std::unique_ptr<HeadersMap> d_headers;
     size_t d_queryPos{0};
     Method d_method{Method::Unknown};
-    bool d_badRequest{false};
   };
 
   IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);

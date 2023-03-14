@@ -211,8 +211,8 @@ void IncomingHTTP2Connection::handleIO()
   }
   catch (const std::exception& e) {
     vinfolog("Exception when processing IO for incoming DoH connection from %s: %s", d_ci.remote.toStringWithPort(), e.what());
-    cerr<<e.what()<<endl;
-    throw;
+    d_connectionDied = true;
+    stopIO();
   }
 }
 
@@ -279,13 +279,18 @@ static const std::unordered_map<std::string, std::string> s_constants{
   {"x-forwarded-proto-value-dns-over-https", "dns-over-https"},
 };
 
+
+static const std::string s_authorityHeaderName(":authority");
 static const std::string s_pathHeaderName(":path");
 static const std::string s_methodHeaderName(":method");
+static const std::string s_schemeHeaderName(":scheme");
 static const std::string s_xForwardedForHeaderName("x-forwarded-for");
 
 void NGHTTP2Headers::addStaticHeader(std::vector<nghttp2_nv>& headers, const std::string& nameKey, const std::string& valueKey)
 {
+  cerr<<"looking for header with name "<<nameKey<<endl;
   const auto& name = s_constants.at(nameKey);
+  cerr<<"looking for header with value "<<valueKey<<endl;
   const auto& value = s_constants.at(valueKey);
 
   headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.c_str())), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.c_str())), name.size(), value.size(), NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE});
@@ -298,6 +303,7 @@ void NGHTTP2Headers::addCustomDynamicHeader(std::vector<nghttp2_nv>& headers, co
 
 void NGHTTP2Headers::addDynamicHeader(std::vector<nghttp2_nv>& headers, const std::string& nameKey, const std::string_view& value)
 {
+  cerr<<"looking for dyn header with name "<<nameKey<<endl;
   const auto& name = s_constants.at(nameKey);
   NGHTTP2Headers::addCustomDynamicHeader(headers, name, value);
 }
@@ -306,6 +312,7 @@ IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResp
 {
   cerr<<"in "<<__PRETTY_FUNCTION__<<endl;
   assert(response.d_streamID.has_value() == true);
+  cerr<<"looking for stream with ID "<<response.d_streamID.value()<<endl;
   d_currentStreams.at(response.d_streamID.value()).d_buffer = std::move(response.d_buffer);
   sendResponse(response.d_streamID.value(), 200, d_ci.cs->dohFrontend->d_customResponseHeaders);
   return IOState::Done;
@@ -345,9 +352,11 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
   auto& responseBody = d_currentStreams.at(streamID).d_buffer;
 
   std::vector<nghttp2_nv> headers;
-  for (const auto& [key, value]: customResponseHeaders) {
-    NGHTTP2Headers::addCustomDynamicHeader(headers, key, value);
-  }
+  std::string responseCodeStr;
+  std::string cacheControlValue;
+  std::string location;
+  /* remember that dynamic header values should be kept alive
+     until we have called nghttp2_submit_response(), at least */
 
   if (responseCode == 200) {
     NGHTTP2Headers::addStaticHeader(headers, "status-name", "200-value");
@@ -356,28 +365,29 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
 
     if (addContentType) {
       if (contentType.empty()) {
-        NGHTTP2Headers::addStaticHeader(headers, "content-type-key", "content-type-value");
+        NGHTTP2Headers::addStaticHeader(headers, "content-type-name", "content-type-value");
       }
       else {
-        NGHTTP2Headers::addDynamicHeader(headers, "content-type-key", contentType);
+        NGHTTP2Headers::addDynamicHeader(headers, "content-type-name", contentType);
       }
     }
 
     if (df->d_sendCacheControlHeaders && responseBody.size() > sizeof(dnsheader)) {
       uint32_t minTTL = getDNSPacketMinTTL(reinterpret_cast<const char*>(responseBody.data()), responseBody.size());
       if (minTTL != std::numeric_limits<uint32_t>::max()) {
-        std::string cacheControlValue = "max-age=" + std::to_string(minTTL);
-      NGHTTP2Headers::addDynamicHeader(headers, "cache-control-name", cacheControlValue);
+        cacheControlValue = "max-age=" + std::to_string(minTTL);
+        NGHTTP2Headers::addDynamicHeader(headers, "cache-control-name", cacheControlValue);
       }
     }
   }
   else {
-    std::string responseCodeStr = std::to_string(responseCode);
+    responseCodeStr = std::to_string(responseCode);
     NGHTTP2Headers::addDynamicHeader(headers, "status-name", responseCodeStr);
 
     if (responseCode >= 300 && responseCode < 400) {
-      NGHTTP2Headers::addDynamicHeader(headers, "content-type-key", "text/html; charset=utf-8");
-      NGHTTP2Headers::addDynamicHeader(headers, "location-key", std::string_view(reinterpret_cast<const char*>(responseBody.data()), responseBody.size()));
+      location = std::string(reinterpret_cast<const char*>(responseBody.data()), responseBody.size());
+      NGHTTP2Headers::addDynamicHeader(headers, "content-type-name", "text/html; charset=utf-8");
+      NGHTTP2Headers::addDynamicHeader(headers, "location-name", location);
       static const std::string s_redirectStart{"<!DOCTYPE html><TITLE>Moved</TITLE><P>The document has moved <A HREF=\""};
       static const std::string s_redirectEnd{"\">here</A>"};
       responseBody.reserve(s_redirectStart.size() + responseBody.size() + s_redirectEnd.size());
@@ -406,7 +416,7 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
       }
 
       if (!responseBody.empty()) {
-        NGHTTP2Headers::addDynamicHeader(headers, "content-type-key", "text/plain; charset=utf-8");
+        NGHTTP2Headers::addDynamicHeader(headers, "content-type-name", "text/plain; charset=utf-8");
       }
       else {
         static const std::string invalid{"invalid DNS query"};
@@ -436,6 +446,10 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
 
   const std::string contentLength = std::to_string(responseBody.size());
   NGHTTP2Headers::addDynamicHeader(headers, "content-length-name", contentLength);
+
+  for (const auto& [key, value]: customResponseHeaders) {
+    NGHTTP2Headers::addCustomDynamicHeader(headers, key, value);
+  }
 
   cerr<<"submitting response of size "<<responseBody.size()<<endl;
   auto ret = nghttp2_submit_response(d_session.get(), streamID, headers.data(), headers.size(), &data_provider);
@@ -492,6 +506,51 @@ static void processForwardedForHeader(const std::unique_ptr<HeadersMap>& headers
   }
 }
 
+static std::optional<PacketBuffer> getPayloadFromPath(const std::string_view& path)
+{
+  std::optional<PacketBuffer> result{std::nullopt};
+
+  if (path.size() <= 5) {
+    return result;
+  }
+
+  auto pos = path.find("?dns=");
+  if (pos == string::npos) {
+    pos = path.find("&dns=");
+  }
+
+  if (pos == string::npos) {
+    return result;
+  }
+
+  // need to base64url decode this
+  string sdns(path.substr(pos + 5));
+  boost::replace_all(sdns,"-", "+");
+  boost::replace_all(sdns,"_", "/");
+
+  // re-add padding that may have been missing
+  switch (sdns.size() % 4) {
+  case 2:
+    sdns.append(2, '=');
+    break;
+  case 3:
+    sdns.append(1, '=');
+    break;
+  }
+
+  PacketBuffer decoded;
+  /* rough estimate so we hopefully don't need a new allocation later */
+  /* We reserve at few additional bytes to be able to add EDNS later */
+  const size_t estimate = ((sdns.size() * 3) / 4);
+  decoded.reserve(estimate);
+  if (B64Decode(sdns, decoded) < 0) {
+    return result;
+  }
+
+  result = std::move(decoded);
+  return result;
+}
+
 void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::PendingQuery&& query, IncomingHTTP2Connection::StreamID streamID)
 {
   const auto handleImmediateResponse = [this, &query, streamID](uint16_t code, const std::string& reason, PacketBuffer&& response = PacketBuffer()) {
@@ -505,11 +564,6 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     vinfolog("Sending an immediate %d response to incoming DoH query: %s", code, reason);
     sendResponse(streamID, code, d_ci.cs->dohFrontend->d_customResponseHeaders);
   };
-
-  if (query.d_badRequest) {
-    handleImmediateResponse(400, "DoH unable to decode BASE64-URL");
-  }
-
 
   ++d_ci.cs->dohFrontend->d_http2Stats.d_nbQueries;
 
@@ -527,6 +581,59 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
 
     if (!d_ci.cs->dohFrontend->d_keepIncomingHeaders) {
       query.d_headers.reset();
+    }
+  }
+
+  if (d_ci.cs->dohFrontend->d_exactPathMatching) {
+    if (d_ci.cs->dohFrontend->d_urls.count(query.d_path) == 0) {
+      handleImmediateResponse(404, "there is no endpoint configured for this path");
+      return;
+    }
+  }
+  else {
+    bool found = false;
+    for (const auto& path : d_ci.cs->dohFrontend->d_urls) {
+      if (boost::starts_with(path, query.d_path)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      handleImmediateResponse(404, "there is no endpoint configured for this path");
+      return;
+    }
+  }
+
+  /* the responses map can be updated at runtime, so we need to take a copy of
+     the shared pointer, increasing the reference counter */
+  auto responsesMap = d_ci.cs->dohFrontend->d_responsesMap;
+  if (responsesMap) {
+    cerr<<"we have a responses map, checking path "<<query.d_path<<endl;
+    for (const auto& entry : *responsesMap) {
+      cerr<<"entry "<<endl;
+      if (entry->matches(query.d_path)) {
+        cerr<<"matches"<<endl;
+        const auto& customHeaders = entry->getHeaders();
+        query.d_buffer = entry->getContent();
+        sendResponse(streamID, entry->getStatusCode(), customHeaders ? *customHeaders : d_ci.cs->dohFrontend->d_customResponseHeaders, std::string(), false);
+        cerr<<"returning static response"<<endl;
+        return;
+      }
+    }
+  }
+
+  if (query.d_buffer.empty() && query.d_method == PendingQuery::Method::Get && !query.d_queryString.empty()) {
+    auto payload = getPayloadFromPath(query.d_queryString);
+    if (payload) {
+      cerr<<"Got payload of size "<<payload->size()<<endl;
+      query.d_buffer = std::move(*payload);
+      cerr<<"buffer size is now "<<query.d_buffer.size();
+    }
+    else {
+      ++d_ci.cs->dohFrontend->d_badrequests;
+      cerr<<"unable to get payload"<<endl;
+      handleImmediateResponse(400, "DoH unable to decode BASE64-URL");
+      return;
     }
   }
 
@@ -682,49 +789,14 @@ int IncomingHTTP2Connection::on_begin_headers_callback(nghttp2_session* session,
   return 0;
 }
 
-static std::optional<PacketBuffer> getPayloadFromPath(const std::string_view& path)
+static std::string::size_type getLengthOfPathWithoutParameters(const std::string_view& path)
 {
-  std::optional<PacketBuffer> result{std::nullopt};
-
-  if (path.size() <= 5) {
-    return result;
-  }
-
-  auto pos = path.find("?dns=");
+  auto pos = path.find("?");
   if (pos == string::npos) {
-    pos = path.find("&dns=");
+    return path.size();
   }
 
-  if (pos == string::npos) {
-    return result;
-  }
-
-  // need to base64url decode this
-  string sdns(path.substr(pos + 5));
-  boost::replace_all(sdns,"-", "+");
-  boost::replace_all(sdns,"_", "/");
-
-  // re-add padding that may have been missing
-  switch (sdns.size() % 4) {
-  case 2:
-    sdns.append(2, '=');
-    break;
-  case 3:
-    sdns.append(1, '=');
-    break;
-  }
-
-  PacketBuffer decoded;
-  /* rough estimate so we hopefully don't need a new allocation later */
-  /* We reserve at few additional bytes to be able to add EDNS later */
-  const size_t estimate = ((sdns.size() * 3) / 4);
-  decoded.reserve(estimate);
-  if (B64Decode(sdns, decoded) < 0) {
-    return result;
-  }
-
-  result = std::move(decoded);
-  return result;
+  return pos;
 }
 
 int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const nghttp2_frame* frame, const uint8_t* name, size_t nameLen, const uint8_t* value, size_t valuelen, uint8_t flags, void* user_data)
@@ -765,8 +837,18 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
         return NGHTTP2_ERR_CALLBACK_FAILURE;
       }
 
-      query.d_path = std::string(valueView);
+      auto pathLen = getLengthOfPathWithoutParameters(valueView);
+      query.d_path = valueView.substr(0, pathLen);
+      if (pathLen < valueView.size()) {
+        query.d_queryString = valueView.substr(pathLen);
+      }
       cerr<<"Got path: "<<query.d_path<<endl;
+    }
+    else if (headerMatches(s_authorityHeaderName)) {
+      query.d_host = valueView;
+    }
+    else if (headerMatches(s_schemeHeaderName)) {
+      query.d_scheme = valueView;
     }
     else if (headerMatches(s_methodHeaderName)) {
       cerr<<"Got method: "<<valueView<<endl;
@@ -783,20 +865,6 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
       else {
         vinfolog("Unsupported method value");
         return NGHTTP2_ERR_CALLBACK_FAILURE;
-      }
-    }
-
-    if (query.d_buffer.empty() && query.d_method == PendingQuery::Method::Get && !query.d_path.empty()) {
-      auto payload = getPayloadFromPath(valueView);
-      if (payload) {
-        cerr<<"Got payload of size "<<payload->size()<<endl;
-        query.d_buffer = std::move(*payload);
-        cerr<<"buffer size is now "<<query.d_buffer.size();
-      }
-      else {
-        ++conn->d_ci.cs->dohFrontend->d_badrequests;
-        cerr<<"unable to get payload"<<endl;
-        query.d_badRequest = true;
       }
     }
 

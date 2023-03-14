@@ -1632,9 +1632,9 @@ void dohThread(ClientState* cs)
     // this may mean we need to actually register a site "name" here and not the IP address
     h2o_hostconf_t *hostconf = h2o_config_register_host(&dsc->h2o_config, h2o_iovec_init(df->d_tlsContext.d_addr.toString().c_str(), df->d_tlsContext.d_addr.toString().size()), 65535);
 
-    for(const auto& url : df->d_urls) {
+    dsc->paths = df->d_urls;
+    for (const auto& url : dsc->paths) {
       register_handler(hostconf, url.c_str(), doh_handler);
-      dsc->paths.insert(url);
     }
 
     h2o_context_init(&dsc->h2o_ctx, h2o_evloop_create(), &dsc->h2o_config);

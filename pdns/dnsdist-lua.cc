@@ -2353,17 +2353,17 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
     if (urls) {
       if (urls->type() == typeid(std::string)) {
-        frontend->d_urls.push_back(boost::get<std::string>(*urls));
+        frontend->d_urls.insert(boost::get<std::string>(*urls));
       }
       else if (urls->type() == typeid(LuaArray<std::string>)) {
         auto urlsVect = boost::get<LuaArray<std::string>>(*urls);
         for (const auto& p : urlsVect) {
-          frontend->d_urls.push_back(p.second);
+          frontend->d_urls.insert(p.second);
         }
       }
     }
     else {
-      frontend->d_urls = {"/dns-query"};
+      frontend->d_urls.insert("/dns-query");
     }
 
     bool reusePort = false;
