@@ -810,10 +810,12 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
 
+#if HAVE_NGHTTP2_CHECK_HEADER_VALUE_RFC9113
     if (nghttp2_check_header_value_rfc9113(value, valuelen) == 0) {
       vinfolog("Invalid header value");
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
+#endif /* HAVE_NGHTTP2_CHECK_HEADER_VALUE_RFC9113 */
 
     auto headerMatches = [name, nameLen](const std::string& expected) -> bool {
       return nameLen == expected.size() && memcmp(name, expected.data(), expected.size()) == 0;
@@ -832,10 +834,12 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
     // cerr<<"- "<<std::string(reinterpret_cast<const char*>(name), nameLen)<<endl;
     // cerr<<"- "<<std::string(reinterpret_cast<const char*>(value), valuelen)<<endl;
     if (headerMatches(s_pathHeaderName)) {
+#if HAVE_NGHTTP2_CHECK_PATH
       if (nghttp2_check_path(value, valuelen) == 0) {
         vinfolog("Invalid path value");
         return NGHTTP2_ERR_CALLBACK_FAILURE;
       }
+#endif /* HAVE_NGHTTP2_CHECK_PATH */
 
       auto pathLen = getLengthOfPathWithoutParameters(valueView);
       query.d_path = valueView.substr(0, pathLen);
@@ -852,10 +856,13 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
     }
     else if (headerMatches(s_methodHeaderName)) {
       cerr<<"Got method: "<<valueView<<endl;
+#if HAVE_NGHTTP2_CHECK_METHOD
       if (nghttp2_check_method(value, valuelen) == 0) {
         vinfolog("Invalid method value");
         return NGHTTP2_ERR_CALLBACK_FAILURE;
       }
+#endif /* HAVE_NGHTTP2_CHECK_METHOD */
+
       if (valueView == "GET") {
         query.d_method = PendingQuery::Method::Get;
       }
