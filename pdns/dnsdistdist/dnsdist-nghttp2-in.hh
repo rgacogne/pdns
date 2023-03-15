@@ -66,7 +66,7 @@ private:
   void stopIO();
   bool isIdle() const;
   uint32_t getConcurrentStreamsCount() const;
-  void updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback, bool noTTD = false);
+  void updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback);
   void watchForRemoteHostClosingConnection();
   void handleIOError();
   IOState sendResponse(const struct timeval& now, TCPResponse&& response) override;
@@ -75,6 +75,7 @@ private:
   bool checkALPN();
   void readHTTPData();
   void handleConnectionReady();
+  boost::optional<struct timeval> getIdleClientReadTTD(struct timeval now) const;
 
   std::unique_ptr<nghttp2_session, decltype(&nghttp2_session_del)> d_session{nullptr, nghttp2_session_del};
   std::unordered_map<StreamID, PendingQuery> d_currentStreams;

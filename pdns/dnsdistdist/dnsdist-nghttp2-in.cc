@@ -1022,18 +1022,49 @@ uint32_t IncomingHTTP2Connection::getConcurrentStreamsCount() const
   return d_currentStreams.size();
 }
 
-void IncomingHTTP2Connection::updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback, bool noTTD)
+boost::optional<struct timeval> IncomingHTTP2Connection::getIdleClientReadTTD(struct timeval now) const
 {
-  cerr<<__PRETTY_FUNCTION__<<endl;
-  #warning TODO timeouts
+  auto idleTimeout = d_ci.cs->dohFrontend->d_idleTimeout;
+  if (g_maxTCPConnectionDuration == 0 && idleTimeout == 0) {
+    return boost::none;
+  }
+
+  if (g_maxTCPConnectionDuration > 0) {
+    auto elapsed = now.tv_sec - d_connectionStartTime.tv_sec;
+    if (elapsed < 0 || (static_cast<size_t>(elapsed) >= g_maxTCPConnectionDuration)) {
+      return now;
+    }
+    auto remaining = g_maxTCPConnectionDuration - elapsed;
+    if (idleTimeout == 0 || remaining <= static_cast<size_t>(idleTimeout)) {
+      now.tv_sec += remaining;
+      return now;
+    }
+  }
+
+  now.tv_sec += idleTimeout;
+  return now;
+}
+
+void IncomingHTTP2Connection::updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback)
+{
   boost::optional<struct timeval> ttd{boost::none};
 
   auto shared = std::dynamic_pointer_cast<IncomingHTTP2Connection>(shared_from_this());
   if (shared) {
+    struct timeval now;
+    gettimeofday(&now, nullptr);
+
     if (newState == IOState::NeedRead) {
+      if (isIdle()) {
+        ttd = getIdleClientReadTTD(now);
+      }
+      else {
+        ttd = getClientReadTTD(now);
+      }
       d_ioState->update(newState, callback, shared, ttd);
     }
     else if (newState == IOState::NeedWrite) {
+      ttd = getClientWriteTTD(now);
       d_ioState->update(newState, callback, shared, ttd);
     }
   }
@@ -1042,7 +1073,7 @@ void IncomingHTTP2Connection::updateIO(IOState newState, FDMultiplexer::callback
 void IncomingHTTP2Connection::watchForRemoteHostClosingConnection()
 {
   cerr<<__PRETTY_FUNCTION__<<endl;
-  updateIO(IOState::NeedRead, handleReadableIOCallback, false);
+  updateIO(IOState::NeedRead, handleReadableIOCallback);
 }
 
 void IncomingHTTP2Connection::handleIOError()
