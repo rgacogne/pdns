@@ -235,14 +235,6 @@ static void sendDoHUnitToTheMainThread(DOHUnitUniquePtr&& du, const char* descri
 {
   /* taking a naked pointer since we are about to send that pointer over a pipe */
   auto ptr = du.release();
-  /* increasing the reference counter. This should not be strictly needed because
-     we already hold a reference and will only release it if we failed to send the
-     pointer over the pipe, but TSAN seems confused when the responder thread gets
-     a reply from a backend before the send() syscall sending the corresponding query
-     to that backend has returned in the initial thread.
-     The memory barrier needed to increase that counter seems to work around that.
-  */
-  ptr->get();
   static_assert(sizeof(ptr) <= PIPE_BUF, "Writes up to PIPE_BUF are guaranteed not to be interleaved and to either fully succeed or fail");
 
   ssize_t sent = write(ptr->rsock, &ptr, sizeof(ptr));
@@ -254,12 +246,9 @@ static void sendDoHUnitToTheMainThread(DOHUnitUniquePtr&& du, const char* descri
     else {
       vinfolog("Unable to pass a %s to the DoH worker thread because we couldn't write to the pipe: %s", description, stringerror());
     }
-
     /* we fail to write over the pipe so we do not need to hold to that ref anymore */
-    ptr->release();
+    delete ptr;
   }
-  /* we decrement the counter incremented above at the beginning of that function */
-  ptr->release();
 }
 
 /* This function is called from other threads than the main DoH one,
@@ -900,7 +889,7 @@ static void doh_dispatch_query(DOHServerConfig* dsc, h2o_handler_t* self, h2o_re
     *(ptr->self) = ptr;
 
 #ifdef USE_SINGLE_ACCEPTOR_THREAD
-    processDOHQuery(DOHUnitUniquePtr(ptr, DOHUnit::release), true);
+    processDOHQuery(DOHUnitUniquePtr(ptr), true);
 #else /* USE_SINGLE_ACCEPTOR_THREAD */
     try  {
       static_assert(sizeof(ptr) <= PIPE_BUF, "Writes up to PIPE_BUF are guaranteed not to be interleaved and to either fully succeed or fail");
@@ -913,15 +902,12 @@ static void doh_dispatch_query(DOHServerConfig* dsc, h2o_handler_t* self, h2o_re
         else {
           vinfolog("Unable to pass a DoH query to the DoH worker thread because we couldn't write to the pipe: %s", stringerror());
         }
-        ptr->release();
-        ptr = nullptr;
+        delete ptr;
         h2o_send_error_500(req, "Internal Server Error", "Internal Server Error", 0);
       }
     }
     catch (...) {
-      if (ptr != nullptr) {
-        ptr->release();
-      }
+      delete ptr;
     }
 #endif /* USE_SINGLE_ACCEPTOR_THREAD */
   }
@@ -1283,7 +1269,7 @@ static void dnsdistclient(int qsock)
         continue;
       }
 
-      DOHUnitUniquePtr du(ptr, DOHUnit::release);
+      DOHUnitUniquePtr du(ptr);
       /* we are not in the main DoH thread anymore, so there is a real risk of
          a race condition where h2o kills the query while we are processing it,
          so we can't touch the content of du->req until we are back into the
@@ -1336,7 +1322,7 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
       return;
     }
 
-    DOHUnitUniquePtr du(ptr, DOHUnit::release);
+    DOHUnitUniquePtr du(ptr);
     if (!du->req) { // it got killed in flight
       du->self = nullptr;
       continue;
