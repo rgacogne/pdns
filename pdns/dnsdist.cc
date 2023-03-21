@@ -770,7 +770,7 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
         if (du) {
 #ifdef HAVE_DNS_OVER_HTTPS
           // DoH query, we cannot touch du after that
-          handleUDPResponseForDoH(std::move(du), std::move(response), std::move(*ids));
+          DOHUnitInterface::handleUDPResponse(std::move(du), std::move(response), std::move(*ids));
 #endif
           continue;
         }
