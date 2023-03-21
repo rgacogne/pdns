@@ -128,7 +128,7 @@ struct InternalQueryState
   std::unique_ptr<ProtoBufData> d_protoBufData{nullptr};
   boost::optional<uint32_t> tempFailureTTL{boost::none}; // 8
   ClientState* cs{nullptr}; // 8
-  std::unique_ptr<CrossProtocolContext> crossProtocolContext; // 8
+//  std::unique_ptr<CrossProtocolContext> crossProtocolContext; // 8
   std::unique_ptr<DOHUnitInterface> du; // 8
   uint32_t cacheKey{0}; // 4
   uint32_t cacheKeyNoECS{0}; // 4
@@ -251,6 +251,7 @@ private:
 
 struct DownstreamState;
 
+#if 0
 class CrossProtocolContext
 {
 public:
@@ -304,3 +305,4 @@ private:
   PacketBuffer d_buffer;
   size_t d_proxyPayloadSize{0};
 };
+#endif

@@ -35,9 +35,10 @@ std::vector<std::unique_ptr<ClientState>> g_frontends;
    and their dependencies */
 
 #ifdef HAVE_DNS_OVER_HTTPS
-std::unordered_map<std::string, std::string> DOHUnit::getHTTPHeaders() const
+const std::unordered_map<std::string, std::string>& DOHUnit::getHTTPHeaders() const
 {
-  return {};
+  static const std::unordered_map<std::string, std::string> empty;
+  return empty;
 }
 
 std::string DOHUnit::getHTTPPath() const
@@ -45,14 +46,16 @@ std::string DOHUnit::getHTTPPath() const
   return "";
 }
 
-std::string DOHUnit::getHTTPHost() const
+const std::string& DOHUnit::getHTTPHost() const
 {
-  return "";
+  static const std::string empty;
+  return empty;
 }
 
-std::string DOHUnit::getHTTPScheme() const
+const std::string& DOHUnit::getHTTPScheme() const
 {
-  return "";
+  static const std::string empty;
+  return empty;
 }
 
 std::string DOHUnit::getHTTPQueryString() const
@@ -69,8 +72,13 @@ void DOHUnit::handleTimeout()
 {
 }
 
-void DOHUnit::handleUDPResponse(PacketBuffer&& resp, InternalQueryState&& state)
+void DOHUnit::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, const std::shared_ptr<DownstreamState>&)
 {
+}
+
+bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>&, uint16_t, DNSQuestion&, PacketBuffer&)
+{
+  return true;
 }
 
 std::string DNSQuestion::getTrailingData() const

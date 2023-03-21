@@ -496,8 +496,9 @@ public:
     return handleResponse(now, std::move(response));
   }
 
-  void notifyIOError(InternalQueryState&& query, const struct timeval& now) override
+  void notifyIOError(const struct timeval& now, TCPResponse&& response) override
   {
+    auto& query = response.d_idstate;
     if (!query.du) {
       return;
     }
@@ -642,23 +643,6 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       return;
     }
 
-    {
-      // if there was no EDNS, we add it with a large buffer size
-      // so we can use UDP to talk to the backend.
-      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data()));
-
-      if (!dh->arcount) {
-        if (generateOptRR(std::string(), unit->query, 4096, 4096, 0, false)) {
-          dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data())); // may have reallocated
-          dh->arcount = htons(1);
-          ids.ednsAdded = true;
-        }
-      }
-      else {
-        // we leave existing EDNS in place
-      }
-    }
-
     remote = ids.origRemote;
     DOHServerConfig* dsc = unit->dsc;
     auto& holders = dsc->holders;
@@ -775,10 +759,20 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       }
     }
 
-    ComboAddress dest = dq.ids.origDest;
+    {
+      // if there was no EDNS, we add it with a large buffer size
+      // so we can use UDP to talk to the backend.
+      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data()));
+      if (!dh->arcount) {
+        if (addEDNS(unit->query, 4096, false, 4096, 0)) {
+          ids.ednsAdded = true;
+        }
+      }
+    }
+
     auto& query = unit->query;
     ids.du = std::move(unit);
-    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, query, dest)) {
+    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, query)) {
       unit = getDUFromIDS(ids);
       unit->status_code = 502;
       handleImmediateResponse(std::move(unit), "DoH internal error");
@@ -1137,20 +1131,21 @@ HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& reg
 
 bool HTTPHeaderRule::matches(const DNSQuestion* dq) const
 {
+  cerr<<__PRETTY_FUNCTION__<<endl;
   if (!dq->ids.du) {
+    cerr<<__PRETTY_FUNCTION__<<" no du"<<endl;
     return false;
   }
 
-  auto unit = dynamic_cast<DOHUnit*>(dq->ids.du.get());
-  if (!unit->headers) {
-    return false;
-  }
-
-  for (const auto& header : *unit->headers) {
+  const auto& headers = dq->ids.du->getHTTPHeaders();
+  for (const auto& header : headers) {
+    cerr<<__PRETTY_FUNCTION__<<" checking header "<<header.first<<" VS "<<d_header<<endl;
     if (header.first == d_header) {
+      cerr<<"match"<<endl;
       return d_regex.match(header.second);
     }
   }
+  cerr<<"no match"<<endl;
   return false;
 }
 
@@ -1171,13 +1166,8 @@ bool HTTPPathRule::matches(const DNSQuestion* dq) const
     return false;
   }
 
-  auto unit = dynamic_cast<DOHUnit*>(dq->ids.du.get());
-  if (unit->query_at == SIZE_MAX) {
-    return unit->path == d_path;
-  }
-  else {
-    return d_path.compare(0, d_path.size(), unit->path, 0, unit->query_at) == 0;
-  }
+  const auto path = dq->ids.du->getHTTPPath();
+  return d_path == path;
 }
 
 string HTTPPathRule::toString() const
@@ -1195,8 +1185,7 @@ bool HTTPPathRegexRule::matches(const DNSQuestion* dq) const
     return false;
   }
 
-  auto unit = dynamic_cast<DOHUnit*>(dq->ids.du.get());
-  return d_regex.match(unit->getHTTPPath());
+  return d_regex.match(dq->ids.du->getHTTPPath());
 }
 
 string HTTPPathRegexRule::toString() const
@@ -1204,18 +1193,13 @@ string HTTPPathRegexRule::toString() const
   return d_visual;
 }
 
-std::unordered_map<std::string, std::string> DOHUnit::getHTTPHeaders() const
+const std::unordered_map<std::string, std::string>& DOHUnit::getHTTPHeaders() const
 {
-  std::unordered_map<std::string, std::string> results;
-  if (headers) {
-    results.reserve(headers->size());
-
-    for (const auto& header : *headers) {
-      results.insert(header);
-    }
+  if (!headers) {
+    static const HeadersMap empty{};
+    return empty;
   }
-
-  return results;
+  return *headers;
 }
 
 std::string DOHUnit::getHTTPPath() const
@@ -1228,12 +1212,12 @@ std::string DOHUnit::getHTTPPath() const
   }
 }
 
-std::string DOHUnit::getHTTPHost() const
+const std::string& DOHUnit::getHTTPHost() const
 {
   return host;
 }
 
-std::string DOHUnit::getHTTPScheme() const
+const std::string& DOHUnit::getHTTPScheme() const
 {
   return scheme;
 }
@@ -1732,7 +1716,7 @@ void dohThread(ClientState* cs)
   }
 }
 
-void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, InternalQueryState&& state)
+void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&)
 {
   auto du = std::unique_ptr<DOHUnit>(this);
   du->ids = std::move(state);

@@ -57,6 +57,7 @@ class TestDOH(DNSDistDOHTest):
     addAction("http-lua.doh.tests.powerdns.com.", LuaAction(dohHandler))
     """
     _config_params = ['_testServerPort', '_dohServerPort', '_serverCert', '_serverKey', '_serverName', '_dohServerPort']
+    _verboseMode = True
 
     def testDOHSimple(self):
         """
@@ -572,7 +573,7 @@ class TestDOHSubPaths(DNSDistDOHTest):
         # this path is not in the URLs map and should lead to a 404
         (_, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL + "NotPowerDNS", query, caFile=self._caCert, useQueue=False, rawResponse=True)
         self.assertTrue(receivedResponse)
-        self.assertEqual(receivedResponse, b'not found')
+        self.assertEqual(receivedResponse, b'there is no endpoint configured for this path')
         self.assertEqual(self._rcode, 404)
 
         # this path is below one in the URLs map and exactPathMatching is false, so we should be good
