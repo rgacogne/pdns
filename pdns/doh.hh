@@ -179,7 +179,14 @@ struct DOHFrontend
 };
 
 #ifndef HAVE_DNS_OVER_HTTPS
-struct DOHUnit
+struct DOHUnitInterface
+{
+  virtual ~DOHUnitInterface()
+  {
+  }
+};
+
+struct DOHUnit : public DOHUnitInterface
 {
   size_t proxyProtocolPayloadSize{0};
   uint16_t status_code{200};
@@ -193,7 +200,38 @@ struct DOHUnit
 struct st_h2o_req_t;
 struct DownstreamState;
 
-struct DOHUnit
+struct DOHUnitInterface
+{
+  virtual ~DOHUnitInterface()
+  {
+  }
+
+  virtual std::string getHTTPPath() const = 0;
+  virtual std::string getHTTPHost() const = 0;
+  virtual std::string getHTTPScheme() const = 0;
+  virtual std::string getHTTPQueryString() const = 0;
+  virtual std::unordered_map<std::string, std::string> getHTTPHeaders() const = 0;
+  virtual void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") = 0;
+  virtual void handleTimeout() = 0;
+  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state) = 0;
+
+  static void handleTimeout(std::unique_ptr<DOHUnitInterface> unit)
+  {
+    unit->handleTimeout();
+    unit.release();
+  }
+
+  static void handleUDPResponse(std::unique_ptr<DOHUnitInterface> unit, PacketBuffer&& response, InternalQueryState&& state)
+  {
+    unit->handleUDPResponse(std::move(response), std::move(state));
+    unit.release();
+  }
+
+  std::shared_ptr<DownstreamState> downstream{nullptr};
+  size_t proxyProtocolPayloadSize{0};
+};
+
+struct DOHUnit : public DOHUnitInterface
 {
   DOHUnit(PacketBuffer&& q, std::string&& p, std::string&& h): path(std::move(p)), host(std::move(h)), query(std::move(q))
   {
@@ -217,14 +255,12 @@ struct DOHUnit
   std::string contentType;
   PacketBuffer query;
   PacketBuffer response;
-  std::shared_ptr<DownstreamState> downstream{nullptr};
   std::unique_ptr<std::unordered_map<std::string, std::string>> headers;
   st_h2o_req_t* req{nullptr};
   DOHUnit** self{nullptr};
   DOHServerConfig* dsc{nullptr};
   pdns::channel::Sender<DOHUnit>* responseSender{nullptr};
   size_t query_at{0};
-  size_t proxyProtocolPayloadSize{0};
   int rsock{-1};
   /* the status_code is set from
      processDOHQuery() (which is executed in
@@ -239,15 +275,15 @@ struct DOHUnit
   bool tcp{false};
   bool truncated{false};
 
-  std::string getHTTPPath() const;
-  std::string getHTTPHost() const;
-  std::string getHTTPScheme() const;
-  std::string getHTTPQueryString() const;
-  std::unordered_map<std::string, std::string> getHTTPHeaders() const;
-  void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="");
+  std::string getHTTPPath() const override;
+  std::string getHTTPHost() const override;
+  std::string getHTTPScheme() const override;
+  std::string getHTTPQueryString() const override;
+  std::unordered_map<std::string, std::string> getHTTPHeaders() const override;
+  void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") override;
+  virtual void handleTimeout() override;
+  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state) override;
 };
-
-void handleUDPResponseForDoH(std::unique_ptr<DOHUnit>&&, PacketBuffer&& response, InternalQueryState&& state);
 
 struct CrossProtocolQuery;
 struct DNSQuestion;
@@ -258,4 +294,3 @@ std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& 
 
 using DOHUnitUniquePtr = std::unique_ptr<DOHUnit>;
 
-void handleDOHTimeout(DOHUnitUniquePtr&& oldDU);

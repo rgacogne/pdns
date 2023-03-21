@@ -231,18 +231,11 @@ static void sendDoHUnitToTheMainThread(DOHUnitUniquePtr&& du, const char* descri
 }
 
 /* This function is called from other threads than the main DoH one,
-   instructing it to send a 502 error to the client.
-   It takes ownership of the unit. */
-void handleDOHTimeout(DOHUnitUniquePtr&& oldDU)
+   instructing it to send a 502 error to the client. */
+void DOHUnit::handleTimeout()
 {
-  if (oldDU == nullptr) {
-    return;
-  }
-
-  /* we are about to erase an existing DU */
-  oldDU->status_code = 502;
-
-  sendDoHUnitToTheMainThread(std::move(oldDU), "DoH timeout");
+  status_code = 502;
+  sendDoHUnitToTheMainThread(std::unique_ptr<DOHUnit>(this), "DoH timeout");
 }
 
 struct DOHConnection
@@ -400,6 +393,12 @@ static void handleResponse(DOHFrontend& df, st_h2o_req_t* req, uint16_t statusCo
   }
 }
 
+static std::unique_ptr<DOHUnit> getDUFromIDS(InternalQueryState& ids)
+{
+  auto du = std::unique_ptr<DOHUnit>(dynamic_cast<DOHUnit*>(ids.du.release()));
+  return du;
+}
+
 class DoHTCPCrossQuerySender : public TCPQuerySender
 {
 public:
@@ -418,7 +417,7 @@ public:
       return;
     }
 
-    auto du = std::move(response.d_idstate.du);
+    auto du = getDUFromIDS(response.d_idstate);
     if (du->responseSender == nullptr) {
       return;
     }
@@ -436,10 +435,11 @@ public:
 
       dr.ids.du = std::move(du);
 
-      if (!processResponse(dr.ids.du->response, *localRespRuleActions, *localCacheInsertedRespRuleActions, dr, false)) {
+      if (!processResponse(dynamic_cast<DOHUnit*>(dr.ids.du.get())->response, *localRespRuleActions, *localCacheInsertedRespRuleActions, dr, false)) {
         if (dr.ids.du) {
-          dr.ids.du->status_code = 503;
-          sendDoHUnitToTheMainThread(std::move(dr.ids.du), "Response dropped by rules");
+          du = getDUFromIDS(dr.ids);
+          du->status_code = 503;
+          sendDoHUnitToTheMainThread(std::move(du), "Response dropped by rules");
         }
         return;
       }
@@ -448,7 +448,7 @@ public:
         return;
       }
 
-      du = std::move(dr.ids.du);
+      du = getDUFromIDS(dr.ids);
     }
 
     if (!du->ids.selfGenerated) {
@@ -481,11 +481,11 @@ public:
       return;
     }
 
-    if (query.du->responseSender == nullptr) {
+    auto du = getDUFromIDS(query);
+    if (du->responseSender == nullptr) {
       return;
     }
 
-    auto du = std::move(query.du);
     du->ids = std::move(query);
     du->status_code = 502;
     sendDoHUnitToTheMainThread(std::move(du), "cross-protocol error response");
@@ -524,13 +524,17 @@ public:
 
   void handleInternalError()
   {
-    query.d_idstate.du->status_code = 502;
-    sendDoHUnitToTheMainThread(std::move(query.d_idstate.du), "DoH internal error");
+    auto du = getDUFromIDS(query.d_idstate);
+    if (!du) {
+      return;
+    }
+    du->status_code = 502;
+    sendDoHUnitToTheMainThread(std::move(du), "DoH internal error");
   }
 
   std::shared_ptr<TCPQuerySender> getTCPQuerySender() override
   {
-    query.d_idstate.du->downstream = downstream;
+    dynamic_cast<DOHUnit*>(query.d_idstate.du.get())->downstream = downstream;
     return s_sender;
   }
 
@@ -548,9 +552,9 @@ public:
     return dr;
    }
 
-  DOHUnitUniquePtr&& releaseDU()
+  DOHUnitUniquePtr releaseDU()
   {
-    return std::move(query.d_idstate.du);
+    return getDUFromIDS(query.d_idstate);
   }
 
 private:
@@ -565,7 +569,7 @@ std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& 
     throw std::runtime_error("Trying to create a DoH cross protocol query without a valid DoH unit");
   }
 
-  auto du = std::move(dq.ids.du);
+  auto du = getDUFromIDS(dq.ids);
   if (&dq.ids != &du->ids) {
    du->ids = std::move(dq.ids);
   }
@@ -604,31 +608,29 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
   };
 
   auto& ids = unit->ids;
-  ids.du = std::move(unit);
-  auto& du = ids.du;
   uint16_t queryId = 0;
   ComboAddress remote;
 
   try {
-    if (!du->req) {
+    if (!unit->req) {
       // we got closed meanwhile. XXX small race condition here
       // but we should be fine as long as we don't touch du->req
       // outside of the main DoH thread
-      du->status_code = 500;
-      handleImmediateResponse(std::move(du), "DoH killed in flight");
+      unit->status_code = 500;
+      handleImmediateResponse(std::move(unit), "DoH killed in flight");
       return;
     }
 
     {
       // if there was no EDNS, we add it with a large buffer size
       // so we can use UDP to talk to the backend.
-      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(du->query.data()));
+      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data()));
 
       if (!dh->arcount) {
-        if (generateOptRR(std::string(), du->query, 4096, 4096, 0, false)) {
-          dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(du->query.data())); // may have reallocated
+        if (generateOptRR(std::string(), unit->query, 4096, 4096, 0, false)) {
+          dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data())); // may have reallocated
           dh->arcount = htons(1);
-          du->ids.ednsAdded = true;
+          ids.ednsAdded = true;
         }
       }
       else {
@@ -636,89 +638,90 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       }
     }
 
-    remote = du->ids.origRemote;
-    DOHServerConfig* dsc = du->dsc;
+    remote = ids.origRemote;
+    DOHServerConfig* dsc = unit->dsc;
     auto& holders = dsc->holders;
     ClientState& cs = *dsc->cs;
 
-    if (du->query.size() < sizeof(dnsheader)) {
+    if (unit->query.size() < sizeof(dnsheader)) {
       ++g_stats.nonCompliantQueries;
       ++cs.nonCompliantQueries;
-      du->status_code = 400;
-      handleImmediateResponse(std::move(du), "DoH non-compliant query");
+      unit->status_code = 400;
+      handleImmediateResponse(std::move(unit), "DoH non-compliant query");
       return;
     }
 
     ++cs.queries;
     ++g_stats.queries;
-    du->ids.queryRealTime.start();
+    ids.queryRealTime.start();
 
     {
       /* don't keep that pointer around, it will be invalidated if the buffer is ever resized */
-      struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(du->query.data());
+      struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(unit->query.data());
 
       if (!checkQueryHeaders(dh, cs)) {
-        du->status_code = 400;
-        handleImmediateResponse(std::move(du), "DoH invalid headers");
+        unit->status_code = 400;
+        handleImmediateResponse(std::move(unit), "DoH invalid headers");
         return;
       }
 
       if (dh->qdcount == 0) {
         dh->rcode = RCode::NotImp;
         dh->qr = true;
-        du->response = std::move(du->query);
+        unit->response = std::move(unit->query);
 
-        handleImmediateResponse(std::move(du), "DoH empty query");
+        handleImmediateResponse(std::move(unit), "DoH empty query");
         return;
       }
 
       queryId = ntohs(dh->id);
     }
 
-    auto downstream = du->downstream;
-    du->ids.qname = DNSName(reinterpret_cast<const char*>(du->query.data()), du->query.size(), sizeof(dnsheader), false, &du->ids.qtype, &du->ids.qclass);
-    DNSQuestion dq(du->ids, du->query);
+    auto downstream = unit->downstream;
+    ids.qname = DNSName(reinterpret_cast<const char*>(unit->query.data()), unit->query.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
+    DNSQuestion dq(ids, unit->query);
     const uint16_t* flags = getFlagsFromDNSHeader(dq.getHeader());
     ids.origFlags = *flags;
-    du->ids.cs = &cs;
-    dq.sni = std::move(du->sni);
-
+    ids.cs = &cs;
+    dq.sni = std::move(unit->sni);
+    ids.du = std::move(unit);
     auto result = processQuery(dq, holders, downstream);
 
+    unit = getDUFromIDS(ids);
     if (result == ProcessQueryResult::Drop) {
-      du->status_code = 403;
-      handleImmediateResponse(std::move(du), "DoH dropped query");
+      unit->status_code = 403;
+      handleImmediateResponse(std::move(unit), "DoH dropped query");
       return;
     }
     else if (result == ProcessQueryResult::Asynchronous) {
       return;
     }
     else if (result == ProcessQueryResult::SendAnswer) {
-      if (du->response.empty()) {
-        du->response = std::move(du->query);
+      if (unit->response.empty()) {
+        unit->response = std::move(unit->query);
       }
-      if (du->response.size() >= sizeof(dnsheader) && du->contentType.empty()) {
-        auto dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
+      if (unit->response.size() >= sizeof(dnsheader) && unit->contentType.empty()) {
+        auto dh = reinterpret_cast<const struct dnsheader*>(unit->response.data());
 
-        handleResponseSent(du->ids.qname, QType(du->ids.qtype), 0., du->ids.origDest, ComboAddress(), du->response.size(), *dh, dnsdist::Protocol::DoH, dnsdist::Protocol::DoH, false);
+        handleResponseSent(unit->ids.qname, QType(unit->ids.qtype), 0., unit->ids.origDest, ComboAddress(), unit->response.size(), *dh, dnsdist::Protocol::DoH, dnsdist::Protocol::DoH, false);
       }
-      handleImmediateResponse(std::move(du), "DoH self-answered response");
+      handleImmediateResponse(std::move(unit), "DoH self-answered response");
       return;
     }
 
     if (result != ProcessQueryResult::PassToBackend) {
-      du->status_code = 500;
-      handleImmediateResponse(std::move(du), "DoH no backend available");
+      unit->status_code = 500;
+      handleImmediateResponse(std::move(unit), "DoH no backend available");
       return;
     }
 
     if (downstream == nullptr) {
-      du->status_code = 502;
-      handleImmediateResponse(std::move(du), "DoH no backend available");
+      unit->status_code = 502;
+      handleImmediateResponse(std::move(unit), "DoH no backend available");
       return;
     }
 
-    du->downstream = downstream;
+    unit->downstream = downstream;
 
     if (downstream->isTCPOnly()) {
       std::string proxyProtocolPayload;
@@ -728,11 +731,11 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
         proxyProtocolPayload = getProxyProtocolPayload(dq);
       }
 
-      du->ids.origID = htons(queryId);
-      du->tcp = true;
+      unit->ids.origID = htons(queryId);
+      unit->tcp = true;
 
       /* this moves du->ids, careful! */
-      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(du), false);
+      auto cpq = std::make_unique<DoHCrossProtocolQuery>(std::move(unit), false);
       cpq->query.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
 
       if (downstream->passCrossProtocolQuery(std::move(cpq))) {
@@ -740,9 +743,9 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       }
       else {
         if (inMainThread) {
-          du = cpq->releaseDU();
-          du->status_code = 502;
-          handleImmediateResponse(std::move(du), "DoH internal error");
+          unit = cpq->releaseDU();
+          unit->status_code = 502;
+          handleImmediateResponse(std::move(unit), "DoH internal error");
         }
         else {
           cpq->handleInternalError();
@@ -752,16 +755,19 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
     }
 
     ComboAddress dest = dq.ids.origDest;
-    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, du->query, dest)) {
-      du->status_code = 502;
-      handleImmediateResponse(std::move(du), "DoH internal error");
+    auto& query = unit->query;
+    ids.du = std::move(unit);
+    if (!assignOutgoingUDPQueryToBackend(downstream, htons(queryId), dq, query, dest)) {
+      unit = getDUFromIDS(ids);
+      unit->status_code = 502;
+      handleImmediateResponse(std::move(unit), "DoH internal error");
       return;
     }
   }
   catch (const std::exception& e) {
     vinfolog("Got an error in DOH question thread while parsing a query from %s, id %d: %s", remote.toStringWithPort(), queryId, e.what());
-    du->status_code = 500;
-    handleImmediateResponse(std::move(du), "DoH internal error");
+    unit->status_code = 500;
+    handleImmediateResponse(std::move(unit), "DoH internal error");
     return;
   }
 
@@ -1102,11 +1108,16 @@ HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& reg
 
 bool HTTPHeaderRule::matches(const DNSQuestion* dq) const
 {
-  if (!dq->ids.du || !dq->ids.du->headers) {
+  if (!dq->ids.du) {
     return false;
   }
 
-  for (const auto& header : *dq->ids.du->headers) {
+  auto unit = dynamic_cast<DOHUnit*>(dq->ids.du.get());
+  if (!unit->headers) {
+    return false;
+  }
+
+  for (const auto& header : *unit->headers) {
     if (header.first == d_header) {
       return d_regex.match(header.second);
     }
@@ -1131,11 +1142,12 @@ bool HTTPPathRule::matches(const DNSQuestion* dq) const
     return false;
   }
 
-  if (dq->ids.du->query_at == SIZE_MAX) {
-    return dq->ids.du->path == d_path;
+  auto unit = dynamic_cast<DOHUnit*>(dq->ids.du.get());
+  if (unit->query_at == SIZE_MAX) {
+    return unit->path == d_path;
   }
   else {
-    return d_path.compare(0, d_path.size(), dq->ids.du->path, 0, dq->ids.du->query_at) == 0;
+    return d_path.compare(0, d_path.size(), unit->path, 0, unit->query_at) == 0;
   }
 }
 
@@ -1154,7 +1166,8 @@ bool HTTPPathRegexRule::matches(const DNSQuestion* dq) const
     return false;
   }
 
-  return d_regex.match(dq->ids.du->getHTTPPath());
+  auto unit = dynamic_cast<DOHUnit*>(dq->ids.du.get());
+  return d_regex.match(unit->getHTTPPath());
 }
 
 string HTTPPathRegexRule::toString() const
@@ -1682,25 +1695,31 @@ void dohThread(ClientState* cs)
   }
 }
 
-void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, InternalQueryState&& state)
+void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, InternalQueryState&& state)
 {
-  du->response = std::move(udpResponse);
+  auto du = std::unique_ptr<DOHUnit>(this);
   du->ids = std::move(state);
 
-  const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(du->response.data());
-  if (!dh->tc) {
+  {
+    const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(udpResponse.data());
+    if (dh->tc) {
+      du->truncated = true;
+    }
+  }
+  if (!du->truncated) {
     static thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localRespRuleActions = g_respruleactions.getLocal();
     static thread_local LocalStateHolder<vector<DNSDistResponseRuleAction>> localCacheInsertedRespRuleActions = g_cacheInsertedRespRuleActions.getLocal();
 
-    DNSResponse dr(du->ids, du->response, du->downstream);
+    DNSResponse dr(du->ids, udpResponse, du->downstream);
     dnsheader cleartextDH;
     memcpy(&cleartextDH, dr.getHeader(), sizeof(cleartextDH));
 
     dr.ids.du = std::move(du);
-    if (!processResponse(dr.ids.du->response, *localRespRuleActions, *localCacheInsertedRespRuleActions, dr, false)) {
+    if (!processResponse(udpResponse, *localRespRuleActions, *localCacheInsertedRespRuleActions, dr, false)) {
       if (dr.ids.du) {
-        dr.ids.du->status_code = 503;
-        sendDoHUnitToTheMainThread(std::move(dr.ids.du), "Response dropped by rules");
+        du = getDUFromIDS(dr.ids);
+        du->status_code = 503;
+        sendDoHUnitToTheMainThread(std::move(du), "Response dropped by rules");
       }
       return;
     }
@@ -1709,7 +1728,8 @@ void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, 
       return;
     }
 
-    du = std::move(dr.ids.du);
+    du = getDUFromIDS(dr.ids);
+    du->response = std::move(udpResponse);
     double udiff = du->ids.queryRealTime.udiff();
     vinfolog("Got answer from %s, relayed to %s (https), took %f us", du->downstream->d_config.remote.toStringWithPort(), du->ids.origRemote.toStringWithPort(), udiff);
 
@@ -1720,17 +1740,8 @@ void handleUDPResponseForDoH(DOHUnitUniquePtr&& du, PacketBuffer&& udpResponse, 
       ++du->ids.cs->responses;
     }
   }
-  else {
-    du->truncated = true;
-  }
 
   sendDoHUnitToTheMainThread(std::move(du), "DoH response");
-}
-
-#else /* HAVE_DNS_OVER_HTTPS */
-
-void handleDOHTimeout(DOHUnitUniquePtr&& oldDU)
-{
 }
 
 #endif /* HAVE_DNS_OVER_HTTPS */

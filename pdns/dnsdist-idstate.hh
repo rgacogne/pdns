@@ -29,7 +29,7 @@
 #include "uuid-utils.hh"
 
 struct ClientState;
-struct DOHUnit;
+struct DOHUnitInterface;
 class DNSCryptQuery;
 class DNSDistPacketCache;
 
@@ -129,7 +129,7 @@ struct InternalQueryState
   boost::optional<uint32_t> tempFailureTTL{boost::none}; // 8
   ClientState* cs{nullptr}; // 8
   std::unique_ptr<CrossProtocolContext> crossProtocolContext; // 8
-  std::unique_ptr<DOHUnit> du; // 8
+  std::unique_ptr<DOHUnitInterface> du; // 8
   uint32_t cacheKey{0}; // 4
   uint32_t cacheKeyNoECS{0}; // 4
   // DoH-only */
