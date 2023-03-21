@@ -486,16 +486,17 @@ void IncomingTCPConnectionState::handleResponse(const struct timeval& now, TCPRe
     try {
       auto& ids = response.d_idstate;
       unsigned int qnameWireLength;
-      if (!response.d_connection || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, response.d_connection->getDS(), qnameWireLength)) {
+      std::shared_ptr<DownstreamState> ds = response.d_ds ? response.d_ds : (response.d_connection ? response.d_connection->getDS() : nullptr);
+      if (!ds || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, ds, qnameWireLength)) {
         state->terminateClientConnection();
         return;
       }
 
-      if (response.d_connection->getDS()) {
-        ++response.d_connection->getDS()->responses;
+      if (ds) {
+        ++ds->responses;
       }
 
-      DNSResponse dr(ids, response.d_buffer, response.d_connection->getDS());
+      DNSResponse dr(ids, response.d_buffer, ds);
       dr.d_incomingTCPState = state;
 
       memcpy(&response.d_cleartextDH, dr.getHeader(), sizeof(response.d_cleartextDH));
@@ -597,8 +598,9 @@ void IncomingTCPConnectionState::handleCrossProtocolResponse(const struct timeva
   }
 }
 
-IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::handleQuery(PacketBuffer&& query, const struct timeval& now, std::optional<int32_t> streamID)
+IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::handleQuery(PacketBuffer&& queryIn, const struct timeval& now, std::optional<int32_t> streamID)
 {
+  auto query = std::move(queryIn);
   if (query.size() < sizeof(dnsheader)) {
     ++g_stats.nonCompliantQueries;
     ++d_ci.cs->nonCompliantQueries;
@@ -688,8 +690,15 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
     dq.ids.skipCache = true;
   }
 
+  if (streamID) {
+    auto unit = getDOHUnit(*streamID);
+    dq.ids.du = std::move(unit);
+  }
   std::shared_ptr<DownstreamState> ds;
   auto result = processQuery(dq, d_threadData.holders, ds);
+  if (streamID) {
+    restoreDOHUnit(std::move(dq.ids.du));
+  }
 
   if (result == ProcessQueryResult::Drop) {
     return QueryProcessingResult::Dropped;
@@ -701,13 +710,21 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   }
 
   // the buffer might have been invalidated by now
-  const dnsheader* dh = dq.getHeader();
+  uint16_t queryID;
+  {
+    const dnsheader* dh = dq.getHeader();
+    queryID = dh->id;
+  }
+
   if (result == ProcessQueryResult::SendAnswer) {
     TCPResponse response;
-    memcpy(&response.d_cleartextDH, dh, sizeof(response.d_cleartextDH));
+    {
+      const dnsheader* dh = dq.getHeader();
+      memcpy(&response.d_cleartextDH, dh, sizeof(response.d_cleartextDH));
+    }
     response.d_idstate = std::move(ids);
     response.d_streamID = streamID;
-    response.d_idstate.origID = dh->id;
+    response.d_idstate.origID = queryID;
     response.d_idstate.selfGenerated = true;
     response.d_idstate.cs = d_ci.cs;
     response.d_buffer = std::move(query);
@@ -722,7 +739,7 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
     return QueryProcessingResult::NoBackend;
   }
 
-  dq.ids.origID = dh->id;
+  dq.ids.origID = queryID;
 
   ++d_currentQueriesCount;
 
@@ -741,6 +758,34 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
 
     ds->passCrossProtocolQuery(std::move(cpq));
     return QueryProcessingResult::Forwarded;
+  }
+  else if (!ds->isTCPOnly() && forwardViaUDPFirst()) {
+    vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", ids.qname.toLogString(), QType(ids.qtype).toString(), d_proxiedRemote.toStringWithPort(), getProtocol().toString(), query.size(), ds->getNameWithAddr());
+
+    /* we need to do this _before_ creating the cross protocol query because
+       after that the buffer will have been moved */
+    if (ds->d_config.useProxyProtocol) {
+      proxyProtocolPayload = getProxyProtocolPayload(dq);
+    }
+
+    {
+      // if there was no EDNS, we add it with a large buffer size
+      // so we can use UDP to talk to the backend.
+      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(query.data()));
+      if (!dh->arcount) {
+        if (addEDNS(query, 4096, false, 4096, 0)) {
+          dq.ids.ednsAdded = true;
+        }
+      }
+    }
+
+    auto unit = getDOHUnit(*streamID);
+    dq.ids.du = std::move(unit);
+    if (assignOutgoingUDPQueryToBackend(ds, queryID, dq, query)) {
+      return QueryProcessingResult::Forwarded;
+    }
+    restoreDOHUnit(std::move(dq.ids.du));
+    // fallback to the normal flow
   }
 
   prependSizeToTCPQuery(query, 0);
@@ -1074,11 +1119,10 @@ void IncomingTCPConnectionState::handleIO()
   while ((iostate == IOState::NeedRead || iostate == IOState::NeedWrite) && !d_lastIOBlocked);
 }
 
-void IncomingTCPConnectionState::notifyIOError(InternalQueryState&& query, const struct timeval& now)
+void IncomingTCPConnectionState::notifyIOError(const struct timeval& now, TCPResponse&& response)
 {
   if (std::this_thread::get_id() != d_creatorThreadID) {
     /* empty buffer will signal an IO error */
-    TCPResponse response(PacketBuffer(), std::move(query), nullptr, nullptr);
     handleCrossProtocolResponse(now, std::move(response));
     return;
   }
@@ -1161,12 +1205,10 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
   gettimeofday(&now, nullptr);
 
   if (citmp->cs->dohFrontend) {
-    cerr<<"creating an IncomingHTTP2Connection"<<endl;
     auto state = std::make_shared<IncomingHTTP2Connection>(std::move(*citmp), *threadData, now);
     state->handleIO();
   }
   else {
-    cerr<<"creating an IncomingTCPConnectionState"<<endl;
     auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*citmp), *threadData, now);
     state->handleIO();
   }
@@ -1207,7 +1249,7 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
     downstream->queueQuery(tqs, std::move(query));
   }
   catch (...) {
-    tqs->notifyIOError(std::move(query.d_idstate), now);
+    tqs->notifyIOError(now, std::move(query));
   }
 }
 
@@ -1231,7 +1273,7 @@ static void handleCrossProtocolResponse(int pipefd, FDMultiplexer::funcparam_t& 
 
   try {
     if (response.d_response.d_buffer.empty()) {
-      response.d_state->notifyIOError(std::move(response.d_response.d_idstate), response.d_now);
+      response.d_state->notifyIOError(response.d_now, std::move(response.d_response));
     }
     else if (response.d_response.d_idstate.qtype == QType::AXFR || response.d_response.d_idstate.qtype == QType::IXFR) {
       response.d_state->handleXFRResponse(response.d_now, std::move(response.d_response));

@@ -433,7 +433,8 @@ void TCPConnectionToBackend::handleIO(std::shared_ptr<TCPConnectionToBackend>& c
                 /* this one can't be restarted, sorry */
                 DEBUGLOG("A XFR for which a response has already been sent cannot be restarted");
                 try {
-                  pending.second.d_sender->notifyIOError(std::move(pending.second.d_query.d_idstate), now);
+                  TCPResponse response(std::move(pending.second.d_query));
+                  pending.second.d_sender->notifyIOError(now, std::move(response));
                 }
                 catch (const std::exception& e) {
                   vinfolog("Got an exception while notifying: %s", e.what());
@@ -608,7 +609,8 @@ void TCPConnectionToBackend::notifyAllQueriesFailed(const struct timeval& now, F
       increaseCounters(d_currentQuery.d_query.d_idstate.cs);
       auto sender = d_currentQuery.d_sender;
       if (sender->active()) {
-        sender->notifyIOError(std::move(d_currentQuery.d_query.d_idstate), now);
+        TCPResponse response(std::move(d_currentQuery.d_query));
+        sender->notifyIOError(now, std::move(response));
       }
     }
 
@@ -616,7 +618,8 @@ void TCPConnectionToBackend::notifyAllQueriesFailed(const struct timeval& now, F
       increaseCounters(query.d_query.d_idstate.cs);
       auto sender = query.d_sender;
       if (sender->active()) {
-        sender->notifyIOError(std::move(query.d_query.d_idstate), now);
+        TCPResponse response(std::move(query.d_query));
+        sender->notifyIOError(now, std::move(response));
       }
     }
 
@@ -624,7 +627,8 @@ void TCPConnectionToBackend::notifyAllQueriesFailed(const struct timeval& now, F
       increaseCounters(response.second.d_query.d_idstate.cs);
       auto sender = response.second.d_sender;
       if (sender->active()) {
-        sender->notifyIOError(std::move(response.second.d_query.d_idstate), now);
+        TCPResponse tresp(std::move(response.second.d_query));
+        sender->notifyIOError(now, std::move(tresp));
       }
     }
   }

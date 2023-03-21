@@ -207,13 +207,13 @@ struct DOHUnitInterface
   }
 
   virtual std::string getHTTPPath() const = 0;
-  virtual std::string getHTTPHost() const = 0;
-  virtual std::string getHTTPScheme() const = 0;
   virtual std::string getHTTPQueryString() const = 0;
-  virtual std::unordered_map<std::string, std::string> getHTTPHeaders() const = 0;
+  virtual const std::string& getHTTPHost() const = 0;
+  virtual const std::string& getHTTPScheme() const = 0;
+  virtual const std::unordered_map<std::string, std::string>& getHTTPHeaders() const = 0;
   virtual void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") = 0;
   virtual void handleTimeout() = 0;
-  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state) = 0;
+  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&) = 0;
 
   static void handleTimeout(std::unique_ptr<DOHUnitInterface> unit)
   {
@@ -221,9 +221,9 @@ struct DOHUnitInterface
     unit.release();
   }
 
-  static void handleUDPResponse(std::unique_ptr<DOHUnitInterface> unit, PacketBuffer&& response, InternalQueryState&& state)
+  static void handleUDPResponse(std::unique_ptr<DOHUnitInterface> unit, PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>& ds)
   {
-    unit->handleUDPResponse(std::move(response), std::move(state));
+    unit->handleUDPResponse(std::move(response), std::move(state), ds);
     unit.release();
   }
 
@@ -276,13 +276,13 @@ struct DOHUnit : public DOHUnitInterface
   bool truncated{false};
 
   std::string getHTTPPath() const override;
-  std::string getHTTPHost() const override;
-  std::string getHTTPScheme() const override;
   std::string getHTTPQueryString() const override;
-  std::unordered_map<std::string, std::string> getHTTPHeaders() const override;
+  const std::string& getHTTPHost() const override;
+  const std::string& getHTTPScheme() const override;
+  const std::unordered_map<std::string, std::string>& getHTTPHeaders() const override;
   void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") override;
   virtual void handleTimeout() override;
-  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state) override;
+  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&) override;
 };
 
 struct CrossProtocolQuery;

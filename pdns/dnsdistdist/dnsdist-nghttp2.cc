@@ -154,8 +154,10 @@ void DoHConnectionToBackend::handleResponse(PendingRequest&& request)
       }
     }
 
-    TCPResponse response(std::move(request.d_buffer), std::move(request.d_query.d_idstate), shared_from_this(), d_ds);
-    response.d_streamID = request.d_query.d_streamID;
+    TCPResponse response(std::move(request.d_query));
+    response.d_buffer = std::move(request.d_buffer);
+    response.d_connection = shared_from_this();
+    response.d_ds = d_ds;
     request.d_sender->handleResponse(now, std::move(response));
   }
   catch (const std::exception& e) {
@@ -170,7 +172,8 @@ void DoHConnectionToBackend::handleResponseError(PendingRequest&& request, const
       d_ds->reportTimeoutOrError();
     }
 
-    request.d_sender->notifyIOError(std::move(request.d_query.d_idstate), now);
+    TCPResponse response(PacketBuffer(), std::move(request.d_query.d_idstate), nullptr, nullptr);
+    request.d_sender->notifyIOError(now, std::move(response));
   }
   catch (const std::exception& e) {
     vinfolog("Got exception while handling response for cross-protocol DoH: %s", e.what());
@@ -884,7 +887,8 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
     downstream->queueQuery(tqs, std::move(query));
   }
   catch (...) {
-    tqs->notifyIOError(std::move(query.d_idstate), now);
+    TCPResponse response(std::move(query));
+    tqs->notifyIOError(now, std::move(response));
   }
 }
 

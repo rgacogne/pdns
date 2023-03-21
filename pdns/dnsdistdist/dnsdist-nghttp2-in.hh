@@ -38,19 +38,24 @@ public:
     enum class Method : uint8_t { Unknown, Get, Post };
 
     PacketBuffer d_buffer;
+    PacketBuffer d_response;
     std::string d_path;
     std::string d_scheme;
     std::string d_host;
     std::string d_queryString;
     std::string d_sni;
+    std::string d_contentTypeOut;
     std::unique_ptr<HeadersMap> d_headers;
     size_t d_queryPos{0};
+    uint32_t d_statusCode{0};
     Method d_method{Method::Unknown};
   };
 
   IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);
   ~IncomingHTTP2Connection() = default;
   void handleIO() override;
+  void notifyIOError(const struct timeval& now, TCPResponse&& response) override;
+  void restoreContext(uint32_t streamID, PendingQuery&& context);
 
 private:
   static ssize_t send_callback(nghttp2_session* session, const uint8_t* data, size_t length, int flags, void* user_data);
@@ -63,13 +68,20 @@ private:
   static void handleReadableIOCallback(int fd, FDMultiplexer::funcparam_t& param);
   static void handleWritableIOCallback(int fd, FDMultiplexer::funcparam_t& param);
 
+  IOState sendResponse(const struct timeval& now, TCPResponse&& response) override;
+  bool forwardViaUDPFirst() const override
+  {
+    return true;
+  }
+  void restoreDOHUnit(std::unique_ptr<DOHUnitInterface>&&) override;
+  std::unique_ptr<DOHUnitInterface> getDOHUnit(uint32_t streamID) override;
+
   void stopIO();
   bool isIdle() const;
   uint32_t getConcurrentStreamsCount() const;
   void updateIO(IOState newState, FDMultiplexer::callbackfunc_t callback);
   void watchForRemoteHostClosingConnection();
   void handleIOError();
-  IOState sendResponse(const struct timeval& now, TCPResponse&& response) override;
   bool sendResponse(StreamID streamID, uint16_t responseCode, const HeadersMap& customResponseHeaders, const std::string& contentType = "", bool addContentType = true);
   void handleIncomingQuery(PendingQuery&& query, StreamID streamID);
   bool checkALPN();

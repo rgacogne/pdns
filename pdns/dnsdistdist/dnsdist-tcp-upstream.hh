@@ -134,7 +134,7 @@ public:
   QueryProcessingResult handleQuery(PacketBuffer&& query, const struct timeval& now, std::optional<int32_t> streamID);
   void handleResponse(const struct timeval& now, TCPResponse&& response) override;
   void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override;
-  void notifyIOError(InternalQueryState&& query, const struct timeval& now) override;
+  virtual void notifyIOError(const struct timeval& now, TCPResponse&& response) override;
 
   virtual IOState sendResponse(const struct timeval& now, TCPResponse&& response);
   void handleResponseSent(TCPResponse& currentResponse);
@@ -149,6 +149,18 @@ public:
   bool active() const override
   {
     return d_ioState != nullptr;
+  }
+  virtual bool forwardViaUDPFirst() const
+  {
+    return false;
+  }
+  virtual std::unique_ptr<DOHUnitInterface> getDOHUnit(uint32_t streamID)
+  {
+    throw std::runtime_error("Getting a DOHUnit state from a generic TCP/DoT connection is not supported");
+  }
+  virtual void restoreDOHUnit(std::unique_ptr<DOHUnitInterface>&&)
+  {
+    throw std::runtime_error("Restoring a DOHUnit state to a generic TCP/DoT connection is not supported");
   }
 
   std::string toString() const
