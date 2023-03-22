@@ -1547,14 +1547,9 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint1
   bool doh = dq.ids.du != nullptr;
 
   bool failed = false;
-  size_t proxyPayloadSize = 0;
   if (ds->d_config.useProxyProtocol) {
     try {
-      if (addProxyProtocol(dq, &proxyPayloadSize)) {
-        if (dq.ids.du) {
-          dq.ids.du->proxyProtocolPayloadSize = proxyPayloadSize;
-        }
-      }
+      addProxyProtocol(dq, &dq.ids.d_proxyProtocolPayloadSize);
     }
     catch (const std::exception& e) {
       vinfolog("Adding proxy protocol payload to %s query from %s failed: %s", (dq.ids.du ? "DoH" : ""), dq.ids.origDest.toStringWithPort(), e.what());
@@ -1572,7 +1567,7 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint1
 
     auto idOffset = ds->saveState(std::move(dq.ids));
     /* set the correct ID */
-    memcpy(query.data() + proxyPayloadSize, &idOffset, sizeof(idOffset));
+    memcpy(query.data() + dq.ids.d_proxyProtocolPayloadSize, &idOffset, sizeof(idOffset));
 
     /* you can't touch ids or du after this line, unless the call returned a non-negative value,
        because it might already have been freed */

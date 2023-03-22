@@ -57,7 +57,6 @@ class TestDOH(DNSDistDOHTest):
     addAction("http-lua.doh.tests.powerdns.com.", LuaAction(dohHandler))
     """
     _config_params = ['_testServerPort', '_dohServerPort', '_serverCert', '_serverKey', '_serverName', '_dohServerPort']
-    _verboseMode = True
 
     def testDOHSimple(self):
         """
@@ -1113,7 +1112,7 @@ class TestDOHForwardedFor(DNSDistDOHTest):
         (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert, useQueue=False, rawResponse=True, customHeaders=['x-forwarded-for: 127.0.0.1:42, 127.0.0.1'])
 
         self.assertEqual(self._rcode, 403)
-        self.assertEqual(receivedResponse, b'dns query not allowed because of ACL')
+        self.assertEqual(receivedResponse, b'DoH query not allowed because of ACL')
 
 class TestDOHForwardedForNoTrusted(DNSDistDOHTest):
 
@@ -1127,7 +1126,7 @@ class TestDOHForwardedForNoTrusted(DNSDistDOHTest):
     newServer{address="127.0.0.1:%s"}
 
     setACL('192.0.2.1/32')
-    addDOHLocal("127.0.0.1:%s", "%s", "%s", { "/" })
+    addDOHLocal("127.0.0.1:%s", "%s", "%s", { "/" }, {earlyACLDrop=true})
     """
     _config_params = ['_testServerPort', '_dohServerPort', '_serverCert', '_serverKey']
 
@@ -1148,10 +1147,16 @@ class TestDOHForwardedForNoTrusted(DNSDistDOHTest):
                                     '127.0.0.1')
         response.answer.append(rrset)
 
-        (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert, useQueue=False, rawResponse=True, customHeaders=['x-forwarded-for: 192.0.2.1:4200'])
+        dropped = False
+        try:
+            (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert, useQueue=False, rawResponse=True, customHeaders=['x-forwarded-for: 192.0.2.1:4200'])
+        
+            self.assertEqual(self._rcode, 403)
+            self.assertEqual(receivedResponse, b'DoH query not allowed because of ACL')
+        except pycurl.error as e:
+            dropped = True
 
-        self.assertEqual(self._rcode, 403)
-        self.assertEqual(receivedResponse, b'dns query not allowed because of ACL')
+        self.assertTrue(dropped)
 
 class TestDOHFrontendLimits(DNSDistDOHTest):
 

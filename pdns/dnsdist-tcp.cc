@@ -244,7 +244,8 @@ bool IncomingTCPConnectionState::canAcceptNewQueries(const struct timeval& now)
     return false;
   }
 
-  if (d_currentQueriesCount >= d_ci.cs->d_maxInFlightQueriesPerConn) {
+  // for DoH, this is already handled by the underlying library
+  if (!d_ci.cs->dohFrontend && d_currentQueriesCount >= d_ci.cs->d_maxInFlightQueriesPerConn) {
     DEBUGLOG("not accepting new queries because we already have "<<d_currentQueriesCount<<" out of "<<d_ci.cs->d_maxInFlightQueriesPerConn);
     return false;
   }
@@ -540,7 +541,6 @@ class TCPCrossProtocolQuery : public CrossProtocolQuery
 public:
   TCPCrossProtocolQuery(PacketBuffer&& buffer, InternalQueryState&& ids, std::shared_ptr<DownstreamState> ds, std::shared_ptr<IncomingTCPConnectionState> sender): CrossProtocolQuery(InternalQuery(std::move(buffer), std::move(ids)), ds), d_sender(std::move(sender))
   {
-    proxyProtocolPayloadSize = 0;
   }
 
   ~TCPCrossProtocolQuery()
@@ -571,6 +571,11 @@ public:
 private:
   std::shared_ptr<IncomingTCPConnectionState> d_sender;
 };
+
+std::unique_ptr<CrossProtocolQuery> IncomingTCPConnectionState::getCrossProtocolQuery(PacketBuffer&& query, InternalQueryState&& state, const std::shared_ptr<DownstreamState>& ds)
+{
+  return std::make_unique<TCPCrossProtocolQuery>(std::move(query), std::move(state), ds, shared_from_this());
+}
 
 std::unique_ptr<CrossProtocolQuery> getTCPCrossProtocolQueryFromDQ(DNSQuestion& dq)
 {
@@ -637,6 +642,9 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   ids.origRemote = d_proxiedRemote;
   ids.cs = d_ci.cs;
   ids.queryRealTime.start();
+  if (streamID) {
+    ids.d_streamID = *streamID;
+  }
 
   auto dnsCryptResponse = checkDNSCryptQuery(*d_ci.cs, query, ids.dnsCryptQuery, ids.queryRealTime.d_start.tv_sec, true);
   if (dnsCryptResponse) {
@@ -660,7 +668,6 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
       dh->qr = true;
       response.d_idstate.selfGenerated = true;
       response.d_buffer = std::move(query);
-      response.d_streamID = streamID;
       d_state = IncomingTCPConnectionState::State::idle;
       ++d_currentQueriesCount;
       queueResponse(state, now, std::move(response));
@@ -688,6 +695,17 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
 
   if (dq.ids.qtype == QType::AXFR || dq.ids.qtype == QType::IXFR) {
     dq.ids.skipCache = true;
+  }
+
+  if (forwardViaUDPFirst()) {
+    // if there was no EDNS, we add it with a large buffer size
+    // so we can use UDP to talk to the backend.
+    auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(query.data()));
+    if (!dh->arcount) {
+      if (addEDNS(query, 4096, false, 4096, 0)) {
+        dq.ids.ednsAdded = true;
+      }
+    }
   }
 
   if (streamID) {
@@ -723,7 +741,6 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
       memcpy(&response.d_cleartextDH, dh, sizeof(response.d_cleartextDH));
     }
     response.d_idstate = std::move(ids);
-    response.d_streamID = streamID;
     response.d_idstate.origID = queryID;
     response.d_idstate.selfGenerated = true;
     response.d_idstate.cs = d_ci.cs;
@@ -760,27 +777,15 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
     return QueryProcessingResult::Forwarded;
   }
   else if (!ds->isTCPOnly() && forwardViaUDPFirst()) {
-    vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", ids.qname.toLogString(), QType(ids.qtype).toString(), d_proxiedRemote.toStringWithPort(), getProtocol().toString(), query.size(), ds->getNameWithAddr());
-
     /* we need to do this _before_ creating the cross protocol query because
        after that the buffer will have been moved */
     if (ds->d_config.useProxyProtocol) {
       proxyProtocolPayload = getProxyProtocolPayload(dq);
     }
 
-    {
-      // if there was no EDNS, we add it with a large buffer size
-      // so we can use UDP to talk to the backend.
-      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(query.data()));
-      if (!dh->arcount) {
-        if (addEDNS(query, 4096, false, 4096, 0)) {
-          dq.ids.ednsAdded = true;
-        }
-      }
-    }
-
     auto unit = getDOHUnit(*streamID);
     dq.ids.du = std::move(unit);
+    dq.ids.d_packet = std::make_unique<PacketBuffer>(query);
     if (assignOutgoingUDPQueryToBackend(ds, queryID, dq, query)) {
       return QueryProcessingResult::Forwarded;
     }
@@ -807,7 +812,6 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
 
   TCPQuery tcpquery(std::move(query), std::move(ids));
   tcpquery.d_proxyProtocolPayload = std::move(proxyProtocolPayload);
-  tcpquery.d_streamID = streamID;
 
   vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", tcpquery.d_idstate.qname.toLogString(), QType(tcpquery.d_idstate.qtype).toString(), d_proxiedRemote.toStringWithPort(), getProtocol().toString(), tcpquery.d_buffer.size(), ds->getNameWithAddr());
   std::shared_ptr<TCPQuerySender> incoming = state;
@@ -1236,13 +1240,11 @@ static void handleCrossProtocolQuery(int pipefd, FDMultiplexer::funcparam_t& par
   std::shared_ptr<TCPQuerySender> tqs = cpq->getTCPQuerySender();
   auto query = std::move(cpq->query);
   auto downstreamServer = std::move(cpq->downstream);
-  auto proxyProtocolPayloadSize = cpq->proxyProtocolPayloadSize;
 
   try {
     auto downstream = t_downstreamTCPConnectionsManager.getConnectionToDownstream(threadData->mplexer, downstreamServer, now, std::string());
 
-    prependSizeToTCPQuery(query.d_buffer, proxyProtocolPayloadSize);
-    query.d_proxyProtocolPayloadAddedSize = proxyProtocolPayloadSize;
+    prependSizeToTCPQuery(query.d_buffer, query.d_idstate.d_proxyProtocolPayloadSize);
 
     vinfolog("Got query for %s|%s from %s (%s, %d bytes), relayed to %s", query.d_idstate.qname.toLogString(), QType(query.d_idstate.qtype).toString(), query.d_idstate.origRemote.toStringWithPort(), query.d_idstate.protocol.toString(), query.d_buffer.size(), downstreamServer->getNameWithAddr());
 
@@ -1432,7 +1434,8 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
 {
   auto& cs = param.cs;
   auto& acl = param.acl;
-  int socket = param.socket;
+  const bool checkACL = !cs.dohFrontend || (!cs.dohFrontend->d_trustForwardedForHeader && cs.dohFrontend->d_earlyACLDrop);
+  const int socket = param.socket;
   bool tcpClientCountIncremented = false;
   ComboAddress remote;
   remote.sin4.sin_family = param.local.sin4.sin_family;
@@ -1453,7 +1456,7 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
       throw std::runtime_error((boost::format("accepting new connection on socket: %s") % stringerror()).str());
     }
 
-    if (!acl->match(remote)) {
+    if (checkACL && !acl->match(remote)) {
       ++g_stats.aclDrops;
       vinfolog("Dropped TCP connection from %s because of ACL", remote.toStringWithPort());
       return;

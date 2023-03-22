@@ -130,6 +130,8 @@ struct InternalQueryState
   ClientState* cs{nullptr}; // 8
 //  std::unique_ptr<CrossProtocolContext> crossProtocolContext; // 8
   std::unique_ptr<DOHUnitInterface> du; // 8
+  size_t d_proxyProtocolPayloadSize{0}; // 8
+  int32_t d_streamID{-1}; // 4
   uint32_t cacheKey{0}; // 4
   uint32_t cacheKeyNoECS{0}; // 4
   // DoH-only */

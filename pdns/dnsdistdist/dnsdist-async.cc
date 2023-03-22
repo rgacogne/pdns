@@ -315,7 +315,6 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     return resumeResponse(std::move(query));
   }
 
-  auto& ids = query->query.d_idstate;
   DNSQuestion dq = query->getDQ();
   LocalHolders holders;
 

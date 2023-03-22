@@ -144,11 +144,44 @@ public:
       return;
     }
 
+    cerr<<"got udp response"<<endl;
+    if (state.forwardedOverUDP) {
+      cerr<<"was over UDP"<<endl;
+      dnsheader* responseDH = reinterpret_cast<struct dnsheader*>(response.data());
+      cerr<<responseDH->tc<<" "<<(state.d_packet != nullptr)<<endl;
+      if (state.d_packet) {
+        cerr<<state.d_packet->size()<<endl;
+        cerr<<state.d_proxyProtocolPayloadSize<<endl;
+      }
+
+      if (responseDH->tc &&
+          state.d_packet &&
+          state.d_packet->size() > state.d_proxyProtocolPayloadSize &&
+          state.d_packet->size() - state.d_proxyProtocolPayloadSize > sizeof(dnsheader)) {
+        cerr<<"trying again over TCP"<<endl;
+        auto& query = *state.d_packet;
+        dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(query.data() + state.d_proxyProtocolPayloadSize);
+        /* restoring the original ID */
+        queryDH->id = state.origID;
+
+        state.forwardedOverUDP = false;
+        auto cpq = conn->getCrossProtocolQuery(std::move(query), std::move(state), ds);
+        if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
+          return;
+        }
+        else {
+          vinfolog("Unable to pass DoH query to a TCP worker thread after getting a TC response over UDP");
+          conn->restoreContext(d_streamID, std::move(d_query));
+          handleTimeout();
+          return;
+        }
+      }
+    }
+
     cerr<<"restoring context for "<<d_streamID<<endl;
     conn->restoreContext(d_streamID, std::move(d_query));
 
     TCPResponse resp(std::move(response), std::move(state), nullptr, nullptr);
-    resp.d_streamID = d_streamID;
     resp.d_ds = ds;
     struct timeval now;
     gettimeofday(&now, nullptr);
@@ -165,7 +198,6 @@ public:
     struct timeval now;
     gettimeofday(&now, nullptr);
     TCPResponse resp;
-    resp.d_streamID = d_streamID;
     conn->notifyIOError(now, std::move(resp));
   }
 
@@ -228,7 +260,7 @@ bool IncomingHTTP2Connection::checkALPN()
   if (protocols.size() == h2.size() && memcmp(protocols.data(), h2.data(), h2.size()) == 0) {
     return true;
   }
-  vinfolog("DoH connection from %s expected h2 ALPN, got %s", d_ci.remote.toStringWithPort(), std::string(protocols.begin(), protocols.end()));
+  vinfolog("DoH connection from %s expected ALPN value 'h2', got '%s'", d_ci.remote.toStringWithPort(), std::string(protocols.begin(), protocols.end()));
   return false;
 }
 
@@ -269,6 +301,7 @@ void IncomingHTTP2Connection::handleIO()
           if (!checkALPN()) {
             d_connectionDied = true;
             stopIO();
+            return;
           }
         }
 
@@ -296,6 +329,7 @@ void IncomingHTTP2Connection::handleIO()
       else if (status == ProxyProtocolResult::Error) {
         d_connectionDied = true;
         stopIO();
+        return;
       }
     }
 
@@ -332,8 +366,8 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
       if (state == IOState::Done) {
         conn->d_out.clear();
         conn->d_outPos = 0;
-        conn->stopIO();
         if (!conn->isIdle()) {
+          cerr<<__PRETTY_FUNCTION__<<": read "<<__LINE__<<endl;
           conn->updateIO(IOState::NeedRead, handleReadableIOCallback);
         }
         else {
@@ -341,6 +375,7 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
         }
       }
       else {
+        cerr<<__PRETTY_FUNCTION__<<": updateio "<<__LINE__<<endl;
         conn->updateIO(state, handleWritableIOCallback);
       }
     }
@@ -409,9 +444,9 @@ void NGHTTP2Headers::addDynamicHeader(std::vector<nghttp2_nv>& headers, const st
 
 IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResponse&& response)
 {
-  assert(response.d_streamID.has_value() == true);
+  assert(response.d_idstate.d_streamID != -1);
 //  auto context = std::unique_ptr<IncomingDoHCrossProtocolContext>(dynamic_cast<IncomingDoHCrossProtocolContext*>(response.d_idstate.du.release()));
-  auto& context = d_currentStreams.at(response.d_streamID.value());
+  auto& context = d_currentStreams.at(response.d_idstate.d_streamID);
 
   uint32_t statusCode = 200U;
   std::string contentType;
@@ -426,7 +461,7 @@ IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResp
     responseBuffer = std::move(response.d_buffer);
   }
 
-  sendResponse(response.d_streamID.value(), statusCode, d_ci.cs->dohFrontend->d_customResponseHeaders, contentType, sendContentType);
+  sendResponse(response.d_idstate.d_streamID, statusCode, d_ci.cs->dohFrontend->d_customResponseHeaders, contentType, sendContentType);
   return IOState::Done;
 }
 
@@ -438,9 +473,9 @@ void IncomingHTTP2Connection::notifyIOError(const struct timeval& now, TCPRespon
     return;
   }
 
-  assert(response.d_streamID.has_value() == true);
-  d_currentStreams.at(response.d_streamID.value()).d_buffer = std::move(response.d_buffer);
-  sendResponse(response.d_streamID.value(), 502, d_ci.cs->dohFrontend->d_customResponseHeaders);
+  assert(response.d_idstate.d_streamID == -1);
+  d_currentStreams.at(response.d_idstate.d_streamID).d_buffer = std::move(response.d_buffer);
+  sendResponse(response.d_idstate.d_streamID, 502, d_ci.cs->dohFrontend->d_customResponseHeaders);
 }
 
 bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID streamID, uint16_t responseCode, const HeadersMap& customResponseHeaders, const std::string& contentType, bool addContentType)
@@ -691,7 +726,7 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     if (!holders.acl->match(d_ci.remote)) {
       ++g_stats.aclDrops;
       vinfolog("Query from %s (DoH) dropped because of ACL", d_ci.remote.toStringWithPort());
-      handleImmediateResponse(403, "DoH query not allowed because of ACL (with X-Forwarded-For)");
+      handleImmediateResponse(403, "DoH query not allowed because of ACL");
       return;
     }
 
@@ -848,7 +883,6 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
       conn->handleIncomingQuery(std::move(stream->second), streamID);
 
       if (conn->isIdle()) {
-        conn->stopIO();
         conn->watchForRemoteHostClosingConnection();
       }
     }
@@ -881,7 +915,6 @@ int IncomingHTTP2Connection::on_stream_close_callback(nghttp2_session* session, 
   conn->d_currentStreams.erase(stream->first);
 
   if (conn->isIdle()) {
-    conn->stopIO();
     conn->watchForRemoteHostClosingConnection();
   }
 
@@ -1059,7 +1092,6 @@ void IncomingHTTP2Connection::readHTTPData()
 
       if (newState == IOState::Done) {
         if (isIdle()) {
-          stopIO();
           watchForRemoteHostClosingConnection();
           ioGuard.release();
           break;
@@ -1095,13 +1127,15 @@ void IncomingHTTP2Connection::handleWritableIOCallback(int fd, FDMultiplexer::fu
   try {
     IOState newState = conn->d_handler.tryWrite(conn->d_out, conn->d_outPos, conn->d_out.size());
     if (newState == IOState::NeedRead) {
+      cerr<<__PRETTY_FUNCTION__<<": read "<<__LINE__<<endl;
       conn->updateIO(IOState::NeedRead, handleWritableIOCallback);
     }
     else if (newState == IOState::Done) {
       conn->d_out.clear();
       conn->d_outPos = 0;
-      conn->stopIO();
+      cerr<<__PRETTY_FUNCTION__<<": stop "<<__LINE__<<endl;
       if (!conn->isIdle()) {
+        cerr<<__PRETTY_FUNCTION__<<": read "<<__LINE__<<endl;
         conn->updateIO(IOState::NeedRead, handleReadableIOCallback);
       }
       else {
