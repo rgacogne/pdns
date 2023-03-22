@@ -116,6 +116,7 @@ struct DOHFrontend
 #endif
   bool d_sendCacheControlHeaders{true};
   bool d_trustForwardedForHeader{false};
+  bool d_earlyACLDrop{true};
   /* whether we require tue query path to exactly match one of configured ones,
      or accept everything below these paths. */
   bool d_exactPathMatching{true};
@@ -185,7 +186,6 @@ struct DOHUnitInterface
 
 struct DOHUnit : public DOHUnitInterface
 {
-  size_t proxyProtocolPayloadSize{0};
   uint16_t status_code{200};
 };
 
@@ -225,7 +225,6 @@ struct DOHUnitInterface
   }
 
   std::shared_ptr<DownstreamState> downstream{nullptr};
-  size_t proxyProtocolPayloadSize{0};
 };
 
 struct DOHUnit : public DOHUnitInterface

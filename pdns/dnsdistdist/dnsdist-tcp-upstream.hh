@@ -158,6 +158,8 @@ public:
     throw std::runtime_error("Restoring a DOHUnit state to a generic TCP/DoT connection is not supported");
   }
 
+  std::unique_ptr<CrossProtocolQuery> getCrossProtocolQuery(PacketBuffer&& query, InternalQueryState&& state, const std::shared_ptr<DownstreamState>& ds);
+
   std::string toString() const
   {
     ostringstream o;

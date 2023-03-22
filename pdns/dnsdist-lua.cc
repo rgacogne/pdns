@@ -2333,6 +2333,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (getOptionalValue<std::string>(vars, "library", frontend->d_library) == 0) {
       frontend->d_library = "nghttp2";
     }
+    bool useTLS = true;
     if (certFiles && !certFiles->empty()) {
       if (!loadTLSCertificateAndKeys("addDOHLocal", frontend->d_tlsContext.d_tlsConfig.d_certKeyPairs, *certFiles, *keyFiles)) {
         return;
@@ -2341,14 +2342,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       frontend->d_tlsContext.d_addr = ComboAddress(addr, 443);
     }
     else {
-      if (frontend->d_library == "h2o") {
-        frontend->d_tlsContext.d_addr = ComboAddress(addr, 80);
-        infolog("No certificate provided for DoH endpoint %s, running in DNS over HTTP mode instead of DNS over HTTPS", frontend->d_tlsContext.d_addr.toStringWithPort());
-      }
-      else {
-        errlog("No certificate provided for DoH endpoint %s, DNS over HTTP mode is not supported with nghttp2", frontend->d_tlsContext.d_addr.toStringWithPort());
-        return;
-      }
+      frontend->d_tlsContext.d_addr = ComboAddress(addr, 80);
+      infolog("No certificate provided for DoH endpoint %s, running in DNS over HTTP mode instead of DNS over HTTPS", frontend->d_tlsContext.d_addr.toStringWithPort());
+      useTLS = false;
     }
 
     if (urls) {
@@ -2393,6 +2389,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       getOptionalValue<bool>(vars, "sendCacheControlHeaders", frontend->d_sendCacheControlHeaders);
       getOptionalValue<bool>(vars, "keepIncomingHeaders", frontend->d_keepIncomingHeaders);
       getOptionalValue<bool>(vars, "trustForwardedForHeader", frontend->d_trustForwardedForHeader);
+      getOptionalValue<bool>(vars, "earlyACLDrop", frontend->d_earlyACLDrop);
       getOptionalValue<int>(vars, "internalPipeBufferSize", frontend->d_internalPipeBufferSize);
       getOptionalValue<bool>(vars, "exactPathMatching", frontend->d_exactPathMatching);
 
@@ -2429,7 +2426,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       checkAllParametersConsumed("addDOHLocal", vars);
     }
 
-    if (frontend->d_library == "nghttp2") {
+    if (useTLS && frontend->d_library == "nghttp2") {
       if (!frontend->d_tlsContext.d_provider.empty()) {
         vinfolog("Loading TLS provider '%s'", frontend->d_tlsContext.d_provider);
       }

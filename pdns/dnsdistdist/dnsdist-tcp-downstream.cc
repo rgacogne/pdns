@@ -173,7 +173,7 @@ static uint32_t getSerialFromRawSOAContent(const std::vector<uint8_t>& raw)
 static bool getSerialFromIXFRQuery(TCPQuery& query)
 {
   try {
-    size_t proxyPayloadSize = query.d_proxyProtocolPayloadAdded ? query.d_proxyProtocolPayloadAddedSize : 0;
+    size_t proxyPayloadSize = query.d_proxyProtocolPayloadAdded ? query.d_idstate.d_proxyProtocolPayloadSize : 0;
     if (query.d_buffer.size() <= (proxyPayloadSize + sizeof(uint16_t))) {
       return false;
     }
@@ -232,24 +232,24 @@ static void prepareQueryForSending(TCPQuery& query, uint16_t id, QueryState quer
     if (query.d_proxyProtocolPayload.size() > 0 && !query.d_proxyProtocolPayloadAdded) {
       query.d_buffer.insert(query.d_buffer.begin(), query.d_proxyProtocolPayload.begin(), query.d_proxyProtocolPayload.end());
       query.d_proxyProtocolPayloadAdded = true;
-      query.d_proxyProtocolPayloadAddedSize = query.d_proxyProtocolPayload.size();
+      query.d_idstate.d_proxyProtocolPayloadSize = query.d_proxyProtocolPayload.size();
     }
   }
   else if (connectionState == ConnectionState::proxySent) {
     if (query.d_proxyProtocolPayloadAdded) {
-      if (query.d_buffer.size() < query.d_proxyProtocolPayloadAddedSize) {
+      if (query.d_buffer.size() < query.d_idstate.d_proxyProtocolPayloadSize) {
         throw std::runtime_error("Trying to remove a proxy protocol payload of size " + std::to_string(query.d_proxyProtocolPayload.size()) + " from a buffer of size " + std::to_string(query.d_buffer.size()));
       }
-      query.d_buffer.erase(query.d_buffer.begin(), query.d_buffer.begin() + query.d_proxyProtocolPayloadAddedSize);
+      query.d_buffer.erase(query.d_buffer.begin(), query.d_buffer.begin() + query.d_idstate.d_proxyProtocolPayloadSize);
       query.d_proxyProtocolPayloadAdded = false;
-      query.d_proxyProtocolPayloadAddedSize = 0;
+      query.d_idstate.d_proxyProtocolPayloadSize = 0;
     }
   }
   if (query.d_idstate.qclass == QClass::IN && query.d_idstate.qtype == QType::IXFR) {
     getSerialFromIXFRQuery(query);
   }
 
-  editPayloadID(query.d_buffer, id, query.d_proxyProtocolPayloadAdded ? query.d_proxyProtocolPayloadAddedSize : 0, true);
+  editPayloadID(query.d_buffer, id, query.d_proxyProtocolPayloadAdded ? query.d_idstate.d_proxyProtocolPayloadSize : 0, true);
 }
 
 IOState TCPConnectionToBackend::queueNextQuery(std::shared_ptr<TCPConnectionToBackend>& conn)
@@ -708,7 +708,6 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
 
   --conn->d_ds->outstanding;
   auto ids = std::move(it->second.d_query.d_idstate);
-  auto streamID = it->second.d_query.d_streamID;
   const double udiff = ids.queryRealTime.udiff();
   conn->d_ds->updateTCPLatency(udiff);
   if (d_responseBuffer.size() >= sizeof(dnsheader)) {
@@ -732,7 +731,6 @@ IOState TCPConnectionToBackend::handleResponse(std::shared_ptr<TCPConnectionToBa
     DEBUGLOG("passing response to client connection for "<<ids.qname);
     // make sure that we still exist after calling handleResponse()
     TCPResponse response(std::move(d_responseBuffer), std::move(ids), conn, conn->d_ds);
-    response.d_streamID = streamID;
     sender->handleResponse(now, std::move(response));
   }
 

@@ -397,7 +397,7 @@ static void handleResponse(DOHFrontend& df, st_h2o_req_t* req, uint16_t statusCo
         h2o_send_error_400(req, getReasonFromStatusCode(statusCode).c_str(), "invalid DNS query" , 0);
         break;
       case 403:
-        h2o_send_error_403(req, getReasonFromStatusCode(statusCode).c_str(), "dns query not allowed", 0);
+        h2o_send_error_403(req, getReasonFromStatusCode(statusCode).c_str(), "DoH query not allowed", 0);
         break;
       case 502:
         h2o_send_error_502(req, getReasonFromStatusCode(statusCode).c_str(), "no downstream server available", 0);
@@ -539,9 +539,8 @@ public:
        Leave it for now because we know that the onky case where the payload has been
        added is when we tried over UDP, got a TC=1 answer and retried over TCP/DoT,
        and we know the TCP/DoT code can handle it. */
-    query.d_proxyProtocolPayloadAdded = query.d_idstate.du->proxyProtocolPayloadSize > 0;
+    query.d_proxyProtocolPayloadAdded = query.d_idstate.d_proxyProtocolPayloadSize > 0;
     downstream = query.d_idstate.du->downstream;
-    proxyProtocolPayloadSize = query.d_idstate.du->proxyProtocolPayloadSize;
   }
 
   void handleInternalError()
@@ -1327,10 +1326,10 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
 
     if (!du->tcp &&
         du->truncated &&
-        du->query.size() > du->proxyProtocolPayloadSize &&
-        (du->query.size() - du->proxyProtocolPayloadSize) > sizeof(dnsheader)) {
+        du->query.size() > du->ids.d_proxyProtocolPayloadSize &&
+        (du->query.size() - du->ids.d_proxyProtocolPayloadSize) > sizeof(dnsheader)) {
       /* restoring the original ID */
-      dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(du->query.data() + du->proxyProtocolPayloadSize);
+      dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(du->query.data() + du->ids.d_proxyProtocolPayloadSize);
       queryDH->id = du->ids.origID;
       du->ids.forwardedOverUDP = false;
       du->tcp = true;
@@ -1385,6 +1384,13 @@ static void on_accept(h2o_socket_t *listener, const char *err)
     h2o_socket_close(sock);
     return;
   }
+
+  if (dsc->df->d_earlyACLDrop && !dsc->df->d_trustForwardedForHeader && !dsc->holders.acl->match(remote)) {
+      ++g_stats.aclDrops;
+      vinfolog("Dropping DoH connection from %s because of ACL", remote.toStringWithPort());
+      h2o_socket_close(sock);
+      return;
+    }
 
   if (!dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote)) {
     vinfolog("Dropping DoH connection from %s because we have too many from this client already", remote.toStringWithPort());
@@ -1604,7 +1610,7 @@ void DOHFrontend::reloadCertificates()
 
 void DOHFrontend::setup()
 {
-  if (d_library == "nghttp2") {
+  if (d_library == "nghttp2" && isHTTPS()) {
     if (!d_tlsContext.setupTLS()) {
       throw std::runtime_error("Error setting up TLS context for DoH listener on '" + d_tlsContext.d_addr.toStringWithPort());
     }
