@@ -1192,7 +1192,7 @@ class TestDOHFrontendLimits(DNSDistDOHTest):
 
         for idx in range(self._maxTCPConnsPerDOHFrontend + 1):
             try:
-                conns.append(self.openTLSConnection(self._dohServerPort, self._serverName, self._caCert))
+                conns.append(self.openTLSConnection(self._dohServerPort, self._serverName, self._caCert, alpn=['h2']))
             except:
                 conns.append(None)
 

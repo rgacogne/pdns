@@ -1556,6 +1556,10 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& ds, uint1
     }
   }
 
+  if (doh && !dq.ids.d_packet) {
+    dq.ids.d_packet = std::make_unique<PacketBuffer>(query);
+  }
+
   try {
     int fd = ds->pickSocketForSending();
     dq.ids.backendFD = fd;

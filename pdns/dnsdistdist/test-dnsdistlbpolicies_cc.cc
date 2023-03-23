@@ -66,7 +66,6 @@ std::string DOHUnit::getHTTPQueryString() const
 void DOHUnit::setHTTPResponse(uint16_t statusCode, PacketBuffer&& body_, const std::string& contentType_)
 {
 }
-#endif /* HAVE_DNS_OVER_HTTPS */
 
 void DOHUnit::handleTimeout()
 {
@@ -75,6 +74,8 @@ void DOHUnit::handleTimeout()
 void DOHUnit::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, const std::shared_ptr<DownstreamState>&)
 {
 }
+
+#endif /* HAVE_DNS_OVER_HTTPS */
 
 bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>&, uint16_t, DNSQuestion&, PacketBuffer&)
 {
