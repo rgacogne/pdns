@@ -256,7 +256,7 @@ void IncomingTCPConnectionState::handleResponseSent(TCPResponse& currentResponse
     vinfolog("Got answer from %s, relayed to %s (%s, %d bytes), took %f usec", ds->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), getProtocol().toString(), currentResponse.d_buffer.size(), udiff);
 
     auto backendProtocol = ds->getProtocol();
-    if (backendProtocol == dnsdist::Protocol::DoUDP) {
+    if (backendProtocol == dnsdist::Protocol::DoUDP && !currentResponse.d_idstate.forwardedOverUDP) {
       backendProtocol = dnsdist::Protocol::DoTCP;
     }
     ::handleResponseSent(ids, udiff, d_ci.remote, ds->d_config.remote, static_cast<unsigned int>(currentResponse.d_buffer.size()), currentResponse.d_cleartextDH, backendProtocol, true);
@@ -764,7 +764,6 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   if (streamID) {
     auto unit = getDOHUnit(*streamID);
     dq.ids.du = std::move(unit);
-    dq.ids.d_packet = std::make_unique<PacketBuffer>(query);
   }
 
   std::shared_ptr<DownstreamState> ds;
@@ -834,12 +833,6 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
     return QueryProcessingResult::Forwarded;
   }
   else if (!ds->isTCPOnly() && forwardViaUDPFirst()) {
-    /* we need to do this _before_ creating the cross protocol query because
-       after that the buffer will have been moved */
-    if (ds->d_config.useProxyProtocol) {
-      proxyProtocolPayload = getProxyProtocolPayload(dq);
-    }
-
     auto unit = getDOHUnit(*streamID);
     dq.ids.du = std::move(unit);
     if (assignOutgoingUDPQueryToBackend(ds, queryID, dq, query)) {
@@ -1271,8 +1264,10 @@ static void handleIncomingTCPQuery(int pipefd, FDMultiplexer::funcparam_t& param
     gettimeofday(&now, nullptr);
 
     if (citmp->cs->dohFrontend) {
+#ifdef HAVE_NGHTTP2
       auto state = std::make_shared<IncomingHTTP2Connection>(std::move(*citmp), *threadData, now);
       state->handleIO();
+#endif /* HAVE_NGHTTP2 */
     }
     else {
       auto state = std::make_shared<IncomingTCPConnectionState>(std::move(*citmp), *threadData, now);

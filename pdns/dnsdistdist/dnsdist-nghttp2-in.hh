@@ -27,7 +27,7 @@
 
 #include "dnsdist-tcp-upstream.hh"
 
-class IncomingHTTP2Connection :  public IncomingTCPConnectionState
+class IncomingHTTP2Connection : public IncomingTCPConnectionState
 {
 public:
   using StreamID = int32_t;
@@ -35,7 +35,12 @@ public:
   class PendingQuery
   {
   public:
-    enum class Method : uint8_t { Unknown, Get, Post };
+    enum class Method : uint8_t
+    {
+      Unknown,
+      Get,
+      Post
+    };
 
     PacketBuffer d_buffer;
     PacketBuffer d_response;

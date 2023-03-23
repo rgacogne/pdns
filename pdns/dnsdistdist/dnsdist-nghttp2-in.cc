@@ -93,7 +93,8 @@ private:
 class IncomingDoHCrossProtocolContext : public DOHUnitInterface
 {
 public:
-  IncomingDoHCrossProtocolContext(IncomingHTTP2Connection::PendingQuery&& query, std::shared_ptr<IncomingHTTP2Connection> connection, IncomingHTTP2Connection::StreamID streamID): d_connection(connection), d_query(std::move(query)), d_streamID(streamID)
+  IncomingDoHCrossProtocolContext(IncomingHTTP2Connection::PendingQuery&& query, std::shared_ptr<IncomingHTTP2Connection> connection, IncomingHTTP2Connection::StreamID streamID) :
+    d_connection(connection), d_query(std::move(query)), d_streamID(streamID)
   {
   }
 
@@ -126,7 +127,7 @@ public:
     return *d_query.d_headers;
   }
 
-  void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") override
+  void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType = "") override
   {
     d_query.d_statusCode = statusCode;
     d_query.d_response = std::move(body);
@@ -135,15 +136,14 @@ public:
 
   void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>& ds) override
   {
+    std::unique_ptr<DOHUnitInterface> unit(this);
     auto conn = d_connection.lock();
     if (!conn) {
       /* the connection has been closed in the meantime */
       return;
     }
 
-    cerr<<"got udp response"<<endl;
-    conn->restoreContext(d_streamID, std::move(d_query));
-
+    state.du = std::move(unit);
     TCPResponse resp(std::move(response), std::move(state), nullptr, nullptr);
     resp.d_ds = ds;
     struct timeval now;
@@ -153,6 +153,7 @@ public:
 
   void handleTimeout() override
   {
+    std::unique_ptr<DOHUnitInterface> unit(this);
     auto conn = d_connection.lock();
     if (!conn) {
       /* the connection has been closed in the meantime */
@@ -161,6 +162,7 @@ public:
     struct timeval now;
     gettimeofday(&now, nullptr);
     TCPResponse resp;
+    resp.d_idstate.d_streamID = d_streamID;
     conn->notifyIOError(now, std::move(resp));
   }
 
@@ -182,14 +184,12 @@ void IncomingHTTP2Connection::handleResponse(const struct timeval& now, TCPRespo
 
   auto& state = response.d_idstate;
   if (state.forwardedOverUDP) {
-    cerr<<"was over UDP"<<endl;
     dnsheader* responseDH = reinterpret_cast<struct dnsheader*>(response.d_buffer.data());
-    cerr<<"TC: "<<responseDH->tc<<", has query "<<(state.d_packet != nullptr)<<endl;
+
     if (responseDH->tc &&
         state.d_packet &&
         state.d_packet->size() > state.d_proxyProtocolPayloadSize &&
         state.d_packet->size() - state.d_proxyProtocolPayloadSize > sizeof(dnsheader)) {
-      cerr<<"trying again over TCP"<<endl;
       auto& query = *state.d_packet;
       dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(query.data() + state.d_proxyProtocolPayloadSize);
       /* restoring the original ID */
@@ -197,6 +197,7 @@ void IncomingHTTP2Connection::handleResponse(const struct timeval& now, TCPRespo
 
       state.forwardedOverUDP = false;
       auto cpq = getCrossProtocolQuery(std::move(query), std::move(state), response.d_ds);
+      cpq->query.d_proxyProtocolPayloadAdded = state.d_proxyProtocolPayloadSize > 0;
       if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
         return;
       }
@@ -228,7 +229,8 @@ void IncomingHTTP2Connection::restoreContext(uint32_t streamID, IncomingHTTP2Con
   d_currentStreams.at(streamID) = std::move(context);
 }
 
-IncomingHTTP2Connection::IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now): IncomingTCPConnectionState(std::move(ci), threadData, now)
+IncomingHTTP2Connection::IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now) :
+  IncomingTCPConnectionState(std::move(ci), threadData, now)
 {
   nghttp2_session_callbacks* cbs = nullptr;
   if (nghttp2_session_callbacks_new(&cbs) != 0) {
@@ -267,9 +269,7 @@ bool IncomingHTTP2Connection::checkALPN()
 
 void IncomingHTTP2Connection::handleConnectionReady()
 {
-  constexpr std::array<nghttp2_settings_entry, 1> iv{
-    {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100U}
-  };
+  constexpr std::array<nghttp2_settings_entry, 1> iv{{{NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100U}}};
   auto ret = nghttp2_submit_settings(d_session.get(), NGHTTP2_FLAG_NONE, iv.data(), iv.size());
   if (ret != 0) {
     throw std::runtime_error("Fatal error: " + std::string(nghttp2_strerror(ret)));
@@ -415,7 +415,6 @@ static const std::unordered_map<std::string, std::string> s_constants{
   {"x-forwarded-proto-value-dns-over-https", "dns-over-https"},
 };
 
-
 static const std::string s_authorityHeaderName(":authority");
 static const std::string s_pathHeaderName(":path");
 static const std::string s_methodHeaderName(":method");
@@ -444,7 +443,6 @@ void NGHTTP2Headers::addDynamicHeader(std::vector<nghttp2_nv>& headers, const st
 IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResponse&& response)
 {
   assert(response.d_idstate.d_streamID != -1);
-//  auto context = std::unique_ptr<IncomingDoHCrossProtocolContext>(dynamic_cast<IncomingDoHCrossProtocolContext*>(response.d_idstate.du.release()));
   auto& context = d_currentStreams.at(response.d_idstate.d_streamID);
 
   uint32_t statusCode = 200U;
@@ -461,6 +459,8 @@ IOState IncomingHTTP2Connection::sendResponse(const struct timeval& now, TCPResp
   }
 
   sendResponse(response.d_idstate.d_streamID, statusCode, d_ci.cs->dohFrontend->d_customResponseHeaders, contentType, sendContentType);
+  handleResponseSent(response);
+
   return IOState::Done;
 }
 
@@ -601,7 +601,7 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
   const std::string contentLength = std::to_string(responseBody.size());
   NGHTTP2Headers::addDynamicHeader(headers, "content-length-name", contentLength);
 
-  for (const auto& [key, value]: customResponseHeaders) {
+  for (const auto& [key, value] : customResponseHeaders) {
     NGHTTP2Headers::addCustomDynamicHeader(headers, key, value);
   }
 
@@ -638,8 +638,7 @@ static void processForwardedForHeader(const std::unique_ptr<HeadersMap>& headers
     auto pos = value.rfind(',');
     if (pos != std::string_view::npos) {
       ++pos;
-      for (; pos < value.size() && value[pos] == ' '; ++pos)
-      {
+      for (; pos < value.size() && value[pos] == ' '; ++pos) {
       }
 
       if (pos < value.size()) {
@@ -676,8 +675,8 @@ static std::optional<PacketBuffer> getPayloadFromPath(const std::string_view& pa
 
   // need to base64url decode this
   string sdns(path.substr(pos + 5));
-  boost::replace_all(sdns,"-", "+");
-  boost::replace_all(sdns,"_", "/");
+  boost::replace_all(sdns, "-", "+");
+  boost::replace_all(sdns, "_", "/");
 
   // re-add padding that may have been missing
   switch (sdns.size() % 4) {
@@ -719,13 +718,13 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
   ++d_ci.cs->dohFrontend->d_http2Stats.d_nbQueries;
 
   if (d_ci.cs->dohFrontend->d_trustForwardedForHeader) {
-    processForwardedForHeader(query.d_headers, d_ci.remote);
+    processForwardedForHeader(query.d_headers, d_proxiedRemote);
 
     /* second ACL lookup based on the updated address */
     auto& holders = d_threadData.holders;
-    if (!holders.acl->match(d_ci.remote)) {
+    if (!holders.acl->match(d_proxiedRemote)) {
       ++g_stats.aclDrops;
-      vinfolog("Query from %s (DoH) dropped because of ACL", d_ci.remote.toStringWithPort());
+      vinfolog("Query from %s (%s) (DoH) dropped because of ACL", d_ci.remote.toStringWithPort(), d_proxiedRemote.toStringWithPort());
       handleImmediateResponse(403, "DoH query not allowed because of ACL");
       return;
     }
