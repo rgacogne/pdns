@@ -132,9 +132,9 @@ public:
   virtual void handleIO();
 
   QueryProcessingResult handleQuery(PacketBuffer&& query, const struct timeval& now, std::optional<int32_t> streamID);
-  void handleResponse(const struct timeval& now, TCPResponse&& response) override;
-  void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override;
+  virtual void handleResponse(const struct timeval& now, TCPResponse&& response) override;
   virtual void notifyIOError(const struct timeval& now, TCPResponse&& response) override;
+  void handleXFRResponse(const struct timeval& now, TCPResponse&& response) override;
 
   virtual IOState sendResponse(const struct timeval& now, TCPResponse&& response);
   void handleResponseSent(TCPResponse& currentResponse);

@@ -54,6 +54,7 @@ public:
   IncomingHTTP2Connection(ConnectionInfo&& ci, TCPClientThreadData& threadData, const struct timeval& now);
   ~IncomingHTTP2Connection() = default;
   void handleIO() override;
+  void handleResponse(const struct timeval& now, TCPResponse&& response) override;
   void notifyIOError(const struct timeval& now, TCPResponse&& response) override;
   void restoreContext(uint32_t streamID, PendingQuery&& context);
 
@@ -94,7 +95,6 @@ private:
   PacketBuffer d_out;
   PacketBuffer d_in;
   size_t d_outPos{0};
-  size_t d_inPos{0};
   bool d_connectionDied{false};
 };
 

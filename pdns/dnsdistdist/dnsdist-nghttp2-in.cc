@@ -119,13 +119,10 @@ public:
 
   const HeadersMap& getHTTPHeaders() const override
   {
-    cerr<<__PRETTY_FUNCTION__<<endl;
     if (!d_query.d_headers) {
-      cerr<<"no headers"<<endl;
       static const HeadersMap empty{};
       return empty;
     }
-    cerr<<d_query.d_headers->size()<<" headers"<<endl;
     return *d_query.d_headers;
   }
 
@@ -135,7 +132,7 @@ public:
     d_query.d_response = std::move(body);
     d_query.d_contentTypeOut = contentType;
   }
-  
+
   void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>& ds) override
   {
     auto conn = d_connection.lock();
@@ -145,40 +142,6 @@ public:
     }
 
     cerr<<"got udp response"<<endl;
-    if (state.forwardedOverUDP) {
-      cerr<<"was over UDP"<<endl;
-      dnsheader* responseDH = reinterpret_cast<struct dnsheader*>(response.data());
-      cerr<<responseDH->tc<<" "<<(state.d_packet != nullptr)<<endl;
-      if (state.d_packet) {
-        cerr<<state.d_packet->size()<<endl;
-        cerr<<state.d_proxyProtocolPayloadSize<<endl;
-      }
-
-      if (responseDH->tc &&
-          state.d_packet &&
-          state.d_packet->size() > state.d_proxyProtocolPayloadSize &&
-          state.d_packet->size() - state.d_proxyProtocolPayloadSize > sizeof(dnsheader)) {
-        cerr<<"trying again over TCP"<<endl;
-        auto& query = *state.d_packet;
-        dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(query.data() + state.d_proxyProtocolPayloadSize);
-        /* restoring the original ID */
-        queryDH->id = state.origID;
-
-        state.forwardedOverUDP = false;
-        auto cpq = conn->getCrossProtocolQuery(std::move(query), std::move(state), ds);
-        if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
-          return;
-        }
-        else {
-          vinfolog("Unable to pass DoH query to a TCP worker thread after getting a TC response over UDP");
-          conn->restoreContext(d_streamID, std::move(d_query));
-          handleTimeout();
-          return;
-        }
-      }
-    }
-
-    cerr<<"restoring context for "<<d_streamID<<endl;
     conn->restoreContext(d_streamID, std::move(d_query));
 
     TCPResponse resp(std::move(response), std::move(state), nullptr, nullptr);
@@ -209,6 +172,44 @@ public:
   IncomingHTTP2Connection::PendingQuery d_query;
   IncomingHTTP2Connection::StreamID d_streamID{-1};
 };
+
+void IncomingHTTP2Connection::handleResponse(const struct timeval& now, TCPResponse&& response)
+{
+  if (std::this_thread::get_id() != d_creatorThreadID) {
+    handleCrossProtocolResponse(now, std::move(response));
+    return;
+  }
+
+  auto& state = response.d_idstate;
+  if (state.forwardedOverUDP) {
+    cerr<<"was over UDP"<<endl;
+    dnsheader* responseDH = reinterpret_cast<struct dnsheader*>(response.d_buffer.data());
+    cerr<<"TC: "<<responseDH->tc<<", has query "<<(state.d_packet != nullptr)<<endl;
+    if (responseDH->tc &&
+        state.d_packet &&
+        state.d_packet->size() > state.d_proxyProtocolPayloadSize &&
+        state.d_packet->size() - state.d_proxyProtocolPayloadSize > sizeof(dnsheader)) {
+      cerr<<"trying again over TCP"<<endl;
+      auto& query = *state.d_packet;
+      dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(query.data() + state.d_proxyProtocolPayloadSize);
+      /* restoring the original ID */
+      queryDH->id = state.origID;
+
+      state.forwardedOverUDP = false;
+      auto cpq = getCrossProtocolQuery(std::move(query), std::move(state), response.d_ds);
+      if (g_tcpclientthreads && g_tcpclientthreads->passCrossProtocolQueryToThread(std::move(cpq))) {
+        return;
+      }
+      else {
+        vinfolog("Unable to pass DoH query to a TCP worker thread after getting a TC response over UDP");
+        notifyIOError(now, std::move(response));
+        return;
+      }
+    }
+  }
+
+  IncomingTCPConnectionState::handleResponse(now, std::move(response));
+}
 
 std::unique_ptr<DOHUnitInterface> IncomingHTTP2Connection::getDOHUnit(uint32_t streamID)
 {
@@ -367,7 +368,6 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
         conn->d_out.clear();
         conn->d_outPos = 0;
         if (!conn->isIdle()) {
-          cerr<<__PRETTY_FUNCTION__<<": read "<<__LINE__<<endl;
           conn->updateIO(IOState::NeedRead, handleReadableIOCallback);
         }
         else {
@@ -375,7 +375,6 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
         }
       }
       else {
-        cerr<<__PRETTY_FUNCTION__<<": updateio "<<__LINE__<<endl;
         conn->updateIO(state, handleWritableIOCallback);
       }
     }
@@ -469,11 +468,12 @@ void IncomingHTTP2Connection::notifyIOError(const struct timeval& now, TCPRespon
 {
   if (std::this_thread::get_id() != d_creatorThreadID) {
     /* empty buffer will signal an IO error */
+    response.d_buffer.clear();
     handleCrossProtocolResponse(now, std::move(response));
     return;
   }
 
-  assert(response.d_idstate.d_streamID == -1);
+  assert(response.d_idstate.d_streamID != -1);
   d_currentStreams.at(response.d_idstate.d_streamID).d_buffer = std::move(response.d_buffer);
   sendResponse(response.d_idstate.d_streamID, 502, d_ci.cs->dohFrontend->d_customResponseHeaders);
 }
@@ -736,26 +736,20 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
   }
 
   if (d_ci.cs->dohFrontend->d_exactPathMatching) {
-    cerr<<"exact path matching for "<<query.d_path<<endl;
     if (d_ci.cs->dohFrontend->d_urls.count(query.d_path) == 0) {
-      cerr<<"no exact path match found for "<<query.d_path<<endl;
       handleImmediateResponse(404, "there is no endpoint configured for this path");
       return;
     }
   }
   else {
-    cerr<<"NOT exact path matching"<<endl;
     bool found = false;
     for (const auto& path : d_ci.cs->dohFrontend->d_urls) {
-      cerr<<"comparing "<<query.d_path<<" against "<<path<<endl;
       if (boost::starts_with(query.d_path, path)) {
         found = true;
-        cerr<<"match!"<<endl;
         break;
       }
     }
     if (!found) {
-      cerr<<"no path found for "<<query.d_path<<endl;
       handleImmediateResponse(404, "there is no endpoint configured for this path");
       return;
     }
@@ -768,7 +762,6 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     for (const auto& entry : *responsesMap) {
       if (entry->matches(query.d_path)) {
         const auto& customHeaders = entry->getHeaders();
-        cerr<<"response size "<<entry->getContent().size();
         query.d_buffer = entry->getContent();
         if (entry->getStatusCode() >= 400 && query.d_buffer.size() >= 1) {
           // legacy trailing 0 from the h2o era
@@ -803,9 +796,7 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
   try {
     struct timeval now;
     gettimeofday(&now, nullptr);
-    cerr<<"calling handleQuery"<<endl;
     auto processingResult = handleQuery(std::move(query.d_buffer), now, streamID);
-    cerr<<"called handleQuery, got "<<(int)processingResult<<endl;
 
     switch (processingResult) {
     case QueryProcessingResult::TooSmall:
@@ -1072,18 +1063,18 @@ void IncomingHTTP2Connection::readHTTPData()
 {
   IOStateGuard ioGuard(d_ioState);
   do {
-    d_inPos = 0;
+    size_t got = 0;
     d_in.resize(d_in.size() + 512);
     try {
-      IOState newState = d_handler.tryRead(d_in, d_inPos, d_in.size(), true);
-      d_in.resize(d_inPos);
+      IOState newState = d_handler.tryRead(d_in, got, d_in.size(), true);
+      d_in.resize(got);
 
-      if (d_inPos > 0) {
+      if (got > 0) {
         /* we got something */
-        auto readlen = nghttp2_session_mem_recv(d_session.get(), d_in.data(), d_inPos);
+        auto readlen = nghttp2_session_mem_recv(d_session.get(), d_in.data(), d_in.size());
         /* as long as we don't require a pause by returning nghttp2_error.NGHTTP2_ERR_PAUSE from a CB,
            all data should be consumed before returning */
-        if (readlen < 0 || static_cast<size_t>(readlen) < d_inPos) {
+        if (readlen < 0 || static_cast<size_t>(readlen) < d_in.size()) {
           throw std::runtime_error("Fatal error while passing received data to nghttp2: " + std::string(nghttp2_strerror((int)readlen)));
         }
 
@@ -1127,15 +1118,12 @@ void IncomingHTTP2Connection::handleWritableIOCallback(int fd, FDMultiplexer::fu
   try {
     IOState newState = conn->d_handler.tryWrite(conn->d_out, conn->d_outPos, conn->d_out.size());
     if (newState == IOState::NeedRead) {
-      cerr<<__PRETTY_FUNCTION__<<": read "<<__LINE__<<endl;
       conn->updateIO(IOState::NeedRead, handleWritableIOCallback);
     }
     else if (newState == IOState::Done) {
       conn->d_out.clear();
       conn->d_outPos = 0;
-      cerr<<__PRETTY_FUNCTION__<<": stop "<<__LINE__<<endl;
       if (!conn->isIdle()) {
-        cerr<<__PRETTY_FUNCTION__<<": read "<<__LINE__<<endl;
         conn->updateIO(IOState::NeedRead, handleReadableIOCallback);
       }
       else {
