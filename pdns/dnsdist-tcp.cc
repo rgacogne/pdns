@@ -764,20 +764,24 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   if (streamID) {
     auto unit = getDOHUnit(*streamID);
     dq.ids.du = std::move(unit);
+    dq.ids.d_packet = std::make_unique<PacketBuffer>(query);
   }
+
   std::shared_ptr<DownstreamState> ds;
   auto result = processQuery(dq, d_threadData.holders, ds);
+
+  if (result == ProcessQueryResult::Asynchronous) {
+    /* we are done for now */
+    ++d_currentQueriesCount;
+    return QueryProcessingResult::Asynchronous;
+  }
+
   if (streamID) {
     restoreDOHUnit(std::move(dq.ids.du));
   }
 
   if (result == ProcessQueryResult::Drop) {
     return QueryProcessingResult::Dropped;
-  }
-  else if (result == ProcessQueryResult::Asynchronous) {
-    /* we are done for now */
-    ++d_currentQueriesCount;
-    return QueryProcessingResult::Asynchronous;
   }
 
   // the buffer might have been invalidated by now
@@ -838,7 +842,6 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
 
     auto unit = getDOHUnit(*streamID);
     dq.ids.du = std::move(unit);
-    dq.ids.d_packet = std::make_unique<PacketBuffer>(query);
     if (assignOutgoingUDPQueryToBackend(ds, queryID, dq, query)) {
       return QueryProcessingResult::Forwarded;
     }
@@ -1058,7 +1061,7 @@ void IncomingTCPConnectionState::handleIO()
           default:
             break;
           }
-          
+
           /* the state might have been updated in the meantime, we don't want to override it
              in that case */
           if (active() && d_state != IncomingTCPConnectionState::State::idle) {
@@ -1180,6 +1183,7 @@ void IncomingTCPConnectionState::notifyIOError(const struct timeval& now, TCPRes
 {
   if (std::this_thread::get_id() != d_creatorThreadID) {
     /* empty buffer will signal an IO error */
+    response.d_buffer.clear();
     handleCrossProtocolResponse(now, std::move(response));
     return;
   }
