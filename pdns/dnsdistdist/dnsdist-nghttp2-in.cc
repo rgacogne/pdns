@@ -186,10 +186,7 @@ void IncomingHTTP2Connection::handleResponse(const struct timeval& now, TCPRespo
   if (state.forwardedOverUDP) {
     dnsheader* responseDH = reinterpret_cast<struct dnsheader*>(response.d_buffer.data());
 
-    if (responseDH->tc &&
-        state.d_packet &&
-        state.d_packet->size() > state.d_proxyProtocolPayloadSize &&
-        state.d_packet->size() - state.d_proxyProtocolPayloadSize > sizeof(dnsheader)) {
+    if (responseDH->tc && state.d_packet && state.d_packet->size() > state.d_proxyProtocolPayloadSize && state.d_packet->size() - state.d_proxyProtocolPayloadSize > sizeof(dnsheader)) {
       auto& query = *state.d_packet;
       dnsheader* queryDH = reinterpret_cast<struct dnsheader*>(query.data() + state.d_proxyProtocolPayloadSize);
       /* restoring the original ID */
