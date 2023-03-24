@@ -1150,7 +1150,6 @@ class TestDOHForwardedForNoTrusted(DNSDistDOHTest):
         dropped = False
         try:
             (receivedQuery, receivedResponse) = self.sendDOHQuery(self._dohServerPort, self._serverName, self._dohBaseURL, query, response=response, caFile=self._caCert, useQueue=False, rawResponse=True, customHeaders=['x-forwarded-for: 192.0.2.1:4200'])
-        
             self.assertEqual(self._rcode, 403)
             self.assertEqual(receivedResponse, b'DoH query not allowed because of ACL')
         except pycurl.error as e:
