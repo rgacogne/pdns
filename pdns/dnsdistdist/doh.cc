@@ -1101,21 +1101,16 @@ HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& reg
 
 bool HTTPHeaderRule::matches(const DNSQuestion* dq) const
 {
-  cerr<<__PRETTY_FUNCTION__<<endl;
   if (!dq->ids.du) {
-    cerr<<__PRETTY_FUNCTION__<<" no du"<<endl;
     return false;
   }
 
   const auto& headers = dq->ids.du->getHTTPHeaders();
   for (const auto& header : headers) {
-    cerr<<__PRETTY_FUNCTION__<<" checking header "<<header.first<<" VS "<<d_header<<endl;
     if (header.first == d_header) {
-      cerr<<"match"<<endl;
       return d_regex.match(header.second);
     }
   }
-  cerr<<"no match"<<endl;
   return false;
 }
 

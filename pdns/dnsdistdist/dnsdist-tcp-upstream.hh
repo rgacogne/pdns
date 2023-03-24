@@ -139,7 +139,7 @@ public:
   virtual IOState sendResponse(const struct timeval& now, TCPResponse&& response);
   void handleResponseSent(TCPResponse& currentResponse);
   void handleHandshakeDone(const struct timeval& now);
-  ProxyProtocolResult handleProxyProtocolPayload();  
+  ProxyProtocolResult handleProxyProtocolPayload();
   void handleCrossProtocolResponse(const struct timeval& now, TCPResponse&& response);
 
   void terminateClientConnection();

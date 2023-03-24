@@ -235,7 +235,7 @@ struct DOHUnitInterface
     if (unit) {
       unit->handleUDPResponse(std::move(response), std::move(state), ds);
       unit.release();
-    }    
+    }
   }
 
   std::shared_ptr<DownstreamState> downstream{nullptr};
