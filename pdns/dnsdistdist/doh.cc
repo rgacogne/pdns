@@ -2,6 +2,7 @@
 #include "doh.hh"
 
 #ifdef HAVE_DNS_OVER_HTTPS
+#ifdef HAVE_LIBH2OEVLOOP
 #define H2O_USE_EPOLL 1
 
 #include <cerrno>
@@ -165,6 +166,8 @@ private:
   std::atomic_flag d_rotatingTicketsKey;
 };
 
+struct DOHUnit;
+
 // we create one of these per thread, and pass around a pointer to it
 // through the bowels of h2o
 struct DOHServerConfig
@@ -212,6 +215,61 @@ struct DOHServerConfig
   pdns::channel::Sender<DOHUnit> d_responseSender;
   pdns::channel::Receiver<DOHUnit> d_responseReceiver;
 };
+
+struct DOHUnit : public DOHUnitInterface
+{
+  DOHUnit(PacketBuffer&& q, std::string&& p, std::string&& h): path(std::move(p)), host(std::move(h)), query(std::move(q))
+  {
+    ids.ednsAdded = false;
+  }
+  ~DOHUnit()
+  {
+    if (self) {
+      *self = nullptr;
+    }
+  }
+
+  DOHUnit(const DOHUnit&) = delete;
+  DOHUnit& operator=(const DOHUnit&) = delete;
+
+  InternalQueryState ids;
+  std::string sni;
+  std::string path;
+  std::string scheme;
+  std::string host;
+  std::string contentType;
+  PacketBuffer query;
+  PacketBuffer response;
+  std::unique_ptr<std::unordered_map<std::string, std::string>> headers;
+  st_h2o_req_t* req{nullptr};
+  DOHUnit** self{nullptr};
+  DOHServerConfig* dsc{nullptr};
+  pdns::channel::Sender<DOHUnit>* responseSender{nullptr};
+  size_t query_at{0};
+  int rsock{-1};
+  /* the status_code is set from
+     processDOHQuery() (which is executed in
+     the DOH client thread) so that the correct
+     response can be sent in on_dnsdist(),
+     after the DOHUnit has been passed back to
+     the main DoH thread.
+  */
+  uint16_t status_code{200};
+  /* whether the query was re-sent to the backend over
+     TCP after receiving a truncated answer over UDP */
+  bool tcp{false};
+  bool truncated{false};
+
+  std::string getHTTPPath() const override;
+  std::string getHTTPQueryString() const override;
+  const std::string& getHTTPHost() const override;
+  const std::string& getHTTPScheme() const override;
+  const std::unordered_map<std::string, std::string>& getHTTPHeaders() const override;
+  void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") override;
+  virtual void handleTimeout() override;
+  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&) override;
+};
+using DOHUnitUniquePtr = std::unique_ptr<DOHUnit>;
 
 /* This internal function sends back the object to the main thread to send a reply.
    The caller should NOT release or touch the unit after calling this function */
@@ -1094,70 +1152,6 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
   }
 }
 
-HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& regex)
-  : d_header(toLower(header)), d_regex(regex), d_visual("http[" + header+ "] ~ " + regex)
-{
-}
-
-bool HTTPHeaderRule::matches(const DNSQuestion* dq) const
-{
-  if (!dq->ids.du) {
-    return false;
-  }
-
-  const auto& headers = dq->ids.du->getHTTPHeaders();
-  for (const auto& header : headers) {
-    if (header.first == d_header) {
-      return d_regex.match(header.second);
-    }
-  }
-  return false;
-}
-
-string HTTPHeaderRule::toString() const
-{
-  return d_visual;
-}
-
-HTTPPathRule::HTTPPathRule(const std::string& path)
-  :  d_path(path)
-{
-
-}
-
-bool HTTPPathRule::matches(const DNSQuestion* dq) const
-{
-  if (!dq->ids.du) {
-    return false;
-  }
-
-  const auto path = dq->ids.du->getHTTPPath();
-  return d_path == path;
-}
-
-string HTTPPathRule::toString() const
-{
-  return "url path == " + d_path;
-}
-
-HTTPPathRegexRule::HTTPPathRegexRule(const std::string& regex): d_regex(regex), d_visual("http path ~ " + regex)
-{
-}
-
-bool HTTPPathRegexRule::matches(const DNSQuestion* dq) const
-{
-  if (!dq->ids.du) {
-    return false;
-  }
-
-  return d_regex.match(dq->ids.du->getHTTPPath());
-}
-
-string HTTPPathRegexRule::toString() const
-{
-  return d_visual;
-}
-
 const std::unordered_map<std::string, std::string>& DOHUnit::getHTTPHeaders() const
 {
   if (!headers) {
@@ -1500,97 +1494,6 @@ static void setupAcceptContext(DOHAcceptContext& ctx, DOHServerConfig& dsc, bool
   ctx.d_cs = dsc.cs;
 }
 
-void DOHFrontend::rotateTicketsKey(time_t now)
-{
-  if (d_library == "nghttp2") {
-    return d_tlsContext.rotateTicketsKey(now);
-  }
-
-  if (d_dsc && d_dsc->accept_ctx) {
-    d_dsc->accept_ctx->rotateTicketsKey(now);
-  }
-}
-
-void DOHFrontend::loadTicketsKeys(const std::string& keyFile)
-{
-  if (d_library == "nghttp2") {
-    return d_tlsContext.loadTicketsKeys(keyFile);
-  }
-
-  if (d_dsc && d_dsc->accept_ctx) {
-    d_dsc->accept_ctx->loadTicketsKeys(keyFile);
-  }
-}
-
-void DOHFrontend::handleTicketsKeyRotation()
-{
-  if (d_dsc && d_dsc->accept_ctx) {
-    d_dsc->accept_ctx->handleTicketsKeyRotation();
-  }
-}
-
-std::string DOHFrontend::getNextTicketsKeyRotation() const
-{
-  if (d_library == "nghttp2") {
-    return d_tlsContext.getNextTicketsKeyRotation();
-  }
-
-  if (d_dsc && d_dsc->accept_ctx) {
-    return std::to_string(d_dsc->accept_ctx->getNextTicketsKeyRotation());
-  }
-  return 0;
-}
-
-size_t DOHFrontend::getTicketsKeysCount()
-{
-  if (d_library == "nghttp2") {
-    return d_tlsContext.getTicketsKeysCount();
-  }
-
-  size_t res = 0;
-  if (d_dsc && d_dsc->accept_ctx) {
-    res = d_dsc->accept_ctx->getTicketsKeysCount();
-  }
-  return res;
-}
-
-void DOHFrontend::reloadCertificates()
-{
-  if (d_library == "nghttp2") {
-    d_tlsContext.setupTLS();
-    return;
-  }
-
-  auto newAcceptContext = std::make_shared<DOHAcceptContext>();
-  setupAcceptContext(*newAcceptContext, *d_dsc, true);
-  std::atomic_store_explicit(&d_dsc->accept_ctx, newAcceptContext, std::memory_order_release);
-}
-
-void DOHFrontend::setup()
-{
-  if (d_library == "nghttp2" && isHTTPS()) {
-    if (!d_tlsContext.setupTLS()) {
-      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + d_tlsContext.d_addr.toStringWithPort());
-    }
-    return;
-  }
-
-  registerOpenSSLUser();
-
-  d_dsc = std::make_shared<DOHServerConfig>(d_idleTimeout, d_internalPipeBufferSize);
-
-  if  (isHTTPS()) {
-    try {
-      setupTLSContext(*d_dsc->accept_ctx,
-                      d_tlsContext.d_tlsConfig,
-                      d_tlsContext.d_tlsCounters);
-    }
-    catch (const std::runtime_error& e) {
-      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + d_tlsContext.d_addr.toStringWithPort() + "': " + e.what());
-    }
-  }
-}
-
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path, int (*on_req)(h2o_handler_t *, h2o_req_t *))
 {
   h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, path, 0);
@@ -1729,4 +1632,68 @@ void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, InternalQueryState&&
   sendDoHUnitToTheMainThread(std::move(du), "DoH response");
 }
 
-#endif /* HAVE_DNS_OVER_HTTPS */
+void H2ODOHFrontend::rotateTicketsKey(time_t now)
+{
+  if (d_dsc && d_dsc->accept_ctx) {
+    d_dsc->accept_ctx->rotateTicketsKey(now);
+  }
+}
+
+void H2ODOHFrontend::loadTicketsKeys(const std::string& keyFile)
+{
+  if (d_dsc && d_dsc->accept_ctx) {
+    d_dsc->accept_ctx->loadTicketsKeys(keyFile);
+  }
+}
+
+void H2ODOHFrontend::handleTicketsKeyRotation()
+{
+  if (d_dsc && d_dsc->accept_ctx) {
+    d_dsc->accept_ctx->handleTicketsKeyRotation();
+  }
+}
+
+std::string H2ODOHFrontend::getNextTicketsKeyRotation() const
+{
+  if (d_dsc && d_dsc->accept_ctx) {
+    return std::to_string(d_dsc->accept_ctx->getNextTicketsKeyRotation());
+  }
+  return 0;
+}
+
+size_t H2ODOHFrontend::getTicketsKeysCount()
+{
+  size_t res = 0;
+  if (d_dsc && d_dsc->accept_ctx) {
+    res = d_dsc->accept_ctx->getTicketsKeysCount();
+  }
+  return res;
+}
+
+void H2ODOHFrontend::reloadCertificates()
+{
+  auto newAcceptContext = std::make_shared<DOHAcceptContext>();
+  setupAcceptContext(*newAcceptContext, *d_dsc, true);
+  std::atomic_store_explicit(&d_dsc->accept_ctx, newAcceptContext, std::memory_order_release);
+}
+
+void H2ODOHFrontend::setup()
+{
+  registerOpenSSLUser();
+
+  d_dsc = std::make_shared<DOHServerConfig>(d_idleTimeout, d_internalPipeBufferSize);
+
+  if  (isHTTPS()) {
+    try {
+      setupTLSContext(*d_dsc->accept_ctx,
+                      d_tlsContext.d_tlsConfig,
+                      d_tlsContext.d_tlsCounters);
+    }
+    catch (const std::runtime_error& e) {
+      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + d_tlsContext.d_addr.toStringWithPort() + "': " + e.what());
+    }
+  }
+}
+
+#endif /* HAVE_LIBH2OEVLOOP */
+#endif /* HAVE_LIBH2OEVLOOP */

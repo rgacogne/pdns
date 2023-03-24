@@ -34,48 +34,10 @@ std::vector<std::unique_ptr<ClientState>> g_frontends;
 /* add stub implementations, we don't want to include the corresponding object files
    and their dependencies */
 
-#ifdef HAVE_DNS_OVER_HTTPS
-const std::unordered_map<std::string, std::string>& DOHUnit::getHTTPHeaders() const
+bool TLSFrontend::setupTLS()
 {
-  static const std::unordered_map<std::string, std::string> empty;
-  return empty;
+  return true;
 }
-
-std::string DOHUnit::getHTTPPath() const
-{
-  return "";
-}
-
-const std::string& DOHUnit::getHTTPHost() const
-{
-  static const std::string empty;
-  return empty;
-}
-
-const std::string& DOHUnit::getHTTPScheme() const
-{
-  static const std::string empty;
-  return empty;
-}
-
-std::string DOHUnit::getHTTPQueryString() const
-{
-  return "";
-}
-
-void DOHUnit::setHTTPResponse(uint16_t statusCode, PacketBuffer&& body_, const std::string& contentType_)
-{
-}
-
-void DOHUnit::handleTimeout()
-{
-}
-
-void DOHUnit::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, const std::shared_ptr<DownstreamState>&)
-{
-}
-
-#endif /* HAVE_DNS_OVER_HTTPS */
 
 std::string DNSQuestion::getTrailingData() const
 {

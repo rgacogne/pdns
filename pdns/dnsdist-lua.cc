@@ -56,6 +56,7 @@
 #include "dnsdist-web.hh"
 
 #include "base64.hh"
+#include "doh.hh"
 #include "dolog.hh"
 #include "sodcrypto.hh"
 #include "threadname.hh"
@@ -2333,6 +2334,16 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (getOptionalValue<std::string>(vars, "library", frontend->d_library) == 0) {
       frontend->d_library = "nghttp2";
     }
+    if (frontend->d_library == "h2o") {
+#ifdef HAVE_LIBH2OEVLOOP
+      frontend = std::make_shared<H2ODOHFrontend>();
+      frontend->d_library = "h2o";
+#else
+      errlog("DOH bind %s is configured to use libh2o but the library is not available", addr);
+      return;
+#endif
+    }
+
     bool useTLS = true;
     if (certFiles && !certFiles->empty()) {
       if (!loadTLSCertificateAndKeys("addDOHLocal", frontend->d_tlsContext.d_tlsConfig.d_certKeyPairs, *certFiles, *keyFiles)) {

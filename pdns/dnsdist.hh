@@ -42,7 +42,7 @@
 #include "dnsdist-lbpolicies.hh"
 #include "dnsdist-protocols.hh"
 #include "dnsname.hh"
-#include "doh.hh"
+#include "dnsdist-doh-common.hh"
 #include "ednsoptions.hh"
 #include "iputils.hh"
 #include "misc.hh"
@@ -1204,10 +1204,6 @@ struct LocalHolders
 };
 
 void tcpAcceptorThread(std::vector<ClientState*> states);
-
-#ifdef HAVE_DNS_OVER_HTTPS
-void dohThread(ClientState* cs);
-#endif /* HAVE_DNS_OVER_HTTPS */
 
 void setLuaNoSideEffect(); // if nothing has been declared, set that there are no side effects
 void setLuaSideEffect();   // set to report a side effect, cancelling all _no_ side effect calls
