@@ -77,11 +77,6 @@ void DOHUnit::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, const std:
 
 #endif /* HAVE_DNS_OVER_HTTPS */
 
-bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>&, uint16_t, DNSQuestion&, PacketBuffer&)
-{
-  return true;
-}
-
 std::string DNSQuestion::getTrailingData() const
 {
   return "";

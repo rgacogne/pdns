@@ -176,10 +176,19 @@ struct DOHFrontend
 #endif /* HAVE_DNS_OVER_HTTPS */
 };
 
+#include "dnsdist-idstate.hh"
+
 #ifndef HAVE_DNS_OVER_HTTPS
 struct DOHUnitInterface
 {
   virtual ~DOHUnitInterface()
+  {
+  }
+  static void handleTimeout(std::unique_ptr<DOHUnitInterface>)
+  {
+  }
+
+  static void handleUDPResponse(std::unique_ptr<DOHUnitInterface>, PacketBuffer&&, InternalQueryState&&, const std::shared_ptr<DownstreamState>&)
   {
   }
 };
@@ -191,8 +200,6 @@ struct DOHUnit : public DOHUnitInterface
 
 #else /* HAVE_DNS_OVER_HTTPS */
 #include <unordered_map>
-
-#include "dnsdist-idstate.hh"
 
 struct st_h2o_req_t;
 struct DownstreamState;

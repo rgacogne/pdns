@@ -25,6 +25,8 @@
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsparser.hh"
 
+#ifdef HAVE_NGHTTP2
+
 #if 0
 class IncomingDoHCrossProtocolContext : public CrossProtocolContext
 {
@@ -1209,3 +1211,4 @@ void IncomingHTTP2Connection::handleIOError()
   d_currentStreams.clear();
   stopIO();
 }
+#endif /* HAVE_NGHTTP2 */
