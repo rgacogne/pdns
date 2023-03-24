@@ -36,12 +36,12 @@ std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dq, bool
   }
 #ifdef HAVE_DNS_OVER_HTTPS
   else if (protocol == dnsdist::Protocol::DoH) {
+#ifdef HAVE_LIBH2OEVLOOP
     if (dq.ids.cs->dohFrontend->d_library == "h2o") {
       return getDoHCrossProtocolQueryFromDQ(dq, isResponse);
     }
-    else {
-      return getTCPCrossProtocolQueryFromDQ(dq);
-    }
+#endif /* HAVE_LIBH2OEVLOOP */
+    return getTCPCrossProtocolQueryFromDQ(dq);
   }
 #endif
   else {

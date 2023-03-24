@@ -35,6 +35,7 @@ std::vector<std::unique_ptr<ClientState>> g_frontends;
    and their dependencies */
 
 #ifdef HAVE_DNS_OVER_HTTPS
+#ifdef HAVE_LIBH2OEVLOOP
 const std::unordered_map<std::string, std::string>& DOHUnit::getHTTPHeaders() const
 {
   static const std::unordered_map<std::string, std::string> empty;
@@ -74,7 +75,7 @@ void DOHUnit::handleTimeout()
 void DOHUnit::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, const std::shared_ptr<DownstreamState>&)
 {
 }
-
+#endif /* HAVE_LIBH2OEVLOOP */
 #endif /* HAVE_DNS_OVER_HTTPS */
 
 std::string DNSQuestion::getTrailingData() const
