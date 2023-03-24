@@ -2434,7 +2434,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 #ifdef HAVE_LIBSSL
         const std::string provider("openssl");
 #else
-        const std::string provider("gnutls");
+          const std::string provider("gnutls");
 #endif
         vinfolog("Loading default TLS provider '%s'", provider);
       }
@@ -2658,7 +2658,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 #ifdef HAVE_LIBSSL
         const std::string provider("openssl");
 #else
-        const std::string provider("gnutls");
+          const std::string provider("gnutls");
 #endif
         vinfolog("Loading default TLS provider '%s'", provider);
       }

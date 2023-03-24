@@ -1505,8 +1505,10 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
       gettimeofday(&now, nullptr);
 
       if (ci.cs->dohFrontend) {
+#ifdef HAVE_NGHTTP2        
         auto state = std::make_shared<IncomingHTTP2Connection>(std::move(ci), *threadData, now);
         state->handleIO();
+#endif /* HAVE_NGHTTP2 */
       }
       else {
         auto state = std::make_shared<IncomingTCPConnectionState>(std::move(ci), *threadData, now);

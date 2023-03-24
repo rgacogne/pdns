@@ -22,6 +22,7 @@
 #pragma once
 
 #include "config.h"
+#include "dnscrypt.hh"
 #include "dnsname.hh"
 #include "dnsdist-protocols.hh"
 #include "gettime.hh"
