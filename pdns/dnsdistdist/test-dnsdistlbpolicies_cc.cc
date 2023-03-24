@@ -36,43 +36,43 @@ std::vector<std::unique_ptr<ClientState>> g_frontends;
 
 #ifdef HAVE_DNS_OVER_HTTPS
 #ifdef HAVE_LIBH2OEVLOOP
-const std::unordered_map<std::string, std::string>& DOHUnit::getHTTPHeaders() const
+const std::unordered_map<std::string, std::string>& DOHUnitInterface::getHTTPHeaders() const
 {
   static const std::unordered_map<std::string, std::string> empty;
   return empty;
 }
 
-std::string DOHUnit::getHTTPPath() const
+std::string DOHUnitInterface::getHTTPPath() const
 {
   return "";
 }
 
-const std::string& DOHUnit::getHTTPHost() const
+const std::string& DOHUnitInterface::getHTTPHost() const
 {
   static const std::string empty;
   return empty;
 }
 
-const std::string& DOHUnit::getHTTPScheme() const
+const std::string& DOHUnitInterface::getHTTPScheme() const
 {
   static const std::string empty;
   return empty;
 }
 
-std::string DOHUnit::getHTTPQueryString() const
+std::string DOHUnitInterface::getHTTPQueryString() const
 {
   return "";
 }
 
-void DOHUnit::setHTTPResponse(uint16_t statusCode, PacketBuffer&& body_, const std::string& contentType_)
+void DOHUnitInterface::setHTTPResponse(uint16_t statusCode, PacketBuffer&& body_, const std::string& contentType_)
 {
 }
 
-void DOHUnit::handleTimeout()
+void DOHUnitInterface::handleTimeout()
 {
 }
 
-void DOHUnit::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, const std::shared_ptr<DownstreamState>&)
+void DOHUnitInterface::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, const std::shared_ptr<DownstreamState>&)
 {
 }
 #endif /* HAVE_LIBH2OEVLOOP */

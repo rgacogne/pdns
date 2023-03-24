@@ -238,7 +238,7 @@ AS_IF([test "x$enable_dns_over_tls" != "xno" -o "x$enable_dns_over_https" != "xn
     [AC_MSG_NOTICE([OpenSSL: no])]
   )]
 )
-AS_IF([test "x$H2OEVLOOP_LIBS" != "x"],
+AS_IF([test "x$LIBH2OEVLOOP_LIBS" != "x"],
   [AC_MSG_NOTICE([h2o-evloop: yes])],
   [AC_MSG_NOTICE([h2o-evloop: no])]
 )

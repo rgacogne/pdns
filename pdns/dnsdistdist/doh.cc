@@ -59,7 +59,7 @@
 #define DOH_DEFAULT_CIPHERS "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-RSA-AES256-SHA:ECDHE-ECDSA-DES-CBC3-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:DES-CBC3-SHA:!DSS"
 
 class DOHAcceptContext
-
+{
 public:
   DOHAcceptContext()
   {
@@ -736,6 +736,17 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       queryId = ntohs(dh->id);
     }
 
+    {
+      // if there was no EDNS, we add it with a large buffer size
+      // so we can use UDP to talk to the backend.
+      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data()));
+      if (!dh->arcount) {
+        if (addEDNS(unit->query, 4096, false, 4096, 0)) {
+          ids.ednsAdded = true;
+        }
+      }
+    }
+
     auto downstream = unit->downstream;
     ids.qname = DNSName(reinterpret_cast<const char*>(unit->query.data()), unit->query.size(), sizeof(dnsheader), false, &ids.qtype, &ids.qclass);
     DNSQuestion dq(ids, unit->query);
@@ -810,17 +821,6 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
           cpq->handleInternalError();
         }
         return;
-      }
-    }
-
-    {
-      // if there was no EDNS, we add it with a large buffer size
-      // so we can use UDP to talk to the backend.
-      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data()));
-      if (!dh->arcount) {
-        if (addEDNS(unit->query, 4096, false, 4096, 0)) {
-          ids.ednsAdded = true;
-        }
       }
     }
 
@@ -1060,7 +1060,7 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
     if (!holders.acl->match(conn.d_remote)) {
       ++g_stats.aclDrops;
       vinfolog("Query from %s (DoH) dropped because of ACL", conn.d_remote.toStringWithPort());
-      h2o_send_error_403(req, "Forbidden", "dns query not allowed because of ACL", 0);
+      h2o_send_error_403(req, "Forbidden", "DoH query not allowed because of ACL", 0);
       return 0;
     }
 

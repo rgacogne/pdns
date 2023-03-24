@@ -2332,7 +2332,11 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
     auto frontend = std::make_shared<DOHFrontend>();
     if (getOptionalValue<std::string>(vars, "library", frontend->d_library) == 0) {
+#ifdef HAVE_NGHTTP2
       frontend->d_library = "nghttp2";
+#else /* HAVE_NGHTTP2 */
+      frontend->d_library = "h2o";
+#endif /* HAVE_NGHTTP2 */
     }
     if (frontend->d_library == "h2o") {
 #ifdef HAVE_LIBH2OEVLOOP
@@ -2342,6 +2346,12 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       errlog("DOH bind %s is configured to use libh2o but the library is not available", addr);
       return;
 #endif
+    }
+    else if (frontend->d_library == "nghttp2") {
+#ifndef HAVE_NGHTTP2
+      errlog("DOH bind %s is configured to use nghttp2 but the library is not available", addr);
+      return;
+#endif /* HAVE_NGHTTP2 */
     }
 
     bool useTLS = true;

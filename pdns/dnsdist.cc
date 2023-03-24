@@ -69,6 +69,7 @@
 #include "base64.hh"
 #include "capabilities.hh"
 #include "delaypipe.hh"
+#include "doh.hh"
 #include "dolog.hh"
 #include "dnsname.hh"
 #include "dnsparser.hh"
@@ -2879,7 +2880,7 @@ int main(int argc, char** argv)
 
     std::vector<ClientState*> tcpStates;
     std::vector<ClientState*> udpStates;
-    for(auto& cs : g_frontends) {
+    for (auto& cs : g_frontends) {
       if (cs->dohFrontend != nullptr && cs->dohFrontend->d_library == "h2o") {
 #ifdef HAVE_DNS_OVER_HTTPS
 #ifdef HAVE_LIBH2OEVLOOP
