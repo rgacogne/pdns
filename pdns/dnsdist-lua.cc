@@ -2353,6 +2353,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       return;
 #endif /* HAVE_NGHTTP2 */
     }
+    else {
+      errlog("DOH bind %s is configured to use an unknown library ('%s')", addr, frontend->d_library);
+      return;
+    }
 
     bool useTLS = true;
     if (certFiles && !certFiles->empty()) {
