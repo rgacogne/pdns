@@ -21,10 +21,14 @@
  */
 #pragma once
 
+#include "config.h"
+
 #ifdef HAVE_DNS_OVER_HTTPS
 #ifdef HAVE_LIBH2OEVLOOP
 
+#include <ctime>
 #include <memory>
+#include <string>
 
 struct CrossProtocolQuery;
 struct DNSQuestion;
