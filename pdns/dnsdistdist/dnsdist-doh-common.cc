@@ -24,8 +24,8 @@
 
 #ifdef HAVE_DNS_OVER_HTTPS
 
-HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& regex)
-  : d_header(toLower(header)), d_regex(regex), d_visual("http[" + header+ "] ~ " + regex)
+HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& regex) :
+  d_header(toLower(header)), d_regex(regex), d_visual("http[" + header+ "] ~ " + regex)
 {
 }
 
@@ -49,8 +49,8 @@ string HTTPHeaderRule::toString() const
   return d_visual;
 }
 
-HTTPPathRule::HTTPPathRule(const std::string& path)
-  :  d_path(path)
+HTTPPathRule::HTTPPathRule(const std::string& path) :
+  d_path(path)
 {
 
 }
@@ -70,7 +70,8 @@ string HTTPPathRule::toString() const
   return "url path == " + d_path;
 }
 
-HTTPPathRegexRule::HTTPPathRegexRule(const std::string& regex): d_regex(regex), d_visual("http path ~ " + regex)
+HTTPPathRegexRule::HTTPPathRegexRule(const std::string& regex) :
+  d_regex(regex), d_visual("http path ~ " + regex)
 {
 }
 

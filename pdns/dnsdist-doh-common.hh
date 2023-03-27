@@ -36,9 +36,10 @@ struct DOHServerConfig;
 class DOHResponseMapEntry
 {
 public:
-  DOHResponseMapEntry(const std::string& regex, uint16_t status, const PacketBuffer& content, const boost::optional<std::unordered_map<std::string, std::string>>& headers): d_regex(regex), d_customHeaders(headers), d_content(content), d_status(status)
+  DOHResponseMapEntry(const std::string& regex, uint16_t status, const PacketBuffer& content, const boost::optional<std::unordered_map<std::string, std::string>>& headers) :
+    d_regex(regex), d_customHeaders(headers), d_content(content), d_status(status)
   {
-    if (status >= 400 && !d_content.empty() && d_content.at(d_content.size() -1) != 0) {
+    if (status >= 400 && !d_content.empty() && d_content.at(d_content.size() - 1) != 0) {
       // we need to make sure it's null-terminated
       d_content.push_back(0);
     }
@@ -88,13 +89,13 @@ struct DOHFrontend
   std::unordered_map<std::string, std::string> d_customResponseHeaders;
   std::string d_library;
 
-  uint32_t d_idleTimeout{30};             // HTTP idle timeout in seconds
+  uint32_t d_idleTimeout{30}; // HTTP idle timeout in seconds
   std::set<std::string, std::less<>> d_urls;
 
-  pdns::stat_t d_httpconnects{0};   // number of TCP/IP connections established
-  pdns::stat_t d_getqueries{0};     // valid DNS queries received via GET
-  pdns::stat_t d_postqueries{0};    // valid DNS queries received via POST
-  pdns::stat_t d_badrequests{0};     // request could not be converted to dns query
+  pdns::stat_t d_httpconnects{0}; // number of TCP/IP connections established
+  pdns::stat_t d_getqueries{0}; // valid DNS queries received via GET
+  pdns::stat_t d_postqueries{0}; // valid DNS queries received via POST
+  pdns::stat_t d_badrequests{0}; // request could not be converted to dns query
   pdns::stat_t d_errorresponses{0}; // dnsdist set 'error' on response
   pdns::stat_t d_redirectresponses{0}; // dnsdist set 'redirect' on response
   pdns::stat_t d_validresponses{0}; // valid responses sent out
@@ -115,7 +116,7 @@ struct DOHFrontend
 #ifdef __linux__
   // On Linux this gives us 128k pending queries (default is 8192 queries),
   // which should be enough to deal with huge spikes
-  uint32_t d_internalPipeBufferSize{1024*1024};
+  uint32_t d_internalPipeBufferSize{1024 * 1024};
 #else
   uint32_t d_internalPipeBufferSize{0};
 #endif
@@ -211,7 +212,7 @@ struct DOHUnitInterface
   virtual const std::string& getHTTPHost() const = 0;
   virtual const std::string& getHTTPScheme() const = 0;
   virtual const std::unordered_map<std::string, std::string>& getHTTPHeaders() const = 0;
-  virtual void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") = 0;
+  virtual void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType = "") = 0;
   virtual void handleTimeout() = 0;
   virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&) = 0;
 
@@ -234,4 +235,3 @@ struct DOHUnitInterface
   std::shared_ptr<DownstreamState> downstream{nullptr};
 };
 #endif /* HAVE_DNS_OVER_HTTPS  */
-
