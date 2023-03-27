@@ -11,7 +11,7 @@ const bool TCPIOHandler::s_disableConnectForUnitTests = false;
 #include <sodium.h>
 #endif /* HAVE_LIBSODIUM */
 
-#ifdef HAVE_DNS_OVER_TLS
+#if defined(HAVE_DNS_OVER_TLS) || defined(HAVE_DNS_OVER_HTTPS)
 #ifdef HAVE_LIBSSL
 
 #include <openssl/conf.h>
@@ -1804,7 +1804,7 @@ private:
 
 #endif /* HAVE_GNUTLS */
 
-#endif /* HAVE_DNS_OVER_TLS */
+#endif /* HAVE_DNS_OVER_TLS || HAVE_DNS_OVER_HTTPS */
 
 bool setupDoTProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx)
 {
@@ -1830,7 +1830,7 @@ bool setupDoHProtocolNegotiation(std::shared_ptr<TLSCtx>& ctx)
 
 bool TLSFrontend::setupTLS()
 {
-#ifdef HAVE_DNS_OVER_TLS
+#if defined(HAVE_DNS_OVER_TLS) || defined(HAVE_DNS_OVER_HTTPS)
   std::shared_ptr<TLSCtx> newCtx{nullptr};
   /* get the "best" available provider */
 #ifdef HAVE_GNUTLS
@@ -1862,7 +1862,7 @@ bool TLSFrontend::setupTLS()
   }
 
   std::atomic_store_explicit(&d_ctx, newCtx, std::memory_order_release);
-#endif /* HAVE_DNS_OVER_TLS */
+#endif /* HAVE_DNS_OVER_TLS || HAVE_DNS_OVER_HTTPS */
   return true;
 }
 
