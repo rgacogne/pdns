@@ -739,8 +739,8 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
     ids.du = std::move(unit);
     auto result = processQuery(dq, holders, downstream);
 
-    unit = getDUFromIDS(ids);
     if (result == ProcessQueryResult::Drop) {
+      unit = getDUFromIDS(ids);
       unit->status_code = 403;
       handleImmediateResponse(std::move(unit), "DoH dropped query");
       return;
@@ -749,6 +749,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       return;
     }
     else if (result == ProcessQueryResult::SendAnswer) {
+      unit = getDUFromIDS(ids);
       if (unit->response.empty()) {
         unit->response = std::move(unit->query);
       }
@@ -761,6 +762,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       return;
     }
 
+    unit = getDUFromIDS(ids);
     if (result != ProcessQueryResult::PassToBackend) {
       unit->status_code = 500;
       handleImmediateResponse(std::move(unit), "DoH no backend available");
@@ -1479,16 +1481,17 @@ static void setupAcceptContext(DOHAcceptContext& ctx, DOHServerConfig& dsc, bool
   auto nativeCtx = ctx.get();
   nativeCtx->ctx = &dsc.h2o_ctx;
   nativeCtx->hosts = dsc.h2o_config.hosts;
-  ctx.d_ticketsKeyRotationDelay = dsc.df->d_tlsContext.d_tlsConfig.d_ticketsKeyRotationDelay;
+  auto df = std::atomic_load_explicit(&dsc.df, std::memory_order_acquire);
+  ctx.d_ticketsKeyRotationDelay = df->d_tlsContext.d_tlsConfig.d_ticketsKeyRotationDelay;
 
-  if (setupTLS && dsc.df->isHTTPS()) {
+  if (setupTLS && df->isHTTPS()) {
     try {
       setupTLSContext(ctx,
-                      dsc.df->d_tlsContext.d_tlsConfig,
-                      dsc.df->d_tlsContext.d_tlsCounters);
+                      df->d_tlsContext.d_tlsConfig,
+                      df->d_tlsContext.d_tlsCounters);
     }
     catch (const std::runtime_error& e) {
-      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + dsc.df->d_tlsContext.d_addr.toStringWithPort() + "': " + e.what());
+      throw std::runtime_error("Error setting up TLS context for DoH listener on '" + df->d_tlsContext.d_addr.toStringWithPort() + "': " + e.what());
     }
   }
   ctx.d_cs = dsc.cs;
@@ -1520,7 +1523,7 @@ void dohThread(ClientState* cs)
     std::shared_ptr<DOHFrontend>& df = cs->dohFrontend;
     auto& dsc = df->d_dsc;
     dsc->cs = cs;
-    dsc->df = cs->dohFrontend;
+    std::atomic_store_explicit(&dsc->df, cs->dohFrontend, std::memory_order_release);
     dsc->h2o_config.server_name = h2o_iovec_init(df->d_serverTokens.c_str(), df->d_serverTokens.size());
 
 #ifndef USE_SINGLE_ACCEPTOR_THREAD
