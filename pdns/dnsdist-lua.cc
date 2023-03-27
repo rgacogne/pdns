@@ -2342,10 +2342,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 #ifdef HAVE_LIBH2OEVLOOP
       frontend = std::make_shared<H2ODOHFrontend>();
       frontend->d_library = "h2o";
-#else
+#else /* HAVE_LIBH2OEVLOOP */
       errlog("DOH bind %s is configured to use libh2o but the library is not available", addr);
       return;
-#endif
+#endif /* HAVE_LIBH2OEVLOOP */
     }
     else if (frontend->d_library == "nghttp2") {
 #ifndef HAVE_NGHTTP2
@@ -2477,9 +2477,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       cs->d_tcpConcurrentConnectionsLimit = tcpMaxConcurrentConnections;
     }
     g_frontends.push_back(std::move(cs));
-#else
+#else /* HAVE_DNS_OVER_HTTPS */
       throw std::runtime_error("addDOHLocal() called but DNS over HTTPS support is not present!");
-#endif
+#endif /* HAVE_DNS_OVER_HTTPS */
   });
 
   luaCtx.writeFunction("showDOHFrontends", []() {
