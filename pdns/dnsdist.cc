@@ -2575,15 +2575,25 @@ int main(int argc, char** argv)
 #ifdef HAVE_LIBSSL
         cout<<" ";
 #endif
-#endif
+#endif /* HAVE_GNUTLS */
 #ifdef HAVE_LIBSSL
         cout<<"openssl";
 #endif
         cout<<") ";
-#endif
+#endif /* HAVE_DNS_OVER_TLS */
 #ifdef HAVE_DNS_OVER_HTTPS
-        cout<<"dns-over-https(DOH) ";
+        cout<<"dns-over-https(";
+#ifdef HAVE_LIBH2OEVLOOP
+        cout<<"h2o";
+#ifdef HAVE_NGHTTP2
+        cout<<" ";
 #endif
+#endif /* HAVE_LIBH2OEVLOOP */
+#ifdef HAVE_NGHTTP2
+        cout<<"nghttp2";
+#endif
+        cout<<") ";
+#endif /* HAVE_DNS_OVER_HTTPS */
 #ifdef HAVE_DNSCRYPT
         cout<<"dnscrypt ";
 #endif
@@ -2604,9 +2614,6 @@ int main(int argc, char** argv)
 #endif
 #ifdef HAVE_LMDB
         cout<<"lmdb ";
-#endif
-#ifdef HAVE_NGHTTP2
-        cout<<"outgoing-dns-over-https(nghttp2) ";
 #endif
 #ifndef DISABLE_PROTOBUF
         cout<<"protobuf ";
