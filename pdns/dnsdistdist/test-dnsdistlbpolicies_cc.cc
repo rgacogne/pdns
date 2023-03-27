@@ -78,6 +78,11 @@ void DOHUnitInterface::handleUDPResponse(PacketBuffer&&, InternalQueryState&&, c
 #endif /* HAVE_LIBH2OEVLOOP */
 #endif /* HAVE_DNS_OVER_HTTPS */
 
+bool TLSFrontend::setupTLS()
+{
+  return true;
+}
+
 std::string DNSQuestion::getTrailingData() const
 {
   return "";
