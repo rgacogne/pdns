@@ -151,20 +151,39 @@ static bool catalogDiff(const DomainInfo& di, vector<CatalogInfo>& fromXFR, vect
             di.backend->setOptions(ciXFR.d_zone, ciDB.toJson());
           }
 
-          if (di.masters != ciDB.d_primaries) { // update primaries
+          if (ciXFR.d_primaries.empty()) {
+            ciXFR.d_primaries = di.masters;
+          }
+          if (ciXFR.d_primaries != ciDB.d_primaries) { // update primaries
             if (doTransaction && (inTransaction = di.backend->startTransaction(di.zone))) {
               g_log << Logger::Warning << logPrefix << "backend transaction started" << endl;
               doTransaction = false;
             }
 
             vector<string> primaries;
-            for (const auto& primary : di.masters) {
+            for (const auto& primary : ciXFR.d_primaries) {
               primaries.push_back(primary.toStringWithPortExcept(53));
             }
             g_log << Logger::Warning << logPrefix << "update primaries for zone '" << ciXFR.d_zone << "' to '" << boost::join(primaries, ", ") << "'" << endl;
-            di.backend->setMasters(ciXFR.d_zone, di.masters);
+            di.backend->setMasters(ciXFR.d_zone, ciXFR.d_primaries);
 
             retrieve.emplace_back(ciXFR);
+          }
+          if (ciXFR.d_tsig != ciDB.d_tsig) {
+            if (doTransaction && (inTransaction = di.backend->startTransaction(di.zone))) {
+              g_log << Logger::Warning << logPrefix << "backend transaction started" << endl;
+              doTransaction = false;
+            }
+            di.backend->setDomainMetadataOne(ciXFR.d_zone, "AXFR-MASTER-TSIG", ciXFR.d_tsig);
+          }
+          if (ciXFR.d_acl.toString() != ciDB.d_acl.toString()) {
+            if (doTransaction && (inTransaction = di.backend->startTransaction(di.zone))) {
+              g_log << Logger::Warning << logPrefix << "backend transaction started" << endl;
+              doTransaction = false;
+            }
+            std::vector<std::string> acls;
+            ciXFR.d_acl.toStringVector(&acls);
+            di.backend->setDomainMetadata(ciXFR.d_zone, "ALLOW-AXFR-FROM", acls);
           }
         }
         else { // reset
@@ -187,6 +206,9 @@ static bool catalogDiff(const DomainInfo& di, vector<CatalogInfo>& fromXFR, vect
 
         if (di.zone != d.catalog && di.zone == ci.d_coo) {
           if (ciCreate.d_unique == ci.d_unique) {
+            std::vector<std::string> acls;
+            ciCreate.d_acl.toStringVector(&acls);
+
             g_log << Logger::Warning << logPrefix << "zone '" << d.zone << "' owner change without state reset, old catalog '" << d.catalog << "', new catalog '" << di.zone << "'" << endl;
 
             if (doTransaction && (inTransaction = di.backend->startTransaction(di.zone))) {
@@ -194,9 +216,18 @@ static bool catalogDiff(const DomainInfo& di, vector<CatalogInfo>& fromXFR, vect
               doTransaction = false;
             }
 
-            di.backend->setMasters(ciCreate.d_zone, di.masters);
+            if (ciCreate.d_primaries.empty()) {
+              ciCreate.d_primaries = di.masters;
+            }
+            di.backend->setMasters(ciCreate.d_zone, ciCreate.d_primaries);
             di.backend->setOptions(ciCreate.d_zone, ciCreate.toJson());
             di.backend->setCatalog(ciCreate.d_zone, di.zone);
+            if (!ciCreate.d_tsig.empty()) {
+              di.backend->setDomainMetadataOne(ciCreate.d_zone, "AXFR-MASTER-TSIG", ciCreate.d_tsig);
+            }
+            if (!acls.empty()) {
+              di.backend->setDomainMetadata(ciCreate.d_zone, "ALLOW-AXFR-FROM", acls);
+            }
 
             retrieve.emplace_back(ciCreate);
             continue;
@@ -231,6 +262,8 @@ static bool catalogDiff(const DomainInfo& di, vector<CatalogInfo>& fromXFR, vect
       }
 
       if (create) { // create zone
+        std::vector<std::string> acls;
+        ciCreate.d_acl.toStringVector(&acls);
         if (doTransaction && (inTransaction = di.backend->startTransaction(di.zone))) {
           g_log << Logger::Warning << logPrefix << "backend transaction started" << endl;
           doTransaction = false;
@@ -239,9 +272,18 @@ static bool catalogDiff(const DomainInfo& di, vector<CatalogInfo>& fromXFR, vect
         g_log << Logger::Warning << logPrefix << "create zone '" << ciCreate.d_zone << "'" << endl;
         di.backend->createDomain(ciCreate.d_zone, DomainInfo::Slave, ciCreate.d_primaries, "");
 
-        di.backend->setMasters(ciCreate.d_zone, di.masters);
+        if (ciCreate.d_primaries.empty()) {
+          ciCreate.d_primaries = di.masters;
+        }
+        di.backend->setMasters(ciCreate.d_zone, ciCreate.d_primaries);
         di.backend->setOptions(ciCreate.d_zone, ciCreate.toJson());
         di.backend->setCatalog(ciCreate.d_zone, di.zone);
+        if (!ciCreate.d_tsig.empty()) {
+          di.backend->setDomainMetadataOne(ciCreate.d_zone, "AXFR-MASTER-TSIG", ciCreate.d_tsig);
+        }
+        if (!acls.empty()) {
+          di.backend->setDomainMetadata(ciCreate.d_zone, "ALLOW-AXFR-FROM", acls);
+        }
 
         clearCache[ciCreate.d_zone] = true;
         retrieve.emplace_back(ciCreate);
@@ -301,6 +343,17 @@ static bool catalogDiff(const DomainInfo& di, vector<CatalogInfo>& fromXFR, vect
   }
 
   return false;
+}
+
+static NetmaskGroup getNetmaskGroupFromAPL(const APLRecordContent& apl)
+{
+  NetmaskGroup nmg;
+  for (const auto& element : apl.getElements()) {
+    auto netmask = element.getNM();
+    nmg.addMask(netmask, element.d_n);
+  }
+
+  return nmg;
 }
 
 static bool catalogProcess(const DomainInfo& di, vector<DNSResourceRecord>& rrs, string logPrefix)
@@ -398,6 +451,48 @@ static bool catalogProcess(const DomainInfo& di, vector<DNSResourceRecord>& rrs,
             content = content.substr(1, content.length() - 2);
           }
           ci.d_group.insert(content);
+        }
+        else if (rel.countLabels() > 2 && rel.isPartOf(DNSName("ext") + unique)) {
+          auto property = rel.makeRelative(DNSName("ext") + unique);
+          if (property == DNSName("primaries")) {
+            if (rr.qtype == QType::A || rr.qtype == QType::AAAA) {
+              // handle new primaries for this zone
+              ci.d_primaries.push_back(ComboAddress(rr.content, 53));
+            }
+            else if (rr.qtype == QType::TXT) {
+              // handle TSIG for this zone
+              ci.d_tsig = rr.content;
+            }
+          }
+          else if (rel == DNSName("allow-transfer")) {
+            // handle new ALLOW-AXFR-FROM for this zone
+            if (rr.qtype == QType::APL) {
+              auto apl = APLRecordContent::make(rr.content);
+              ci.d_acl = getNetmaskGroupFromAPL(*(std::dynamic_pointer_cast<const APLRecordContent>(apl)));
+            }
+          }
+        }
+      }
+    }
+    else if (rr.qname.isPartOf(DNSName("ext") + di.zone)) {
+      if (!hasVersion || hasVersion != 2) {
+        g_log << Logger::Warning << logPrefix << "zone '" << di.zone << "', catalog zone schema version missing, aborting" << endl;
+        return false;
+      }
+
+      rel = rr.qname.makeRelative(DNSName("ext") + di.zone);
+
+      if (rel == DNSName("primaries")) {
+        if (rr.qtype == QType::A || rr.qtype == QType::AAAA) {
+          // handle new primaries for all new catalog zones
+        }
+        else if (rr.qtype == QType::TXT) {
+          // handle TSIG for all new catalog zones
+        }
+      }
+      else if (rel == DNSName("allow-transfer")) {
+        if (rr.qtype == QType::APL) {
+          // handle new ALLOW-AXFR-FROM for all new zones
         }
       }
     }

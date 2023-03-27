@@ -704,6 +704,23 @@ void APLRecordContent::toPacket(DNSPacketWriter& pw) const {
   }
 }
 
+Netmask APLRDataElement::getNM() const
+{
+  ComboAddress ca;
+  if (d_family == APL_FAMILY_IPV4) { // IPv4
+    memcpy(&ca.sin4.sin_addr.s_addr, d_ip.d_ip4, sizeof(ca.sin4.sin_addr.s_addr));
+  }
+  else if (d_family == APL_FAMILY_IPV6) { // IPv6
+    ca.sin4.sin_family = AF_INET6;
+    memset(&ca.sin6.sin6_addr.s6_addr, 0, sizeof(ca.sin6.sin6_addr.s6_addr));
+    memcpy(&ca.sin6.sin6_addr.s6_addr, d_ip.d_ip6, d_afdlength);
+  } else {
+    throw MOADNSException("Asked to decode APL record but got unknown Address Family");
+  }
+
+  return Netmask(ca, d_prefix);
+}
+
 // Decode record into string
 string APLRecordContent::getZoneRepresentation(bool /* noDot */) const {
   string s_n, s_family, output;
@@ -720,28 +737,25 @@ string APLRecordContent::getZoneRepresentation(bool /* noDot */) const {
     } else {
       s_n = "";
     }
-
     if (ard->d_family == APL_FAMILY_IPV4) { // IPv4
       s_family = std::to_string(APL_FAMILY_IPV4);
-      ca = ComboAddress();
-      memcpy(&ca.sin4.sin_addr.s_addr, ard->d_ip.d_ip4, sizeof(ca.sin4.sin_addr.s_addr));
-    } else if (ard->d_family == APL_FAMILY_IPV6) { // IPv6
+    }
+    else {
       s_family = std::to_string(APL_FAMILY_IPV6);
-      ca = ComboAddress();
-      ca.sin4.sin_family = AF_INET6;
-      memset(&ca.sin6.sin6_addr.s6_addr, 0, sizeof(ca.sin6.sin6_addr.s6_addr));
-      memcpy(&ca.sin6.sin6_addr.s6_addr, ard->d_ip.d_ip6, ard->d_afdlength);
-    } else {
-      throw MOADNSException("Asked to decode APL record but got unknown Address Family");
     }
 
-    nm = Netmask(ca, ard->d_prefix);
+    nm = ard->getNM();
 
     output += s_n + s_family + ":" + nm.toString();
     if (std::next(ard) != aplrdata.end())
       output += " ";
   }
   return output;
+}
+
+const std::vector<APLRDataElement>& APLRecordContent::getElements() const
+{
+  return aplrdata;
 }
 
 /* APL end */

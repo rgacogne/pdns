@@ -74,6 +74,8 @@ public:
   DNSName d_zone, d_coo, d_unique;
   std::set<std::string> d_group;
   vector<ComboAddress> d_primaries;
+  NetmaskGroup d_acl;
+  std::string d_tsig;
 
 private:
   CatalogType d_type;

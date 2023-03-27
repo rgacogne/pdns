@@ -941,12 +941,15 @@ typedef struct s_APLRDataElement {
       uint8_t d_ip4[4];
       uint8_t d_ip6[16];
   } d_ip;
+  Netmask getNM() const;
 } APLRDataElement;
 class APLRecordContent : public DNSRecordContent
 {
 public:
   APLRecordContent() {};
   includeboilerplate(APL)
+
+  const std::vector<APLRDataElement>& getElements() const;
 private:
   std::vector<APLRDataElement> aplrdata;
   APLRDataElement parseAPLElement(const string &element);

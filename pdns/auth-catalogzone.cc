@@ -70,6 +70,36 @@ void CatalogInfo::fromJson(const std::string& json, CatalogType type)
           throw std::out_of_range("Key 'group' is not an array");
         }
       }
+      if (!items["allow-transfer"].is_null()) {
+        if (items["allow-transfer"].is_string()) {
+          if (!items["allow-transfer"].string_value().empty()) {
+            d_acl.toMasks(items["allow-transfer"].string_value());
+          }
+        }
+        else {
+          throw std::out_of_range("Key 'allow-transfer' is not a string");
+        }
+      }
+      if (!items["primaries"].is_null()) {
+        if (items["primaries"].is_array()) {
+          for (const auto& value : items["primaries"].array_items()) {
+            d_primaries.push_back(ComboAddress(value.string_value(), 53));
+          }
+        }
+        else {
+          throw std::out_of_range("Key 'primaries' is not an array");
+        }
+      }
+      if (!items["tsig"].is_null()) {
+        if (items["tsig"].is_string()) {
+          if (!items["tsig"].string_value().empty()) {
+            d_tsig = items["tsig"].string_value();
+          }
+        }
+        else {
+          throw std::out_of_range("Key 'tsig' is not a string");
+        }
+      }
     }
   }
   else {
@@ -98,6 +128,19 @@ std::string CatalogInfo::toJson() const
       entries.push_back(group);
     }
     object["group"] = entries;
+  }
+  if (!d_acl.empty()) {
+    object["allow-transfer"] = d_acl.toString();
+  }
+  if (!d_primaries.empty()) {
+    json11::Json::array entries;
+    for (const auto& primary : d_primaries) {
+      entries.push_back(primary.toString());
+    }
+    object["group"] = entries;
+  }
+  if (!d_tsig.empty()) {
+    object["tsig"] = d_tsig;
   }
   auto tmp = d_doc.object_items();
   tmp[getTypeString(d_type)] = object;
