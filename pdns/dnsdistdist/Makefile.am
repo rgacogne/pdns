@@ -179,8 +179,8 @@ dnsdist_SOURCES = \
 	dnsdist-lua-web.cc \
 	dnsdist-lua.cc dnsdist-lua.hh \
 	dnsdist-mac-address.cc dnsdist-mac-address.hh \
-	dnsdist-nghttp2.cc dnsdist-nghttp2.hh \
 	dnsdist-nghttp2-in.cc dnsdist-nghttp2-in.hh \
+	dnsdist-nghttp2.cc dnsdist-nghttp2.hh \
 	dnsdist-prometheus.hh \
 	dnsdist-protobuf.cc dnsdist-protobuf.hh \
 	dnsdist-protocols.cc dnsdist-protocols.hh \
@@ -274,8 +274,8 @@ testrunner_SOURCES = \
 	dnsdist-lua-network.cc dnsdist-lua-network.hh \
 	dnsdist-lua-vars.cc \
 	dnsdist-mac-address.cc dnsdist-mac-address.hh \
-	dnsdist-nghttp2.cc dnsdist-nghttp2.hh \
 	dnsdist-nghttp2-in.cc dnsdist-nghttp2-in.hh \
+	dnsdist-nghttp2.cc dnsdist-nghttp2.hh \
 	dnsdist-protocols.cc dnsdist-protocols.hh \
 	dnsdist-proxy-protocol.cc dnsdist-proxy-protocol.hh \
 	dnsdist-random.cc dnsdist-random.hh \
