@@ -773,20 +773,32 @@ int TCPNameserver::doAXFR(const DNSName &target, std::unique_ptr<DNSPacket>& q, 
 
   // Catalog zone start
   if (di.kind == DomainInfo::Producer) {
-    // Ignore all records except NS at apex
-    sd.db->lookup(QType::NS, target, di.id);
+    const DNSName customPropertiesSuffix = DNSName("ext") + target;
+
+    /* make sure the record containing the version is added first, in case the consumer is picky */
+    zrrs.insert(zrrs.begin(), CatalogInfo::getCatalogVersionRecord(target));
+
+    sd.db->list(target, di.id);
     while (sd.db->get(zrr)) {
-      zrrs.emplace_back(zrr);
+      // Ignore all records except:
+      // 1. NS at apex
+      if (zrr.dr.d_name == target && zrr.dr.d_type == QType::NS) {
+        zrrs.emplace_back(zrr);
+      }
+      // 2. Custom properties
+      else if (zrr.dr.d_name.isPartOf(customPropertiesSuffix)) {
+        zrrs.emplace_back(zrr);
+      }
     }
-    if (zrrs.empty()) {
+
+    /* if we only have the version record, synthesize a NS record */
+    if (zrrs.size() == 1) {
       zrr.dr.d_name = target;
       zrr.dr.d_ttl = 0;
       zrr.dr.d_type = QType::NS;
       zrr.dr.setContent(std::make_shared<NSRecordContent>("invalid."));
       zrrs.emplace_back(zrr);
     }
-
-    zrrs.emplace_back(CatalogInfo::getCatalogVersionRecord(target));
 
     vector<CatalogInfo> members;
     sd.db->getCatalogMembers(target, members, CatalogInfo::CatalogType::Producer);
