@@ -509,13 +509,14 @@ bool TCPNameserver::canDoAXFR(std::unique_ptr<DNSPacket>& q, bool isAXFR, std::u
 
   // cerr<<"doing per-zone-axfr-acls"<<endl;
   SOAData sd;
+  NetmaskGroup aclNMG;
   if(packetHandler->getBackend()->getSOAUncached(q->qdomain,sd)) {
     // cerr<<"got backend and SOA"<<endl;
     vector<string> acl;
     packetHandler->getBackend()->getDomainMetadata(q->qdomain, "ALLOW-AXFR-FROM", acl);
     for (const auto & i : acl) {
       // cerr<<"matching against "<<*i<<endl;
-      if(pdns_iequals(i, "AUTO-NS")) {
+      if (pdns_iequals(i, "AUTO-NS")) {
         // cerr<<"AUTO-NS magic please!"<<endl;
 
         DNSResourceRecord rr;
@@ -538,16 +539,14 @@ bool TCPNameserver::canDoAXFR(std::unique_ptr<DNSPacket>& q, bool isAXFR, std::u
           }
         }
       }
-      else
-      {
-        Netmask nm = Netmask(i);
-        if(nm.match( q->getInnerRemote() ))
-        {
-          g_log<<Logger::Notice<<logPrefix<<"allowed: client IP is in per-zone ACL"<<endl;
-          // cerr<<"hit!"<<endl;
-          return true;
-        }
+      else {
+        aclNMG.addMask(i);
       }
+    }
+    if (!aclNMG.empty() && aclNMG.match(q->getInnerRemote())) {
+      g_log<<Logger::Notice<<logPrefix<<"allowed: client IP is in per-zone ACL"<<endl;
+      // cerr<<"hit!"<<endl;
+      return true;
     }
   }
 

@@ -40,10 +40,17 @@ The option SOA-EDIT-API can not be written or read via the HTTP API metadata end
 ALLOW-AXFR-FROM
 ---------------
 
+.. versionchanged:: 4.8.0
+
+   Exclusions are now supported.
+
 Per-zone AXFR ACLs can be stored in the domainmetadata table.
 
 Each ACL specifies one subnet (v4 or v6), or the magical value 'AUTO-NS'
 that tries to allow all potential slaves in.
+Since 4.8.0 exclusions are also supported by prefixing the subnet with a
+``!`` so one can allow a whole range except for a specific IP, for example,
+using two entries: ``2001:db8::/48`` and `!2001:db8::1/128`.
 
 Example:
 
