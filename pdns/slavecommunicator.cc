@@ -368,7 +368,33 @@ static bool catalogProcess(const DomainInfo& di, vector<DNSResourceRecord>& rrs,
   bool zoneInvalid{false};
   int hasVersion{0};
 
+  /* check which version we are dealing with first,
+     as custom properties get sorted before the version */
+  const auto versionName = DNSName("version") + di.zone;
+  for (const auto& rr : rrs) {
+    if (rr.qname == versionName && rr.qtype == QType::TXT) {
+      if (hasVersion) {
+        g_log << Logger::Warning << logPrefix << "zone '" << di.zone << "', multiple version records found, aborting" << endl;
+        return false;
+      }
+
+      if (rr.content == "\"1\"") {
+        hasVersion = 1;
+      }
+      else if (rr.content == "\"2\"") {
+        hasVersion = 2;
+      }
+      else {
+        g_log << Logger::Warning << logPrefix << "zone '" << di.zone << "', unsupported catalog zone schema version " << rr.content << ", aborting" << endl;
+        return false;
+      }
+    }
+  }
+
   CatalogInfo ci;
+  std::optional<vector<ComboAddress>> defaultPrimaries{std::nullopt};
+  std::optional<NetmaskGroup> defaultAcl{std::nullopt};
+  std::optional<std::string> defaultTsig{std::nullopt};
 
   vector<DNSResourceRecord> ret;
 
@@ -385,22 +411,8 @@ static bool catalogProcess(const DomainInfo& di, vector<DNSResourceRecord>& rrs,
       }
     }
 
-    else if (rr.qname == DNSName("version") + di.zone && rr.qtype == QType::TXT) {
-      if (hasVersion) {
-        g_log << Logger::Warning << logPrefix << "zone '" << di.zone << "', multiple version records found, aborting" << endl;
-        return false;
-      }
-
-      if (rr.content == "\"1\"") {
-        hasVersion = 1;
-      }
-      else if (rr.content == "\"2\"") {
-        hasVersion = 2;
-      }
-      else {
-        g_log << Logger::Warning << logPrefix << "zone '" << di.zone << "', unsupported catalog zone schema version " << rr.content << ", aborting" << endl;
-        return false;
-      }
+    else if (rr.qname == versionName && rr.qtype == QType::TXT) {
+      continue;
     }
 
     else if (rr.qname.isPartOf(DNSName("zones") + di.zone)) {
@@ -461,7 +473,11 @@ static bool catalogProcess(const DomainInfo& di, vector<DNSResourceRecord>& rrs,
             }
             else if (rr.qtype == QType::TXT) {
               // handle TSIG for this zone
-              ci.d_tsig = rr.content;
+              std::string content = rr.content;
+              if (content.length() >= 2 && content.at(0) == '\"' && content.at(content.length() - 1) == '\"') { // TXT pain
+                content = content.substr(1, content.length() - 2);
+              }
+              ci.d_tsig = content;
             }
           }
           else if (rel == DNSName("allow-transfer")) {
@@ -485,20 +501,42 @@ static bool catalogProcess(const DomainInfo& di, vector<DNSResourceRecord>& rrs,
       if (rel == DNSName("primaries")) {
         if (rr.qtype == QType::A || rr.qtype == QType::AAAA) {
           // handle new primaries for all new catalog zones
+          if (!defaultPrimaries.has_value()) {
+            defaultPrimaries = std::vector<ComboAddress>();
+          }
+          defaultPrimaries->push_back(ComboAddress(rr.content, 53));
         }
         else if (rr.qtype == QType::TXT) {
           // handle TSIG for all new catalog zones
+          std::string content = rr.content;
+          if (content.length() >= 2 && content.at(0) == '\"' && content.at(content.length() - 1) == '\"') { // TXT pain
+            content = content.substr(1, content.length() - 2);
+          }
+          defaultTsig = content;
         }
       }
       else if (rel == DNSName("allow-transfer")) {
         if (rr.qtype == QType::APL) {
           // handle new ALLOW-AXFR-FROM for all new zones
+          auto apl = APLRecordContent::make(rr.content);
+          defaultAcl = getNetmaskGroupFromAPL(*(std::dynamic_pointer_cast<const APLRecordContent>(apl)));
         }
       }
     }
     rr.disabled = true;
   }
+
   if (!ci.d_zone.empty()) {
+    if (ci.d_acl.empty() && defaultAcl) {
+      ci.d_acl = *defaultAcl;
+    }
+    if (ci.d_tsig.empty() && defaultTsig) {
+      ci.d_tsig = *defaultTsig;
+    }
+    if (ci.d_primaries.empty() && defaultPrimaries) {
+      ci.d_primaries = *defaultPrimaries;
+    }
+
     fromXFR.emplace_back(ci);
   }
 
