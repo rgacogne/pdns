@@ -265,6 +265,7 @@ union ComboAddress {
   {
     char host[1024];
     int retval = 0;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access)
     if(sin4.sin_family && !(retval = getnameinfo(reinterpret_cast<const struct sockaddr*>(this), getSocklen(), host, sizeof(host),0, 0, NI_NUMERICHOST)))
       return string(host);
     else

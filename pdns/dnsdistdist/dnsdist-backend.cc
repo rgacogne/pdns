@@ -89,6 +89,7 @@ bool DownstreamState::reconnect()
       connected = true;
     }
     catch (const std::runtime_error& error) {
+      // test
       infolog("Error connecting to new server with address %s: %s", d_config.remote.toStringWithPort(), error.what());
       connected = false;
       break;
