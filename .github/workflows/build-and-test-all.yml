@@ -48,6 +48,7 @@ jobs:
       - run: inv ci-auth-configure
       - run: inv ci-auth-make-bear  # This runs under pdns/
       - run: ln -s .clang-tidy.full .clang-tidy
+      - run: git diff -U0 HEAD^..HEAD
       - name: Run clang-tidy
         working-directory: pdns
         run: git diff -U0 HEAD^..HEAD | python3 ../.github/scripts/git-filter.py | python3 /usr/bin/clang-tidy-diff-12.py -clang-tidy-binary /usr/bin/clang-tidy-12 -extra-arg=-ferror-limit=0 -p2 -export-fixes clang-tidy-auth.yml
