@@ -164,9 +164,8 @@ void TCPClientCollection::addTCPClientThread(std::vector<ClientState*>& tcpAccep
   }
 
   int crossProtocolQueriesFDs[2] = { -1, -1};
-  if (!preparePipe(crossProtocolQueriesFDs, "cross-protocol queries")) {
+  if (!preparePipe(crossProtocolQueriesFDs, "cross-protocol queries"))
     return;
-  }
 
   int crossProtocolResponsesFDs[2] = { -1, -1};
   if (!preparePipe(crossProtocolResponsesFDs, "cross-protocol responses")) {
