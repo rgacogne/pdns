@@ -174,9 +174,8 @@ static ssize_t sendfromto(int sock, const void* data, size_t len, int flags, con
   msgh.msg_name = (struct sockaddr*)&to;
   msgh.msg_namelen = to.getSocklen();
 
-  if (from.sin4.sin_family) {
+  if (from.sin4.sin_family)
     addCMsgSrcAddr(&msgh, &cbuf, &from, 0);
-  }
   else {
     msgh.msg_control=nullptr;
   }
