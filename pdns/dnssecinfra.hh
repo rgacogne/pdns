@@ -195,7 +195,7 @@ class DNSCryptoKeyEngine
       return s_allmakers;
     }
     // Must be set before going multi-threaded and not changed after that
-    static std::unordered_set<unsigned int> s_switchedOff;
+    static ConfigurationTimeOnly<std::unordered_set<unsigned int>> s_switchedOff;
 
   protected:
     const unsigned int d_algorithm;

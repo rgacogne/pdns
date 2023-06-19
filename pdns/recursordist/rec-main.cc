@@ -2148,6 +2148,8 @@ static int serviceMain(Logr::log_t log)
     return ret;
   }
 
+  ConfigurationTimeStatus::markConfigurationDone();
+
   startLuaConfigDelayedThreads(delayedLuaThreads, g_luaconfs.getCopy().generation);
   delayedLuaThreads.rpzPrimaryThreads.clear(); // no longer needed
 

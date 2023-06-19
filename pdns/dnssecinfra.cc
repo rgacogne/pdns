@@ -546,16 +546,16 @@ string getMessageForRRSET(const DNSName& qname, const RRSIGRecordContent& rrc, c
   return toHash;
 }
 
-std::unordered_set<unsigned int> DNSCryptoKeyEngine::s_switchedOff;
+ConfigurationTimeOnly<std::unordered_set<unsigned int>> DNSCryptoKeyEngine::s_switchedOff;
 
 bool DNSCryptoKeyEngine::isAlgorithmSwitchedOff(unsigned int algo)
 {
-  return s_switchedOff.count(algo) != 0;
+  return s_switchedOff.get().count(algo) != 0;
 }
 
 void DNSCryptoKeyEngine::switchOffAlgorithm(unsigned int algo)
 {
-  s_switchedOff.insert(algo);
+  s_switchedOff.getMutable().insert(algo);
 }
 
 bool DNSCryptoKeyEngine::isAlgorithmSupported(unsigned int algo)
