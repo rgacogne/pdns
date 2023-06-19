@@ -114,7 +114,7 @@ std::vector<std::shared_ptr<DNSCryptContext>> g_dnsCryptLocals;
 shared_ptr<BPFFilter> g_defaultBPFFilter{nullptr};
 std::vector<std::shared_ptr<DynBPFFilter> > g_dynBPFFilters;
 
-std::vector<std::unique_ptr<ClientState>> g_frontends;
+ConfigurationTimeOnly<std::vector<std::unique_ptr<ClientState>>> g_frontends;
 GlobalStateHolder<pools_t> g_pools;
 size_t g_udpVectorSize{1};
 std::vector<uint32_t> g_TCPFastOpenKey;
@@ -2723,11 +2723,12 @@ int main(int argc, char** argv)
       }
     }
 
+    auto& frontends = g_frontends.getMutable();
     if (!g_cmdLine.locals.empty()) {
-      for (auto it = g_frontends.begin(); it != g_frontends.end(); ) {
+      for (auto it = frontends.begin(); it != frontends.end(); ) {
         /* DoH, DoT and DNSCrypt frontends are separate */
         if ((*it)->dohFrontend == nullptr && (*it)->tlsFrontend == nullptr && (*it)->dnscryptCtx == nullptr) {
-          it = g_frontends.erase(it);
+          it = frontends.erase(it);
         }
         else {
           ++it;
@@ -2736,24 +2737,25 @@ int main(int argc, char** argv)
 
       for (const auto& loc : g_cmdLine.locals) {
         /* UDP */
-        g_frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress(loc, 53), false, false, 0, "", {})));
+        frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress(loc, 53), false, false, 0, "", {})));
         /* TCP */
-        g_frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress(loc, 53), true, false, 0, "", {})));
+        frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress(loc, 53), true, false, 0, "", {})));
       }
     }
 
-    if (g_frontends.empty()) {
+    if (frontends.empty()) {
       /* UDP */
-      g_frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress("127.0.0.1", 53), false, false, 0, "", {})));
+      frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress("127.0.0.1", 53), false, false, 0, "", {})));
       /* TCP */
-      g_frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress("127.0.0.1", 53), true, false, 0, "", {})));
+      frontends.push_back(std::unique_ptr<ClientState>(new ClientState(ComboAddress("127.0.0.1", 53), true, false, 0, "", {})));
     }
 
+    ConfigurationTimeStatus::markConfigurationDone();
     g_configurationDone = true;
 
     g_rings.init();
 
-    for(auto& frontend : g_frontends) {
+    for (auto& frontend : g_frontends.get()) {
       setUpLocalBind(frontend);
 
       if (frontend->tcp == false) {
@@ -2912,7 +2914,7 @@ int main(int argc, char** argv)
 
     std::vector<ClientState*> tcpStates;
     std::vector<ClientState*> udpStates;
-    for(auto& cs : g_frontends) {
+    for (auto& cs : g_frontends.get()) {
       if (cs->dohFrontend != nullptr) {
 #ifdef HAVE_DNS_OVER_HTTPS
         std::thread t1(dohThread, cs.get());

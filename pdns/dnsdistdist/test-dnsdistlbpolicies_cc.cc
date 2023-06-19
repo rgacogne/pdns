@@ -29,7 +29,7 @@ GlobalStateHolder<SuffixMatchTree<DynBlock>> g_dynblockSMT;
 #endif /* BENCH_POLICIES */
 
 GlobalStateHolder<pools_t> g_pools;
-std::vector<std::unique_ptr<ClientState>> g_frontends;
+ConfigurationTimeOnly<std::vector<std::unique_ptr<ClientState>>> g_frontends;
 
 /* add stub implementations, we don't want to include the corresponding object files
    and their dependencies */

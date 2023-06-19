@@ -641,7 +641,7 @@ void setupLuaBindings(LuaContext& luaCtx, bool client)
         return;
       }
       if (bpf) {
-        for (const auto& frontend : g_frontends) {
+        for (const auto& frontend : g_frontends.get()) {
           frontend->attachFilter(bpf, frontend->getSocket());
         }
       }

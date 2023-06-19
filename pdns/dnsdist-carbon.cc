@@ -97,7 +97,7 @@ static bool doOneCarbonExport(const Carbon::Endpoint& endpoint)
     }
 
     std::map<std::string, uint64_t> frontendDuplicates;
-    for (const auto& front : g_frontends) {
+    for (const auto& front : g_frontends.get()) {
       if (front->udpFD == -1 && front->tcpFD == -1) {
         continue;
       }

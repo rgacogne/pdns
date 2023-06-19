@@ -731,10 +731,11 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
     try {
       ComboAddress loc(addr, 53);
-      for (auto it = g_frontends.begin(); it != g_frontends.end();) {
+      auto& frontends = g_frontends.getMutable();
+      for (auto it = frontends.begin(); it != frontends.end();) {
         /* DoH, DoT and DNSCrypt frontends are separate */
         if ((*it)->tlsFrontend == nullptr && (*it)->dnscryptCtx == nullptr && (*it)->dohFrontend == nullptr) {
-          it = g_frontends.erase(it);
+          it = frontends.erase(it);
         }
         else {
           ++it;
@@ -742,7 +743,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       }
 
       // only works pre-startup, so no sync necessary
-      g_frontends.push_back(std::make_unique<ClientState>(loc, false, reusePort, tcpFastOpenQueueSize, interface, cpus));
+      frontends.push_back(std::make_unique<ClientState>(loc, false, reusePort, tcpFastOpenQueueSize, interface, cpus));
       auto tcpCS = std::make_unique<ClientState>(loc, true, reusePort, tcpFastOpenQueueSize, interface, cpus);
       if (tcpListenQueueSize > 0) {
         tcpCS->tcpListenQueueSize = tcpListenQueueSize;
@@ -754,7 +755,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         tcpCS->d_tcpConcurrentConnectionsLimit = tcpMaxConcurrentConnections;
       }
 
-      g_frontends.push_back(std::move(tcpCS));
+      frontends.push_back(std::move(tcpCS));
     }
     catch (const std::exception& e) {
       g_outputBuffer = "Error: " + string(e.what()) + "\n";
@@ -783,7 +784,8 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     try {
       ComboAddress loc(addr, 53);
       // only works pre-startup, so no sync necessary
-      g_frontends.push_back(std::make_unique<ClientState>(loc, false, reusePort, tcpFastOpenQueueSize, interface, cpus));
+      auto& frontends = g_frontends.getMutable();
+      frontends.push_back(std::make_unique<ClientState>(loc, false, reusePort, tcpFastOpenQueueSize, interface, cpus));
       auto tcpCS = std::make_unique<ClientState>(loc, true, reusePort, tcpFastOpenQueueSize, interface, cpus);
       if (tcpListenQueueSize > 0) {
         tcpCS->tcpListenQueueSize = tcpListenQueueSize;
@@ -794,7 +796,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       if (tcpMaxConcurrentConnections > 0) {
         tcpCS->d_tcpConcurrentConnectionsLimit = tcpMaxConcurrentConnections;
       }
-      g_frontends.push_back(std::move(tcpCS));
+      frontends.push_back(std::move(tcpCS));
     }
     catch (std::exception& e) {
       g_outputBuffer = "Error: " + string(e.what()) + "\n";
@@ -1573,9 +1575,11 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
       /* UDP */
       auto cs = std::make_unique<ClientState>(ComboAddress(addr, 443), false, reusePort, tcpFastOpenQueueSize, interface, cpus);
+      auto& frontends = g_frontends.getMutable();
+
       cs->dnscryptCtx = ctx;
       g_dnsCryptLocals.push_back(ctx);
-      g_frontends.push_back(std::move(cs));
+      frontends.push_back(std::move(cs));
 
       /* TCP */
       cs = std::make_unique<ClientState>(ComboAddress(addr, 443), true, reusePort, tcpFastOpenQueueSize, interface, cpus);
@@ -1590,7 +1594,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         cs->d_tcpConcurrentConnectionsLimit = tcpMaxConcurrentConnections;
       }
 
-      g_frontends.push_back(std::move(cs));
+      frontends.push_back(std::move(cs));
     }
     catch (std::exception& e) {
       errlog(e.what());
@@ -1606,7 +1610,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     size_t idx = 0;
 
     std::unordered_set<std::shared_ptr<DNSCryptContext>> contexts;
-    for (const auto& frontend : g_frontends) {
+    for (const auto& frontend : g_frontends.get()) {
       const std::shared_ptr<DNSCryptContext> ctx = frontend->dnscryptCtx;
       if (!ctx || contexts.count(ctx) != 0) {
         continue;
@@ -1727,7 +1731,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       ret << (fmt % "#" % "Address" % "Protocol" % "Queries") << endl;
 
       size_t counter = 0;
-      for (const auto& front : g_frontends) {
+      for (const auto& front : g_frontends.get()) {
         ret << (fmt % counter % front->local.toStringWithPort() % front->getType() % front->queries) << endl;
         counter++;
       }
@@ -1742,15 +1746,16 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   luaCtx.writeFunction("getBind", [](uint64_t num) {
     setLuaNoSideEffect();
     ClientState* ret = nullptr;
-    if (num < g_frontends.size()) {
-      ret = g_frontends[num].get();
+    auto& frontends = g_frontends.get();
+    if (num < frontends.size()) {
+      ret = frontends[num].get();
     }
     return ret;
   });
 
   luaCtx.writeFunction("getBindCount", []() {
     setLuaNoSideEffect();
-    return g_frontends.size();
+    return g_frontends.get().size();
   });
 
   luaCtx.writeFunction("help", [](boost::optional<std::string> command) {
@@ -2428,7 +2433,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (tcpMaxConcurrentConnections > 0) {
       cs->d_tcpConcurrentConnectionsLimit = tcpMaxConcurrentConnections;
     }
-    g_frontends.push_back(std::move(cs));
+    g_frontends.getMutable().push_back(std::move(cs));
 #else
       throw std::runtime_error("addDOHLocal() called but DNS over HTTPS support is not present!");
 #endif
@@ -2653,7 +2658,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       }
 
       g_tlslocals.push_back(cs->tlsFrontend);
-      g_frontends.push_back(std::move(cs));
+      g_frontends.getMutable().push_back(std::move(cs));
     }
     catch (const std::exception& e) {
       g_outputBuffer = "Error: " + string(e.what()) + "\n";
@@ -2793,7 +2798,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("reloadAllCertificates", []() {
-    for (auto& frontend : g_frontends) {
+    for (auto& frontend : g_frontends.get()) {
       if (!frontend) {
         continue;
       }

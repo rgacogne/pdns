@@ -672,7 +672,7 @@ static void handlePrometheus(const YaHTTP::Request& req, YaHTTP::Response& resp)
   output << "# TYPE " << frontsbase << "tlshandshakefailures " << "counter" << "\n";
 
   std::map<std::string,uint64_t> frontendDuplicates;
-  for (const auto& front : g_frontends) {
+  for (const auto& front : g_frontends.get()) {
     if (front->udpFD == -1 && front->tcpFD == -1)
       continue;
 
@@ -1082,8 +1082,9 @@ static void handleStats(const YaHTTP::Request& req, YaHTTP::Response& resp)
 
   Json::array frontends;
   num = 0;
-  frontends.reserve(g_frontends.size());
-  for (const auto& front : g_frontends) {
+  const auto& frontendsRef = g_frontends.get();
+  frontends.reserve(frontendsRef.size());
+  for (const auto& front : frontendsRef) {
     if (front->udpFD == -1 && front->tcpFD == -1)
       continue;
     Json::object frontend {
@@ -1236,7 +1237,7 @@ static void handleStats(const YaHTTP::Request& req, YaHTTP::Response& resp)
   string localaddressesStr;
   {
     std::set<std::string> localaddresses;
-    for (const auto& front : g_frontends) {
+    for (const auto& front : g_frontends.get()) {
       localaddresses.insert(front->local.toStringWithPort());
     }
     for (const auto& addr : localaddresses) {

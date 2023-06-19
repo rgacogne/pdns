@@ -1159,7 +1159,7 @@ extern ComboAddress g_serverControl; // not changed during runtime
 
 extern std::vector<shared_ptr<TLSFrontend>> g_tlslocals;
 extern std::vector<shared_ptr<DOHFrontend>> g_dohlocals;
-extern std::vector<std::unique_ptr<ClientState>> g_frontends;
+extern ConfigurationTimeOnly<std::vector<std::unique_ptr<ClientState>>> g_frontends;
 extern bool g_truncateTC;
 extern bool g_fixupCase;
 extern int g_tcpRecvTimeout;

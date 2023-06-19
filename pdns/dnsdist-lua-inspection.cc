@@ -669,7 +669,7 @@ void setupLuaInspection(LuaContext& luaCtx)
       ret << (fmt % "#" % "Address" % "Connections" % "Max concurrent conn" % "Died reading query" % "Died sending response" % "Gave up" % "Client timeouts" % "Downstream timeouts" % "Avg queries/conn" % "Avg duration" % "TLS new sessions" % "TLS Resumptions" % "TLS unknown ticket keys" % "TLS inactive ticket keys" % "TLS 1.0" % "TLS 1.1" % "TLS 1.2" % "TLS 1.3" % "TLS other") << endl;
 
       size_t counter = 0;
-      for(const auto& f : g_frontends) {
+      for (const auto& f : g_frontends.get()) {
         ret << (fmt % counter % f->local.toStringWithPort() % f->tcpCurrentConnections % f->tcpMaxConcurrentConnections % f->tcpDiedReadingQuery % f->tcpDiedSendingResponse % f->tcpGaveUp % f->tcpClientTimeouts % f->tcpDownstreamTimeouts % f->tcpAvgQueriesPerConnection % f->tcpAvgConnectionDuration % f->tlsNewSessions % f->tlsResumptions % f->tlsUnknownTicketKey % f->tlsInactiveTicketKey % f->tls10queries % f->tls11queries % f->tls12queries % f->tls13queries % f->tlsUnknownqueries) << endl;
         ++counter;
       }
@@ -697,7 +697,7 @@ void setupLuaInspection(LuaContext& luaCtx)
       ret << (fmt % "#" % "Address" % "DH key too small" % "Inappropriate fallback" % "No shared cipher" % "Unknown cipher type" % "Unknown exchange type" % "Unknown protocol" % "Unsupported EC" % "Unsupported protocol") << endl;
 
       size_t counter = 0;
-      for(const auto& f : g_frontends) {
+      for (const auto& f : g_frontends.get()) {
         if (!f->hasTLS()) {
           continue;
         }
