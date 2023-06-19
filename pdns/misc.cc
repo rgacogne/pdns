@@ -1735,3 +1735,5 @@ bool constantTimeStringEquals(const std::string& a, const std::string& b)
 #endif /* !HAVE_SODIUM_MEMCMP */
 #endif /* !HAVE_CRYPTO_MEMCMP */
 }
+
+std::atomic<bool> ConfigurationTimeStatus::s_configurationDone{false};

@@ -828,3 +828,59 @@ struct FDWrapper
 private:
   int d_fd{-1};
 };
+
+class ConfigurationTimeStatus
+{
+public:
+  static void markConfigurationDone()
+  {
+    if (s_configurationDone.exchange(true)) {
+      throw std::runtime_error("Marking configuration as done twice!");
+    }
+  }
+  static bool isConfigurationDone()
+  {
+    return s_configurationDone.load();
+  }
+
+private:
+  static std::atomic<bool> s_configurationDone;
+};
+
+template <typename T>
+class ConfigurationTimeOnly
+{
+public:
+  explicit ConfigurationTimeOnly(T&& value): d_value(std::forward(value))
+  {
+  }
+
+  explicit ConfigurationTimeOnly()
+  {
+  }
+
+  [[nodiscard]] const T& get() const
+  {
+    return d_value;
+  }
+
+  void set(T&& value)
+  {
+    if (ConfigurationTimeStatus::isConfigurationDone()) {
+      throw std::logic_error("Trying to access a configuration-time value at runtime");
+    }
+
+    d_value = value;
+  }
+
+  [[nodiscard]] T& getMutable()
+  {
+    if (ConfigurationTimeStatus::isConfigurationDone()) {
+      throw std::logic_error("Trying to access a configuration-time value at runtime");
+    }
+    return d_value;
+  }
+
+private:
+  T d_value;
+};
