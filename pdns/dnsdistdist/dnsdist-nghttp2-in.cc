@@ -335,7 +335,7 @@ void IncomingHTTP2Connection::handleIO()
       }
     }
 
-    if (d_state == State::waitingForQuery) {
+    if (d_state == State::waitingForQuery || d_state == State::idle) {
       readHTTPData();
     }
 
@@ -380,7 +380,7 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
       }
     }
     catch (const std::exception& e) {
-      vinfolog("Exception while trying to write (send) to incoming HTTP connection: %s", e.what());
+      vinfolog("Exception while trying to write (send) to incoming HTTP connection to %s: %s", conn->d_ci.remote.toStringWithPort(), e.what());
       conn->handleIOError();
     }
   }
@@ -1123,7 +1123,7 @@ void IncomingHTTP2Connection::readHTTPData()
       }
     }
     catch (const std::exception& e) {
-      vinfolog("Exception while trying to read from HTTP backend connection: %s", e.what());
+      vinfolog("Exception while trying to read from HTTP client connection to %s: %s", d_ci.remote.toStringWithPort(), e.what());
       handleIOError();
       break;
     }
@@ -1159,7 +1159,7 @@ void IncomingHTTP2Connection::handleWritableIOCallback(int fd, FDMultiplexer::fu
     ioGuard.release();
   }
   catch (const std::exception& e) {
-    vinfolog("Exception while trying to write (ready) to HTTP backend connection: %s", e.what());
+    vinfolog("Exception while trying to write (ready) to HTTP client connection to %s: %s", conn->d_ci.remote.toStringWithPort(), e.what());
     conn->handleIOError();
   }
 }
