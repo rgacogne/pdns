@@ -101,6 +101,7 @@ private:
   PacketBuffer d_in;
   size_t d_outPos{0};
   bool d_connectionDied{false};
+  bool d_needFlush{false};
 };
 
 class NGHTTP2Headers
