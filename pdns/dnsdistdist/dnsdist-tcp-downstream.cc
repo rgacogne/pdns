@@ -241,7 +241,7 @@ static void prepareQueryForSending(TCPQuery& query, uint16_t id, QueryState quer
         throw std::runtime_error("Trying to remove a proxy protocol payload of size " + std::to_string(query.d_proxyProtocolPayload.size()) + " from a buffer of size " + std::to_string(query.d_buffer.size()));
       }
       // NOLINTNEXTLINE(*-narrowing-conversions): the size of the payload is limited to 2^16-1
-      query.d_buffer.erase(query.d_buffer.begin(), query.d_buffer.begin() + query.d_idstate.d_proxyProtocolPayloadSize);
+      query.d_buffer.erase(query.d_buffer.begin(), query.d_buffer.begin() + static_cast<ssize_t>(query.d_idstate.d_proxyProtocolPayloadSize));
       query.d_proxyProtocolPayloadAdded = false;
       query.d_idstate.d_proxyProtocolPayloadSize = 0;
     }

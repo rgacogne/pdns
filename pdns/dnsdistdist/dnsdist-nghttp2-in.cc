@@ -220,9 +220,10 @@ void IncomingHTTP2Connection::handleResponse(const struct timeval& now, TCPRespo
 
 std::unique_ptr<DOHUnitInterface> IncomingHTTP2Connection::getDOHUnit(uint32_t streamID)
 {
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay): clang-tidy is getting confused by assert()
   assert(streamID <= std::numeric_limits<IncomingHTTP2Connection::StreamID>::max());
   // NOLINTNEXTLINE(*-narrowing-conversions): generic interface between DNS and DoH with different types
-  auto query = std::move(d_currentStreams.at(streamID));
+  auto query = std::move(d_currentStreams.at(static_cast<IncomingHTTP2Connection::StreamID>(streamID)));
   return std::make_unique<IncomingDoHCrossProtocolContext>(std::move(query), std::dynamic_pointer_cast<IncomingHTTP2Connection>(shared_from_this()), streamID);
 }
 
@@ -432,13 +433,13 @@ void NGHTTP2Headers::addStaticHeader(std::vector<nghttp2_nv>& headers, NGHTTP2He
   const auto& name = s_headerConstants.at(static_cast<size_t>(nameKey));
   const auto& value = s_headerConstants.at(static_cast<size_t>(valueKey));
 
-  // NOLINTNEXTLINE(*-cast): nghttp2 API
+  // NOLINTNEXTLINE nghttp2 API
   headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.c_str())), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.c_str())), name.size(), value.size(), NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE});
 }
 
 void NGHTTP2Headers::addCustomDynamicHeader(std::vector<nghttp2_nv>& headers, const std::string& name, const std::string_view& value)
 {
-  // NOLINTNEXTLINE(*-cast): nghttp2 API
+  // NOLINTNEXTLINE  nghttp2 API
   headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.data())), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.data())), name.size(), value.size(), NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE});
 }
 
