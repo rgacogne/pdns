@@ -95,32 +95,35 @@ private:
 class IncomingDoHCrossProtocolContext : public DOHUnitInterface
 {
 public:
-  IncomingDoHCrossProtocolContext(IncomingHTTP2Connection::PendingQuery&& query, std::shared_ptr<IncomingHTTP2Connection> connection, IncomingHTTP2Connection::StreamID streamID) :
-    d_connection(std::move(connection)), d_query(std::move(query)), d_streamID(streamID)
+  IncomingDoHCrossProtocolContext(IncomingHTTP2Connection::PendingQuery&& query, const std::shared_ptr<IncomingHTTP2Connection>& connection, IncomingHTTP2Connection::StreamID streamID) :
+    d_connection(connection), d_query(std::move(query)), d_streamID(streamID)
   {
   }
+  IncomingDoHCrossProtocolContext(IncomingDoHCrossProtocolContext&&) = delete;
+  IncomingDoHCrossProtocolContext& operator=(const IncomingDoHCrossProtocolContext&) = delete;
+  IncomingDoHCrossProtocolContext& operator=(IncomingDoHCrossProtocolContext&&) = delete;
 
-  std::string getHTTPPath() const override
+  [[nodiscard]] std::string getHTTPPath() const override
   {
     return d_query.d_path;
   }
 
-  const std::string& getHTTPScheme() const override
+  [[nodiscard]] const std::string& getHTTPScheme() const override
   {
     return d_query.d_scheme;
   }
 
-  const std::string& getHTTPHost() const override
+  [[nodiscard]] const std::string& getHTTPHost() const override
   {
     return d_query.d_host;
   }
 
-  std::string getHTTPQueryString() const override
+  [[nodiscard]] std::string getHTTPQueryString() const override
   {
     return d_query.d_queryString;
   }
 
-  const HeadersMap& getHTTPHeaders() const override
+  [[nodiscard]] const HeadersMap& getHTTPHeaders() const override
   {
     if (!d_query.d_headers) {
       static const HeadersMap empty{};
@@ -148,7 +151,9 @@ public:
     state.du = std::move(unit);
     TCPResponse resp(std::move(response), std::move(state), nullptr, nullptr);
     resp.d_ds = ds;
-    struct timeval now;
+    struct timeval now
+    {
+    };
     gettimeofday(&now, nullptr);
     conn->handleResponse(now, std::move(resp));
   }
@@ -161,7 +166,9 @@ public:
       /* the connection has been closed in the meantime */
       return;
     }
-    struct timeval now;
+    struct timeval now
+    {
+    };
     gettimeofday(&now, nullptr);
     TCPResponse resp;
     resp.d_idstate.d_streamID = d_streamID;

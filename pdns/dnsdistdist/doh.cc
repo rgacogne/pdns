@@ -269,7 +269,7 @@ struct DOHUnit : public DOHUnitInterface
   [[nodiscard]] const std::unordered_map<std::string, std::string>& getHTTPHeaders() const override;
   void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") override;
   void handleTimeout() override;
-  void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&) override;
+  void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, [[maybe_unused]] const std::shared_ptr<DownstreamState>& ds) override;
 };
 using DOHUnitUniquePtr = std::unique_ptr<DOHUnit>;
 
@@ -672,7 +672,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
   ComboAddress remote;
 
   try {
-    if (!unit->req) {
+    if (unit->req == nullptr) {
       // we got closed meanwhile. XXX small race condition here
       // but we should be fine as long as we don't touch du->req
       // outside of the main DoH thread
@@ -700,7 +700,8 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
 
     {
       /* don't keep that pointer around, it will be invalidated if the buffer is ever resized */
-      struct dnsheader* dh = reinterpret_cast<struct dnsheader*>(unit->query.data());
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      auto* dh = reinterpret_cast<struct dnsheader*>(unit->query.data());
 
       if (!checkQueryHeaders(dh, cs)) {
         unit->status_code = 400;
@@ -723,8 +724,8 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
     {
       // if there was no EDNS, we add it with a large buffer size
       // so we can use UDP to talk to the backend.
-      auto dh = const_cast<struct dnsheader*>(reinterpret_cast<const struct dnsheader*>(unit->query.data()));
-      if (!dh->arcount) {
+      dnsheader_aligned dh(unit->query.data());
+      if (!dh.get()->arcount) {
         if (addEDNS(unit->query, 4096, false, 4096, 0)) {
           ids.ednsAdded = true;
         }
@@ -756,9 +757,8 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
         unit->response = std::move(unit->query);
       }
       if (unit->response.size() >= sizeof(dnsheader) && unit->contentType.empty()) {
-        auto dh = reinterpret_cast<const struct dnsheader*>(unit->response.data());
-
-        handleResponseSent(unit->ids.qname, QType(unit->ids.qtype), 0., unit->ids.origDest, ComboAddress(), unit->response.size(), *dh, dnsdist::Protocol::DoH, dnsdist::Protocol::DoH, false);
+        dnsheader_aligned dh(unit->response.data());
+        handleResponseSent(unit->ids.qname, QType(unit->ids.qtype), 0., unit->ids.origDest, ComboAddress(), unit->response.size(), *(dh.get()), dnsdist::Protocol::DoH, dnsdist::Protocol::DoH, false);
       }
       handleImmediateResponse(std::move(unit), "DoH self-answered response");
       return;
@@ -1594,8 +1594,8 @@ void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, InternalQueryState&&
   du->ids = std::move(state);
 
   {
-    const dnsheader* dh = reinterpret_cast<const struct dnsheader*>(udpResponse.data());
-    if (dh->tc) {
+    dnsheader_aligned dh(udpResponse.data());
+    if (dh.get()->tc) {
       du->truncated = true;
     }
   }
