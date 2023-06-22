@@ -413,8 +413,7 @@ static const std::array<const std::string, static_cast<size_t>(NGHTTP2Headers::H
   "dns-over-tcp",
   "dns-over-tls",
   "dns-over-http",
-  "dns-over-https"
-};
+  "dns-over-https"};
 
 static const std::string s_authorityHeaderName(":authority");
 static const std::string s_pathHeaderName(":path");
@@ -693,7 +692,7 @@ static std::optional<PacketBuffer> getPayloadFromPath(const std::string_view& pa
   }
   sdns.reserve(payloadSize + neededPadding);
   sdns = path.substr(pos + 5);
-  for (auto &entry : sdns) {
+  for (auto& entry : sdns) {
     switch (entry) {
     case '-':
       entry = '+';

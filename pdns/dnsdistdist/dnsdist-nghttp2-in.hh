@@ -107,7 +107,8 @@ private:
 class NGHTTP2Headers
 {
 public:
-  enum class HeaderConstantIndexes {
+  enum class HeaderConstantIndexes
+  {
     OK_200_VALUE = 0,
     METHOD_NAME,
     METHOD_VALUE,
