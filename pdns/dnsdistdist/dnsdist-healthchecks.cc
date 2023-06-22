@@ -149,7 +149,7 @@ public:
     throw std::runtime_error("Unexpected XFR reponse to a health check query");
   }
 
-  void notifyIOError(const struct timeval& now, TCPResponse&&) override
+  void notifyIOError(const struct timeval& now, [[maybe_unused]] TCPResponse&& response) override
   {
     d_data->d_ds->submitHealthCheckResult(d_data->d_initial, false);
   }

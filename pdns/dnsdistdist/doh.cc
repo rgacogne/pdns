@@ -222,15 +222,17 @@ struct DOHUnit : public DOHUnitInterface
   {
     ids.ednsAdded = false;
   }
-  ~DOHUnit()
+  ~DOHUnit() override
   {
-    if (self) {
+    if (self != nullptr) {
       *self = nullptr;
     }
   }
 
   DOHUnit(const DOHUnit&) = delete;
+  DOHUnit(DOHUnit&&) = delete;
   DOHUnit& operator=(const DOHUnit&) = delete;
+  DOHUnit& operator=(DOHUnit&&) = delete;
 
   InternalQueryState ids;
   std::string sni;
@@ -260,14 +262,14 @@ struct DOHUnit : public DOHUnitInterface
   bool tcp{false};
   bool truncated{false};
 
-  std::string getHTTPPath() const override;
-  std::string getHTTPQueryString() const override;
-  const std::string& getHTTPHost() const override;
-  const std::string& getHTTPScheme() const override;
-  const std::unordered_map<std::string, std::string>& getHTTPHeaders() const override;
+  [[nodiscard]] std::string getHTTPPath() const override;
+  [[nodiscard]] std::string getHTTPQueryString() const override;
+  [[nodiscard]] const std::string& getHTTPHost() const override;
+  [[nodiscard]] const std::string& getHTTPScheme() const override;
+  [[nodiscard]] const std::unordered_map<std::string, std::string>& getHTTPHeaders() const override;
   void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType="") override;
-  virtual void handleTimeout() override;
-  virtual void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&) override;
+  void handleTimeout() override;
+  void handleUDPResponse(PacketBuffer&& response, InternalQueryState&& state, const std::shared_ptr<DownstreamState>&) override;
 };
 using DOHUnitUniquePtr = std::unique_ptr<DOHUnit>;
 
