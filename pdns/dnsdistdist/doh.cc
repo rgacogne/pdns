@@ -67,7 +67,9 @@ public:
     d_rotatingTicketsKey.clear();
   }
   DOHAcceptContext(const DOHAcceptContext&) = delete;
+  DOHAcceptContext(DOHAcceptContext&&) = delete;
   DOHAcceptContext& operator=(const DOHAcceptContext&) = delete;
+  DOHAcceptContext& operator=(DOHAcceptContext&&) = delete;
 
   h2o_accept_ctx_t* get()
   {
@@ -312,7 +314,7 @@ static thread_local std::unordered_map<int, DOHConnection> t_conns;
 
 static void on_socketclose(void *data)
 {
-  auto conn = reinterpret_cast<DOHConnection*>(data);
+  auto* conn = static_cast<DOHConnection*>(data);
   if (conn != nullptr) {
     if (conn->d_acceptCtx) {
       struct timeval now;
@@ -836,7 +838,7 @@ static void on_response_ready_cb(struct st_h2o_filter_t *self, h2o_req_t *req, h
     return;
   }
 
-  DOHServerConfig* dsc = reinterpret_cast<DOHServerConfig*>(req->conn->ctx->storage.entries[0].data);
+  auto* dsc = static_cast<DOHServerConfig*>(req->conn->ctx->storage.entries[0].data);
 
   DOHFrontend::HTTPVersionStats* stats = nullptr;
   if (req->version < 0x200) {
@@ -876,7 +878,7 @@ static void on_response_ready_cb(struct st_h2o_filter_t *self, h2o_req_t *req, h
    We use this to signal to the 'du' that this req is no longer alive */
 static void on_generator_dispose(void *_self)
 {
-  DOHUnit** du = reinterpret_cast<DOHUnit**>(_self);
+  auto* du = static_cast<DOHUnit**>(_self);
   if (*du) { // if 0, on_dnsdist cleaned up du already
     (*du)->self = nullptr;
     (*du)->req = nullptr;
@@ -924,7 +926,7 @@ static void doh_dispatch_query(DOHServerConfig* dsc, h2o_handler_t* self, h2o_re
       du->sni = sni;
     }
 #endif /* HAVE_H2O_SOCKET_GET_SSL_SERVER_NAME */
-    du->self = reinterpret_cast<DOHUnit**>(h2o_mem_alloc_shared(&req->pool, sizeof(*self), on_generator_dispose));
+    du->self = static_cast<DOHUnit**>(h2o_mem_alloc_shared(&req->pool, sizeof(*self), on_generator_dispose));
     *(du->self) = du.get();
 
 #ifdef USE_SINGLE_ACCEPTOR_THREAD
@@ -1009,7 +1011,7 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
     if (!req->conn->ctx->storage.size) {
       return 0; // although we might was well crash on this
     }
-    DOHServerConfig* dsc = reinterpret_cast<DOHServerConfig*>(req->conn->ctx->storage.entries[0].data);
+    auto* dsc = static_cast<DOHServerConfig*>(req->conn->ctx->storage.entries[0].data);
     h2o_socket_t* sock = req->conn->callbacks->get_socket(req->conn);
 
     const int descriptor = h2o_socket_get_fd(sock);
@@ -1317,7 +1319,7 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
 /* called when a TCP connection has been accepted, the TLS session has not been established */
 static void on_accept(h2o_socket_t *listener, const char *err)
 {
-  DOHServerConfig* dsc = reinterpret_cast<DOHServerConfig*>(listener->data);
+  auto* dsc = static_cast<DOHServerConfig*>(listener->data);
   h2o_socket_t *sock = nullptr;
 
   if (err != nullptr) {
@@ -1397,7 +1399,7 @@ static int ocsp_stapling_callback(SSL* ssl, void* arg)
   if (ssl == nullptr || arg == nullptr) {
     return SSL_TLSEXT_ERR_NOACK;
   }
-  const auto ocspMap = reinterpret_cast<std::map<int, std::string>*>(arg);
+  const auto* ocspMap = static_cast<std::map<int, std::string>*>(arg);
   return libssl_ocsp_stapling_callback(ssl, *ocspMap);
 }
 #endif /* DISABLE_OCSP_STAPLING */
@@ -1408,7 +1410,7 @@ static int ticket_key_callback(SSL *s, unsigned char keyName[TLS_TICKETS_KEY_NAM
 static int ticket_key_callback(SSL *s, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char *iv, EVP_CIPHER_CTX *ectx, HMAC_CTX *hctx, int enc)
 #endif
 {
-  DOHAcceptContext* ctx = reinterpret_cast<DOHAcceptContext*>(libssl_get_ticket_key_callback_data(s));
+  auto* ctx = static_cast<DOHAcceptContext*>(libssl_get_ticket_key_callback_data(s));
   if (ctx == nullptr || !ctx->d_ticketKeys) {
     return -1;
   }
