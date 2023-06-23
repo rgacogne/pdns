@@ -1212,8 +1212,7 @@ boost::optional<struct timeval> IncomingHTTP2Connection::getIdleClientReadTTD(st
     }
     auto remaining = g_maxTCPConnectionDuration - elapsed;
     if (idleTimeout == 0 || remaining <= static_cast<size_t>(idleTimeout)) {
-      // NOLINTNEXTLINE(*-narrowing-conversions)
-      now.tv_sec += remaining;
+      now.tv_sec += static_cast<time_t>(remaining);
       return now;
     }
   }

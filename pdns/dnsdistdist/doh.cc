@@ -404,6 +404,7 @@ static void handleResponse(DOHFrontend& dohFrontend, st_h2o_req_t* req, uint16_t
       else {
         /* we need to duplicate the header content because h2o keeps a pointer and we will be deleted before the response has been sent */
         h2o_iovec_t contentTypeVect = h2o_strdup(&req->pool, contentType.c_str(), contentType.size());
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-pro-bounds-pointer-arithmetic): h2o API
         h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, nullptr, contentTypeVect.base, contentTypeVect.len);
       }
     }
@@ -719,7 +720,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
         return;
       }
 
-      if (dnsHeader->qdcount == 0) {
+      if (dnsHeader->qdcount == 0U) {
         dnsHeader->rcode = RCode::NotImp;
         dnsHeader->qr = true;
         unit->response = std::move(unit->query);
@@ -735,7 +736,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
       // if there was no EDNS, we add it with a large buffer size
       // so we can use UDP to talk to the backend.
       dnsheader_aligned dnsHeader(unit->query.data());
-      if (dnsHeader.get()->arcount == 0) {
+      if (dnsHeader.get()->arcount == 0U) {
         if (addEDNS(unit->query, 4096, false, 4096, 0)) {
           ids.ednsAdded = true;
         }
@@ -1305,7 +1306,7 @@ static void on_dnsdist(h2o_socket_t *listener, const char *err)
         dohUnit->query.size() > dohUnit->ids.d_proxyProtocolPayloadSize &&
         (dohUnit->query.size() - dohUnit->ids.d_proxyProtocolPayloadSize) > sizeof(dnsheader)) {
       /* restoring the original ID */
-      // NOLINTNEXTLINE(*-cast)
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       auto* queryDH = reinterpret_cast<struct dnsheader*>(&dohUnit->query.at(dohUnit->ids.d_proxyProtocolPayloadSize));
       queryDH->id = dohUnit->ids.origID;
       dohUnit->ids.forwardedOverUDP = false;
