@@ -154,8 +154,6 @@ jobs:
   upload-provenance:
     needs: [provenance-src, provenance-pkgs]
     name: Upload the provenance artifacts to downloads.powerdns.com
-    if:
-      "${{ env.SSHKEY != '' }}"
     runs-on: ubuntu-20.04
     steps:
       - name: Download source tarball provenance for ${{ inputs.product }} (${{ inputs.ref }})
@@ -174,6 +172,8 @@ jobs:
           SSHKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_SECRET }}
           RSYNCTARGET: ${{ secrets.DOWNLOADS_AUTOBUILT_RSYNCTARGET }}
           HOSTKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_HOSTKEY }}
+        if:
+          "${{ env.SSHKEY != '' }}"
         shell: bash
         run: |
           mkdir -m 700 -p ~/.ssh
