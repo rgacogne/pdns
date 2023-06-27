@@ -38,7 +38,7 @@ on:
 
 jobs:
   call-build-packages:
-    uses: PowerDNS/pdns/.github/workflows/build-packages.yml@master
+    uses: rgacogne/pdns/.github/workflows/build-packages.yml@build-packages-tag
     with:
       product: ${{ github.event.inputs.product }}
       os: ${{ github.event.inputs.os }}
