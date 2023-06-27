@@ -152,15 +152,18 @@ jobs:
       provenance-name: "${{ inputs.product }}-${{ needs.build.outputs.version }}-src.intoto.jsonl"
 
   upload-provenance:
-    needs: [build, provenance-src, provenance-pkgs]
+    needs: [prepare, build, provenance-src, provenance-pkgs]
     name: Upload the provenance artifacts to downloads.powerdns.com
     runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        os: ${{fromJson(needs.prepare.outputs.oslist)}}
     steps:
       - name: Download source tarball provenance for ${{ inputs.product }} (${{ inputs.ref }})
         id: download-src-provenance
         uses: actions/download-artifact@v3
         with:
-          name: "${{ inputs.product }}-${{ needs.build.outputs.version }}-${{ matrix.os}}.intoto.jsonl"
+          name: "${{ inputs.product }}-${{ needs.build.outputs.version }}-src.intoto.jsonl"
       - name: Download provenance for ${{ inputs.product }} (${{ inputs.ref }}) for ${{ matrix.os }}
         id: download-provenance
         uses: actions/download-artifact@v3
