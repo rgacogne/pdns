@@ -152,7 +152,7 @@ jobs:
       provenance-name: "${{ inputs.product }}-${{ needs.build.outputs.version }}-src.intoto.jsonl"
 
   upload-provenance:
-    needs: [provenance-src, provenance-pkgs]
+    needs: [build, provenance-src, provenance-pkgs]
     name: Upload the provenance artifacts to downloads.powerdns.com
     runs-on: ubuntu-20.04
     steps:
