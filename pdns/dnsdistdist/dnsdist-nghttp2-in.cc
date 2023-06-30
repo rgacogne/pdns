@@ -267,7 +267,7 @@ bool IncomingHTTP2Connection::checkALPN()
   if (protocols.size() == h2ALPN.size() && memcmp(protocols.data(), h2ALPN.data(), h2ALPN.size()) == 0) {
     return true;
   }
-  vinfolog("DoH connection from %s expected ALPN value 'h2', got '%s'", d_ci.remote.toStringWithPort(), std::string(protocols.begin(), protocols.end()));
+  infolog("DoH connection from %s expected ALPN value 'h2', got '%s'", d_ci.remote.toStringWithPort(), std::string(protocols.begin(), protocols.end()));
   return false;
 }
 
@@ -297,6 +297,7 @@ void IncomingHTTP2Connection::handleIO()
     if (maxConnectionDurationReached(g_maxTCPConnectionDuration, now)) {
       vinfolog("Terminating DoH connection from %s because it reached the maximum TCP connection duration", d_ci.remote.toStringWithPort());
       stopIO();
+      cerr<<"terminating because max duration"<<endl;
       d_connectionDied = true;
       return;
     }
@@ -307,6 +308,7 @@ void IncomingHTTP2Connection::handleIO()
         handleHandshakeDone(now);
         if (d_handler.isTLS()) {
           if (!checkALPN()) {
+            cerr<<"terminating because bad ALPN"<<endl;
             d_connectionDied = true;
             stopIO();
             return;
@@ -371,6 +373,7 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
   if (conn->d_connectionDied || conn->d_needFlush) {
     try {
       conn->d_needFlush = false;
+      cerr<<"writing "<<conn->d_out.size()<<endl;
       auto state = conn->d_handler.tryWrite(conn->d_out, conn->d_outPos, conn->d_out.size());
       if (state == IOState::Done) {
         conn->d_out.clear();
@@ -387,7 +390,7 @@ ssize_t IncomingHTTP2Connection::send_callback(nghttp2_session* session, const u
       }
     }
     catch (const std::exception& e) {
-      vinfolog("Exception while trying to write (send) to incoming HTTP connection to %s: %s", conn->d_ci.remote.toStringWithPort(), e.what());
+      infolog("Exception while trying to write (send) to incoming HTTP connection from %s: %s", conn->d_ci.remote.toStringWithPort(), e.what());
       conn->handleIOError();
     }
   }
@@ -626,14 +629,14 @@ bool IncomingHTTP2Connection::sendResponse(IncomingHTTP2Connection::StreamID str
   auto ret = nghttp2_submit_response(d_session.get(), streamID, headers.data(), headers.size(), &data_provider);
   if (ret != 0) {
     d_currentStreams.erase(streamID);
-    vinfolog("Error submitting HTTP response for stream %d: %s", streamID, nghttp2_strerror(ret));
+    infolog("Error submitting HTTP response for stream %d: %s", streamID, nghttp2_strerror(ret));
     return false;
   }
 
   ret = nghttp2_session_send(d_session.get());
   if (ret != 0) {
     d_currentStreams.erase(streamID);
-    vinfolog("Error flushing HTTP response for stream %d: %s", streamID, nghttp2_strerror(ret));
+    infolog("Error flushing HTTP response for stream %d: %s", streamID, nghttp2_strerror(ret));
     return false;
   }
 
@@ -667,10 +670,10 @@ static void processForwardedForHeader(const std::unique_ptr<HeadersMap>& headers
     remote = newRemote;
   }
   catch (const std::exception& e) {
-    vinfolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.what());
+    infolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.what());
   }
   catch (const PDNSException& e) {
-    vinfolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.reason);
+    infolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.reason);
   }
 }
 
@@ -744,7 +747,7 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     else {
       query.d_buffer = std::move(response);
     }
-    vinfolog("Sending an immediate %d response to incoming DoH query: %s", code, reason);
+    infolog("Sending an immediate %d response to incoming DoH query: %s", code, reason);
     sendResponse(streamID, query, code, d_ci.cs->dohFrontend->d_customResponseHeaders);
   };
 
@@ -757,7 +760,7 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     auto& holders = d_threadData.holders;
     if (!holders.acl->match(d_proxiedRemote)) {
       ++g_stats.aclDrops;
-      vinfolog("Query from %s (%s) (DoH) dropped because of ACL", d_ci.remote.toStringWithPort(), d_proxiedRemote.toStringWithPort());
+      infolog("Query from %s (%s) (DoH) dropped because of ACL", d_ci.remote.toStringWithPort(), d_proxiedRemote.toStringWithPort());
       handleImmediateResponse(403, "DoH query not allowed because of ACL");
       return;
     }
@@ -855,7 +858,7 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     }
   }
   catch (const std::exception& e) {
-    vinfolog("Exception while processing DoH query: %s", e.what());
+    infolog("Exception while processing DoH query: %s", e.what());
     handleImmediateResponse(400, "DoH non-compliant query");
     return;
   }
@@ -912,7 +915,7 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
       }
     }
     else {
-      vinfolog("Stream %d NOT FOUND", streamID);
+      infolog("Stream %d NOT FOUND", streamID);
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
   }
@@ -958,12 +961,12 @@ int IncomingHTTP2Connection::on_begin_headers_callback(nghttp2_session* session,
   auto insertPair = conn->d_currentStreams.emplace(frame->hd.stream_id, PendingQuery());
   if (!insertPair.second) {
     /* there is a stream ID collision, something is very wrong! */
-    vinfolog("Stream ID collision (%d) on connection from %d", frame->hd.stream_id, conn->d_ci.remote.toStringWithPort());
+    infolog("Stream ID collision (%d) on connection from %d", frame->hd.stream_id, conn->d_ci.remote.toStringWithPort());
     conn->d_connectionDied = true;
     nghttp2_session_terminate_session(conn->d_session.get(), NGHTTP2_NO_ERROR);
     auto ret = nghttp2_session_send(conn->d_session.get());
     if (ret != 0) {
-      vinfolog("Error flushing HTTP response for stream %d from %s: %s", frame->hd.stream_id, conn->d_ci.remote.toStringWithPort(), nghttp2_strerror(ret));
+      infolog("Error flushing HTTP response for stream %d from %s: %s", frame->hd.stream_id, conn->d_ci.remote.toStringWithPort(), nghttp2_strerror(ret));
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
 
@@ -989,7 +992,7 @@ int IncomingHTTP2Connection::on_header_callback(nghttp2_session* session, const 
 
   if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
     if (nghttp2_check_header_name(name, nameLen) == 0) {
-      vinfolog("Invalid header name");
+      infolog("Invalid header name");
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
 
@@ -1086,7 +1089,7 @@ int IncomingHTTP2Connection::on_error_callback(nghttp2_session* session, int lib
 {
   auto* conn = static_cast<IncomingHTTP2Connection*>(user_data);
 
-  vinfolog("Error in HTTP/2 connection from %d: %s", conn->d_ci.remote.toStringWithPort(), std::string(msg, len));
+  infolog("Error in HTTP/2 connection from %d: %s", conn->d_ci.remote.toStringWithPort(), std::string(msg, len));
   conn->d_connectionDied = true;
   nghttp2_session_terminate_session(conn->d_session.get(), NGHTTP2_NO_ERROR);
   auto ret = nghttp2_session_send(conn->d_session.get());
@@ -1108,7 +1111,9 @@ void IncomingHTTP2Connection::readHTTPData()
       d_in.resize(std::max(static_cast<size_t>(128U), d_in.capacity()));
     }
     try {
+      cerr<<"reading up to "<<d_in.size()<<endl;
       newState = d_handler.tryRead(d_in, got, d_in.size(), true);
+      cerr<<"got "<<got<<endl;
       d_in.resize(got);
 
       if (got > 0) {
@@ -1142,7 +1147,7 @@ void IncomingHTTP2Connection::readHTTPData()
       }
     }
     catch (const std::exception& e) {
-      vinfolog("Exception while trying to read from HTTP client connection to %s: %s", d_ci.remote.toStringWithPort(), e.what());
+      infolog("Exception while trying to read from HTTP client connection to %s: %s", d_ci.remote.toStringWithPort(), e.what());
       handleIOError();
       break;
     }
@@ -1161,6 +1166,7 @@ void IncomingHTTP2Connection::handleWritableIOCallback([[maybe_unused]] int desc
   IOStateGuard ioGuard(conn->d_ioState);
 
   try {
+    cerr<<"writing "<<conn->d_out.size()<<endl;
     IOState newState = conn->d_handler.tryWrite(conn->d_out, conn->d_outPos, conn->d_out.size());
     if (newState == IOState::NeedRead) {
       conn->updateIO(IOState::NeedRead, handleWritableIOCallback);
