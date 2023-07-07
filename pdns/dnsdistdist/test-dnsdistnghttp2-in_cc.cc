@@ -32,6 +32,8 @@
 #ifdef HAVE_NGHTTP2
 #include <nghttp2/nghttp2.h>
 
+extern std::function<ProcessQueryResult(DNSQuestion& dq, std::shared_ptr<DownstreamState>& selectedBackend)> s_processQuery;
+
 BOOST_AUTO_TEST_SUITE(test_dnsdistnghttp2_in_cc)
 
 struct ExpectedStep
@@ -104,53 +106,62 @@ public:
     d_session = std::unique_ptr<nghttp2_session, void (*)(nghttp2_session*)>(sess, nghttp2_session_del);
 
     nghttp2_settings_entry iv[] = {
-    /* rfc7540 section-8.2.2:
-       "Advertising a SETTINGS_MAX_CONCURRENT_STREAMS value of zero disables
-       server push by preventing the server from creating the necessary
-       streams."
-    */
-    {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 0},
-    {NGHTTP2_SETTINGS_ENABLE_PUSH, 0},
-    /* we might want to make the initial window size configurable, but 16M is a large enough default */
-    {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 16 * 1024 * 1024}};
+      /* rfc7540 section-8.2.2:
+         "Advertising a SETTINGS_MAX_CONCURRENT_STREAMS value of zero disables
+         server push by preventing the server from creating the necessary
+         streams."
+      */
+      {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 0},
+      {NGHTTP2_SETTINGS_ENABLE_PUSH, 0},
+      /* we might want to make the initial window size configurable, but 16M is a large enough default */
+      {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 16 * 1024 * 1024}};
     /* client 24 bytes magic string will be sent by nghttp2 library */
     auto result = nghttp2_submit_settings(d_session.get(), NGHTTP2_FLAG_NONE, iv, sizeof(iv) / sizeof(*iv));
     if (result != 0) {
       throw std::runtime_error("Error submitting settings:" + std::string(nghttp2_strerror(result)));
     }
 
+    const std::string host("unit-tests");
+    const std::string path("/dns-query");
     for (const auto& query : context.d_queries) {
+      const auto querySize = std::to_string(query.size());
       std::vector<nghttp2_nv> headers;
       /* Pseudo-headers need to come first (rfc7540 8.1.2.1) */
       NGHTTP2Headers::addStaticHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::METHOD_NAME, NGHTTP2Headers::HeaderConstantIndexes::METHOD_VALUE);
       NGHTTP2Headers::addStaticHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::SCHEME_NAME, NGHTTP2Headers::HeaderConstantIndexes::SCHEME_VALUE);
-      NGHTTP2Headers::addDynamicHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::AUTHORITY_NAME, "unit-tests");
-      NGHTTP2Headers::addDynamicHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::PATH_NAME, "/dns-query");
+      NGHTTP2Headers::addDynamicHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::AUTHORITY_NAME, host);
+      NGHTTP2Headers::addDynamicHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::PATH_NAME, path);
       NGHTTP2Headers::addStaticHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::ACCEPT_NAME, NGHTTP2Headers::HeaderConstantIndexes::ACCEPT_VALUE);
       NGHTTP2Headers::addStaticHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::CONTENT_TYPE_NAME, NGHTTP2Headers::HeaderConstantIndexes::CONTENT_TYPE_VALUE);
       NGHTTP2Headers::addStaticHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::USER_AGENT_NAME, NGHTTP2Headers::HeaderConstantIndexes::USER_AGENT_VALUE);
-      NGHTTP2Headers::addDynamicHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::CONTENT_LENGTH_NAME, std::to_string(query.size()));
+      NGHTTP2Headers::addDynamicHeader(headers, NGHTTP2Headers::HeaderConstantIndexes::CONTENT_LENGTH_NAME, querySize);
 
       d_position = 0;
       d_currentQuery = query;
       nghttp2_data_provider data_provider;
       data_provider.source.ptr = this;
       data_provider.read_callback = [](nghttp2_session* session, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* user_data) -> ssize_t {
+        cerr<<__LINE__<<endl;
         auto* conn = static_cast<DOHConnection*>(user_data);
+        cerr<<__LINE__<<endl;
         auto& pos = conn->d_position;
-        const auto& query = conn->d_currentQuery;
+        const auto& currentQuery = conn->d_currentQuery;
+        cerr<<__LINE__<<endl;
         size_t toCopy = 0;
-        if (pos < query.size()) {
-          size_t remaining = query.size() - pos;
+        if (pos < currentQuery.size()) {
+          cerr<<__LINE__<<endl;
+          size_t remaining = currentQuery.size() - pos;
           toCopy = length > remaining ? remaining : length;
           cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<pos<<endl;
-          memcpy(buf, &query.at(pos), toCopy);
+          memcpy(buf, &currentQuery.at(pos), toCopy);
           pos += toCopy;
+          cerr<<__LINE__<<endl;
         }
 
-        if (pos >= query.size()) {
+        if (pos >= currentQuery.size()) {
           *data_flags |= NGHTTP2_DATA_FLAG_EOF;
         }
+        cerr<<__LINE__<<endl;
         return toCopy;
       };
 
@@ -159,7 +170,9 @@ public:
         throw std::runtime_error("Error submitting HTTP request:" + std::string(nghttp2_strerror(newStreamId)));
       }
 
+      cerr<<__LINE__<<endl;
       result = nghttp2_session_send(d_session.get());
+      cerr<<__LINE__<<endl;
       if (result != 0) {
         throw std::runtime_error("Error in nghttp2_session_send:" + std::to_string(result));
       }
@@ -176,7 +189,7 @@ public:
 
   size_t submitIncoming(const PacketBuffer& data, size_t pos, size_t toWrite)
   {
-    cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<pos<<endl;
+    cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<pos<<", toWrite: "<<toWrite<<endl;
     ssize_t readlen = nghttp2_session_mem_recv(d_session.get(), &data.at(pos), toWrite);
     if (readlen < 0) {
       throw("Fatal error while submitting line " + std::to_string(__LINE__) + ": " + std::string(nghttp2_strerror(static_cast<int>(readlen))));
@@ -196,7 +209,9 @@ private:
   {
     cerr<<__PRETTY_FUNCTION__<<endl;
     DOHConnection* conn = static_cast<DOHConnection*>(user_data);
+    cerr<<__LINE__<<endl;
     conn->d_clientOutBuffer.insert(conn->d_clientOutBuffer.end(), data, data + length);
+    cerr<<__LINE__<<endl;
     return static_cast<ssize_t>(length);
   }
 
@@ -232,9 +247,9 @@ private:
 
   static int on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags, int32_t stream_id, const uint8_t* data, size_t len, void* user_data)
   {
-    cerr<<__PRETTY_FUNCTION__<<endl;
     DOHConnection* conn = static_cast<DOHConnection*>(user_data);
     auto& response = conn->d_responses[stream_id];
+    cerr<<__PRETTY_FUNCTION__<<": received data of size "<<len<<", adding to resposne of size "<<response.size()<<endl;
     response.insert(response.end(), data, data + len);
     return 0;
   }
@@ -312,6 +327,7 @@ public:
     toWrite -= pos;
     BOOST_REQUIRE_GE(buffer.size(), pos + toWrite);
 
+    cerr<<"Step bytes: "<<step.bytes<<", toWrite: "<<toWrite<<endl;
     if (step.bytes < toWrite) {
       toWrite = step.bytes;
     }
@@ -510,11 +526,9 @@ BOOST_FIXTURE_TEST_CASE(test_IncomingConnection_SelfAnswered, TestFixture)
   pwR.xfr32BitInt(0x01020304);
   pwR.commit();
 
-  s_connectionContexts[counter++] = ExpectedData{{}, {query}, {response}, { 403U }};
-
   {
-    cerr<<"about to start 'drop right away'"<<endl;
-    /* drop right away */
+    /* dnsdist drops the query right away after receiving it, client closes the connection */
+    s_connectionContexts[counter++] = ExpectedData{{}, {query}, {response}, {403U}};
     s_steps = {
       /* opening */
       { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
@@ -534,6 +548,209 @@ BOOST_FIXTURE_TEST_CASE(test_IncomingConnection_SelfAnswered, TestFixture)
 
     auto state = std::make_shared<IncomingHTTP2Connection>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
     state->handleIO();
+  }
+
+  {
+    /* client closes the connection right in the middle of sending the query */
+    s_connectionContexts[counter++] = ExpectedData{{}, {query}, {response}, { 403U }};
+    s_steps = {
+      /* opening */
+      { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
+      /* settings server -> client */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 15 },
+      /* client sends one byte */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::NeedRead, 1 },
+      /* then closes the connection */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 0 },
+      /* server close */
+      { ExpectedStep::ExpectedRequest::closeClient, IOState::Done },
+    };
+
+    /* mark the incoming FD as always ready */
+    dynamic_cast<MockupFDMultiplexer*>(threadData.mplexer.get())->setReady(-1);
+
+    auto state = std::make_shared<IncomingHTTP2Connection>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
+    state->handleIO();
+    while (threadData.mplexer->getWatchedFDCount(false) != 0 || threadData.mplexer->getWatchedFDCount(true) != 0) {
+      threadData.mplexer->run(&now);
+    }
+  }
+
+  {
+    /* dnsdist sends a response right away, client closes the connection after getting the response */
+    s_processQuery = [response](DNSQuestion& dq, std::shared_ptr<DownstreamState>& selectedBackend) -> ProcessQueryResult {
+      /* self answered */
+      dq.getMutableData() = response;
+      return ProcessQueryResult::SendAnswer;
+    };
+
+    s_connectionContexts[counter++] = ExpectedData{{}, {query}, {response}, {200U}};
+
+    s_steps = {
+      /* opening */
+      { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
+      /* settings server -> client */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 15 },
+      /* settings + headers + data client -> server.. */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 128 },
+      /* .. continued */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 60 },
+      /* headers + data */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, std::numeric_limits<size_t>::max() },
+      /* wait for next query, but the client closes the connection */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 0 },
+      /* server close */
+      { ExpectedStep::ExpectedRequest::closeClient, IOState::Done },
+    };
+
+    auto state = std::make_shared<IncomingHTTP2Connection>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
+    state->handleIO();
+  }
+
+  {
+    /* dnsdist sends a response right away, but the client closes the connection without even reading the response */
+    s_processQuery = [response](DNSQuestion& dq, std::shared_ptr<DownstreamState>& selectedBackend) -> ProcessQueryResult {
+      /* self answered */
+      dq.getMutableData() = response;
+      return ProcessQueryResult::SendAnswer;
+    };
+
+    s_connectionContexts[counter++] = ExpectedData{{}, {query}, {response}, {200U}};
+
+    s_steps = {
+      /* opening */
+      { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
+      /* settings server -> client */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 15 },
+      /* settings + headers + data client -> server.. */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 128 },
+      /* .. continued */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 60 },
+      /* we want to send the response but the client closes the connection */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 0 },
+      /* server close */
+      { ExpectedStep::ExpectedRequest::closeClient, IOState::Done },
+    };
+
+    /* mark the incoming FD as always ready */
+    dynamic_cast<MockupFDMultiplexer*>(threadData.mplexer.get())->setReady(-1);
+
+    auto state = std::make_shared<IncomingHTTP2Connection>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
+    state->handleIO();
+    while (threadData.mplexer->getWatchedFDCount(false) != 0 || threadData.mplexer->getWatchedFDCount(true) != 0) {
+      threadData.mplexer->run(&now);
+    }
+  }
+
+  {
+    /* dnsdist sends a response right away, client closes the connection while getting the response */
+    s_processQuery = [response](DNSQuestion& dq, std::shared_ptr<DownstreamState>& selectedBackend) -> ProcessQueryResult {
+      /* self answered */
+      dq.getMutableData() = response;
+      return ProcessQueryResult::SendAnswer;
+    };
+
+    s_connectionContexts[counter++] = ExpectedData{{}, {query}, {response}, {200U}};
+
+    s_steps = {
+      /* opening */
+      { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
+      /* settings server -> client */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 15 },
+      /* settings + headers + data client -> server.. */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 128 },
+      /* .. continued */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 60 },
+      /* headers + data (partial write) */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::NeedWrite, 1 },
+      /* then the client closes the connection before we are done  */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 0 },
+      /* server close */
+      { ExpectedStep::ExpectedRequest::closeClient, IOState::Done },
+    };
+
+    /* mark the incoming FD as always ready */
+    dynamic_cast<MockupFDMultiplexer*>(threadData.mplexer.get())->setReady(-1);
+
+    auto state = std::make_shared<IncomingHTTP2Connection>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
+    state->handleIO();
+    while (threadData.mplexer->getWatchedFDCount(false) != 0 || threadData.mplexer->getWatchedFDCount(true) != 0) {
+      threadData.mplexer->run(&now);
+    }
+  }
+}
+
+BOOST_FIXTURE_TEST_CASE(test_IncomingConnection_BackendTimeout, TestFixture)
+{
+  auto local = getBackendAddress("1", 80);
+  ClientState localCS(local, true, false, false, "", {});
+  localCS.dohFrontend = std::make_shared<DOHFrontend>(std::make_shared<MockupTLSCtx>());
+  localCS.dohFrontend->d_urls.insert("/dns-query");
+
+  TCPClientThreadData threadData;
+  threadData.mplexer = std::make_unique<MockupFDMultiplexer>();
+
+  auto backend = std::make_shared<DownstreamState>(getBackendAddress("42", 53));
+
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+
+  size_t counter = 0;
+  DNSName name("powerdns.com.");
+  PacketBuffer query;
+  GenericDNSPacketWriter<PacketBuffer> pwQ(query, name, QType::A, QClass::IN, 0);
+  pwQ.getHeader()->rd = 1;
+  pwQ.getHeader()->id = htons(counter);
+
+  PacketBuffer response;
+  GenericDNSPacketWriter<PacketBuffer> pwR(response, name, QType::A, QClass::IN, 0);
+  pwR.getHeader()->qr = 1;
+  pwR.getHeader()->rd = 1;
+  pwR.getHeader()->ra = 1;
+  pwR.getHeader()->id = htons(counter);
+  pwR.startRecord(name, QType::A, 7200, QClass::IN, DNSResourceRecord::ANSWER);
+  pwR.xfr32BitInt(0x01020304);
+  pwR.commit();
+
+  {
+    /* dnsdist forwards the query to the backend, which does not answer -> timeout */
+    s_processQuery = [backend](DNSQuestion& dq, std::shared_ptr<DownstreamState>& selectedBackend) -> ProcessQueryResult {
+      selectedBackend = backend;
+      return ProcessQueryResult::PassToBackend;
+    };
+    s_connectionContexts[counter++] = ExpectedData{{}, {query}, {response}, {502U}};
+    s_steps = {
+      /* opening */
+      { ExpectedStep::ExpectedRequest::handshakeClient, IOState::Done },
+      /* settings server -> client */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 15 },
+      /* settings + headers + data client -> server.. */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 128 },
+      /* .. continued */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 60 },
+        /* trying to read a new request while processing the first one */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::NeedRead },
+      /* headers + data */
+      { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, std::numeric_limits<size_t>::max(), [&threadData](int desc) {
+          /* set the incoming descriptor as ready */
+          dynamic_cast<MockupFDMultiplexer*>(threadData.mplexer.get())->setReady(desc);
+        }
+      },
+      /* wait for next query, but the client closes the connection */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 0 },
+      /* server close */
+      { ExpectedStep::ExpectedRequest::closeClient, IOState::Done },
+    };
+
+    auto state = std::make_shared<IncomingHTTP2Connection>(ConnectionInfo(&localCS, getBackendAddress("84", 4242)), threadData, now);
+    state->handleIO();
+    TCPResponse resp;
+    resp.d_idstate.d_streamID = 1;
+    state->notifyIOError(now, std::move(resp));
+    while (threadData.mplexer->getWatchedFDCount(false) != 0 || threadData.mplexer->getWatchedFDCount(true) != 0) {
+      threadData.mplexer->run(&now);
+    }
+    cerr<<"exiting loop"<<endl;
   }
 }
 
