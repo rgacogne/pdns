@@ -88,7 +88,6 @@ public:
   DOHConnection(uint64_t connectionID) :
     d_session(std::unique_ptr<nghttp2_session, void (*)(nghttp2_session*)>(nullptr, nghttp2_session_del)), d_connectionID(connectionID)
   {
-    cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<connectionID<<endl;
     const auto& context = s_connectionContexts.at(connectionID);
     d_clientOutBuffer.insert(d_clientOutBuffer.begin(), context.d_proxyProtocolPayload.begin(), context.d_proxyProtocolPayload.end());
     
@@ -141,27 +140,20 @@ public:
       nghttp2_data_provider data_provider;
       data_provider.source.ptr = this;
       data_provider.read_callback = [](nghttp2_session* session, int32_t stream_id, uint8_t* buf, size_t length, uint32_t* data_flags, nghttp2_data_source* source, void* user_data) -> ssize_t {
-        cerr<<__LINE__<<endl;
         auto* conn = static_cast<DOHConnection*>(user_data);
-        cerr<<__LINE__<<endl;
         auto& pos = conn->d_position;
         const auto& currentQuery = conn->d_currentQuery;
-        cerr<<__LINE__<<endl;
         size_t toCopy = 0;
         if (pos < currentQuery.size()) {
-          cerr<<__LINE__<<endl;
           size_t remaining = currentQuery.size() - pos;
           toCopy = length > remaining ? remaining : length;
-          cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<pos<<endl;
           memcpy(buf, &currentQuery.at(pos), toCopy);
           pos += toCopy;
-          cerr<<__LINE__<<endl;
         }
 
         if (pos >= currentQuery.size()) {
           *data_flags |= NGHTTP2_DATA_FLAG_EOF;
         }
-        cerr<<__LINE__<<endl;
         return toCopy;
       };
 
@@ -170,9 +162,7 @@ public:
         throw std::runtime_error("Error submitting HTTP request:" + std::string(nghttp2_strerror(newStreamId)));
       }
 
-      cerr<<__LINE__<<endl;
       result = nghttp2_session_send(d_session.get());
-      cerr<<__LINE__<<endl;
       if (result != 0) {
         throw std::runtime_error("Error in nghttp2_session_send:" + std::to_string(result));
       }
@@ -189,7 +179,6 @@ public:
 
   size_t submitIncoming(const PacketBuffer& data, size_t pos, size_t toWrite)
   {
-    cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<pos<<", toWrite: "<<toWrite<<endl;
     ssize_t readlen = nghttp2_session_mem_recv(d_session.get(), &data.at(pos), toWrite);
     if (readlen < 0) {
       throw("Fatal error while submitting line " + std::to_string(__LINE__) + ": " + std::string(nghttp2_strerror(static_cast<int>(readlen))));
@@ -207,20 +196,15 @@ public:
 private:
   static ssize_t send_callback(nghttp2_session* session, const uint8_t* data, size_t length, int flags, void* user_data)
   {
-    cerr<<__PRETTY_FUNCTION__<<endl;
     DOHConnection* conn = static_cast<DOHConnection*>(user_data);
-    cerr<<__LINE__<<endl;
     conn->d_clientOutBuffer.insert(conn->d_clientOutBuffer.end(), data, data + length);
-    cerr<<__LINE__<<endl;
     return static_cast<ssize_t>(length);
   }
 
   static int on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame, void* user_data)
   {
-    cerr<<__PRETTY_FUNCTION__<<endl;
     DOHConnection* conn = static_cast<DOHConnection*>(user_data);
     if ((frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA) && frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-      cerr<<"stream ID is "<<frame->hd.stream_id<<endl;
       const auto& response = conn->d_responses.at(frame->hd.stream_id);
       if (conn->d_responseCodes.at(frame->hd.stream_id) != 200U) {
         return 0;
@@ -230,12 +214,10 @@ private:
       const auto* dh = reinterpret_cast<const dnsheader*>(response.data());
       uint16_t id = ntohs(dh->id);
 
-      cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<conn->d_connectionID<<", query ID "<<id<<endl;
       const auto& expected = s_connectionContexts.at(conn->d_connectionID).d_responses.at(id);
       BOOST_REQUIRE_EQUAL(expected.size(), response.size());
       for (size_t idx = 0; idx < response.size(); idx++) {
         if (expected.at(idx) != response.at(idx)) {
-          cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<idx<<endl;
           cerr << "Mismatch at offset " << idx << ", expected " << std::to_string(response.at(idx)) << " got " << std::to_string(expected.at(idx)) << endl;
           BOOST_CHECK(false);
         }
@@ -249,14 +231,12 @@ private:
   {
     DOHConnection* conn = static_cast<DOHConnection*>(user_data);
     auto& response = conn->d_responses[stream_id];
-    cerr<<__PRETTY_FUNCTION__<<": received data of size "<<len<<", adding to resposne of size "<<response.size()<<endl;
     response.insert(response.end(), data, data + len);
     return 0;
   }
 
   static int on_header_callback(nghttp2_session* session, const nghttp2_frame* frame, const uint8_t* name, size_t namelen, const uint8_t* value, size_t valuelen, uint8_t flags, void* user_data)
   {
-    cerr<<__PRETTY_FUNCTION__<<endl;
     DOHConnection* conn = static_cast<DOHConnection*>(user_data);
 
     const std::string status(":status");
@@ -264,7 +244,6 @@ private:
       if (namelen == status.size() && memcmp(status.data(), name, status.size()) == 0) {
         try {
           uint16_t responseCode{0};
-          cerr<<conn->d_connectionID<<" "<<frame->hd.stream_id<<endl;
           auto expected = s_connectionContexts.at(conn->d_connectionID).d_responseCodes.at((frame->hd.stream_id - 1) / 2);
           pdns::checked_stoi_into(responseCode, std::string(reinterpret_cast<const char*>(value), valuelen));
           conn->d_responseCodes[frame->hd.stream_id] = responseCode;
@@ -284,7 +263,6 @@ private:
 
   static int on_stream_close_callback(nghttp2_session* session, int32_t stream_id, uint32_t error_code, void* user_data)
   {
-    cerr<<__PRETTY_FUNCTION__<<endl;
     return 0;
   }
 };
@@ -312,7 +290,6 @@ public:
 
   IOState tryWrite(const PacketBuffer& buffer, size_t& pos, size_t toWrite) override
   {
-    cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<d_descriptor<<endl;
     auto& conn = s_connectionBuffers.at(d_descriptor);
     auto step = getStep();
     BOOST_REQUIRE_EQUAL(step.request, ExpectedStep::ExpectedRequest::writeToClient);
@@ -327,7 +304,6 @@ public:
     toWrite -= pos;
     BOOST_REQUIRE_GE(buffer.size(), pos + toWrite);
 
-    cerr<<"Step bytes: "<<step.bytes<<", toWrite: "<<toWrite<<endl;
     if (step.bytes < toWrite) {
       toWrite = step.bytes;
     }
@@ -340,18 +316,14 @@ public:
 
   IOState tryRead(PacketBuffer& buffer, size_t& pos, size_t toRead, bool allowIncomplete = false) override
   {
-    cerr<<__PRETTY_FUNCTION__<<" "<<__LINE__<<": "<<d_descriptor<<endl;
     auto& conn = s_connectionBuffers.at(d_descriptor);
     auto step = getStep();
     BOOST_REQUIRE_EQUAL(step.request, ExpectedStep::ExpectedRequest::readFromClient);
 
     if (step.bytes == 0) {
-      cerr<<"got 0 in tryRead"<<endl;
       if (step.nextState == IOState::NeedRead) {
-        cerr<<"but needread"<<endl;
         return step.nextState;
       }
-      cerr<<"EOF"<<endl;
       throw std::runtime_error("Remote host closed the connection");
     }
 
@@ -382,10 +354,6 @@ public:
   IOState tryConnect(bool fastOpen, const ComboAddress& remote) override
   {
     throw std::runtime_error("Should not happen");
-    //auto step = getStep();
-    //BOOST_REQUIRE_EQUAL(step.request, ExpectedStep::ExpectedRequest::connectToBackend);
-
-    //return step.nextState;
   }
 
   void close() override
@@ -750,7 +718,6 @@ BOOST_FIXTURE_TEST_CASE(test_IncomingConnection_BackendTimeout, TestFixture)
     while (threadData.mplexer->getWatchedFDCount(false) != 0 || threadData.mplexer->getWatchedFDCount(true) != 0) {
       threadData.mplexer->run(&now);
     }
-    cerr<<"exiting loop"<<endl;
   }
 }
 

@@ -94,8 +94,10 @@ private:
   bool sendResponse(StreamID streamID, PendingQuery& context, uint16_t responseCode, const HeadersMap& customResponseHeaders, const std::string& contentType = "", bool addContentType = true);
   void handleIncomingQuery(PendingQuery&& query, StreamID streamID);
   bool checkALPN();
-  void readHTTPData();
+  IOState readHTTPData();
   void handleConnectionReady();
+  bool hasPendingWrite() const;
+  void writeToSocket(bool socketReady);
   boost::optional<struct timeval> getIdleClientReadTTD(struct timeval now) const;
 
   std::unique_ptr<nghttp2_session, decltype(&nghttp2_session_del)> d_session{nullptr, nghttp2_session_del};
@@ -109,7 +111,11 @@ private:
   /* we are done reading from this connection, but we might still want to
      write to it to close it properly */
   bool d_connectionClosing{false};
+  /* Whether we are still waiting for more data to be buffered
+     before writing to the socket (false) or not. */
   bool d_needFlush{false};
+  /* Whether we have data that we want to write to the socket,
+     but the socket is full. */
   bool d_pendingWrite{false};
 };
 
