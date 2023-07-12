@@ -781,8 +781,7 @@ void IncomingHTTP2Connection::handleIncomingQuery(IncomingHTTP2Connection::Pendi
     sendResponse(streamID, query, code, d_ci.cs->dohFrontend->d_customResponseHeaders);
   };
 
-  if (query.d_method == PendingQuery::Method::Unknown ||
-      query.d_method == PendingQuery::Method::Unsupported) {
+  if (query.d_method == PendingQuery::Method::Unknown || query.d_method == PendingQuery::Method::Unsupported) {
     handleImmediateResponse(400, "DoH query not allowed because of unsupported HTTP method");
     return;
   }
