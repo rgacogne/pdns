@@ -40,12 +40,9 @@
 #include "ednssubnet.hh"
 #include "misc.hh"
 #include "sstuff.hh"
-#include "statbag.hh"
 
 using std::thread;
 using std::unique_ptr;
-
-StatBag S;
 
 static std::atomic<unsigned int> g_recvcounter, g_recvbytes;
 static volatile bool g_done;
@@ -55,57 +52,79 @@ static po::variables_map g_vm;
 
 static bool g_quiet;
 
+//NOLINTNEXTLINE(performance-unnecessary-value-param): we do want a copy
 static void recvThread(const std::shared_ptr<std::vector<std::unique_ptr<Socket>>> sockets)
 {
-  vector<pollfd> rfds, fds;
-  for (const auto& s : *sockets) {
-    if (s == nullptr) {
+  std::vector<pollfd> rfds;
+  std::vector<pollfd> fds;
+  for (const auto& sock : *sockets) {
+    if (sock == nullptr) {
       continue;
     }
-    struct pollfd pfd;
-    pfd.fd = s->getHandle();
+    struct pollfd pfd{};
+    pfd.fd = sock->getHandle();
     pfd.events = POLLIN;
     pfd.revents = 0;
     rfds.push_back(pfd);
   }
 
-  int err;
+  int err = 0;
 
+#error does not work, we need an actual array of mmsghdr for recvmmsg
+  struct MSHHeaderBuffer
+  {
+    MSHHeaderBuffer(): buffer(1500)
+    {
+    }
+    std::vector<char> buffer;
 #if HAVE_RECVMMSG
-  vector<struct mmsghdr> buf(100);
-  for(auto& m : buf) {
-    cmsgbuf_aligned *cbuf = new cmsgbuf_aligned;
-    fillMSGHdr(&m.msg_hdr, new struct iovec, cbuf, sizeof(*cbuf), new char[1500], 1500, new ComboAddress("127.0.0.1"));
+    struct mmsghdr msghdr;
+#else
+    struct msghdr msghdr;
+#endif
+    cmsgbuf_aligned cmsgbuf;
+    struct iovec iovec;
+    ComboAddress addr{"127.0.0.1"};
+  };
+    
+#if HAVE_RECVMMSG
+  std::vector<MSHHeaderBuffer> buffers(100);
+  for (auto& entry : buffers) {
+    MSHHeaderBuffer buffer;
+    fillMSGHdr(&entry.msghdr.msg_hdr, &entry.iovec, &entry.cmsgbuf, sizeof(entry.cmsgbuf), &entry.buffer.data(), entry.buffer.size(), &entry.addr);
   }
 #else
-  struct msghdr buf;
-  cmsgbuf_aligned *cbuf = new cmsgbuf_aligned;
-  fillMSGHdr(&buf, new struct iovec, cbuf, sizeof(*cbuf), new char[1500], 1500, new ComboAddress("127.0.0.1"));
+  MSHHeaderBuffer buffer;
+  fillMSGHdr(&buffer.msghdr, &buffer.iovec, &buffer.cmsgbuf, sizeof(buffer.cmsgbuf), &buffer.buffer.data(), buffer.buffer.size(), &buffer.addr);
 #endif
 
-  while(!g_done) {
-    fds=rfds;
+  while (!g_done) {
+    fds = rfds;
 
-    err = poll(&fds[0], fds.size(), -1);
+    err = poll(&fds.data(), fds.size(), -1);
     if (err < 0) {
-      if (errno == EINTR)
+      if (errno == EINTR) {
         continue;
+      }
       unixDie("Unable to poll for new UDP events");
     }
 
-    for(auto &pfd : fds) {
-      if (pfd.revents & POLLIN) {
+    for (auto &pfd : fds) {
+      if ((pfd.revents & POLLIN) != 0) {
 #if HAVE_RECVMMSG
-        if ((err=recvmmsg(pfd.fd, &buf[0], buf.size(), MSG_WAITFORONE, 0)) < 0 ) {
-          if(errno != EAGAIN)
+        err = recvmmsg(pfd.fd, buffers.data(), buf.size(), MSG_WAITFORONE, nullptr);
+        if (err < 0 ) {
+          if (errno != EAGAIN) {
             unixDie("recvmmsg");
+          }
           continue;
         }
-        g_recvcounter+=err;
-        for(int n=0; n < err; ++n)
-          g_recvbytes += buf[n].msg_len;
+        g_recvcounter += err;
+        for (int counter = 0; counter < err; ++n) {
+          g_recvbytes += buf[counter].msg_len;
+        }
 #else
-        if ((err = recvmsg(pfd.fd, &buf, 0)) < 0) {
+        if ((err = recvmsg(pfd.fd, &buffer.msghdr, 0)) < 0) {
           if (errno != EAGAIN)
             unixDie("recvmsg");
           continue;
