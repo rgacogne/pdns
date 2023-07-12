@@ -349,7 +349,7 @@ void IncomingHTTP2Connection::handleIO()
     if (active() && !d_connectionClosing && (d_state == State::waitingForQuery || d_state == State::idle)) {
       do {
         iostate = readHTTPData();
-      } while (active() && !d_connectionClosing && !hasPendingWrite() && iostate == IOState::Done);
+      } while (active() && !d_connectionClosing && iostate == IOState::Done);
     }
 
     if (!active()) {

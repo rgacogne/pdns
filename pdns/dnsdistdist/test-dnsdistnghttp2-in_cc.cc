@@ -631,6 +631,8 @@ BOOST_FIXTURE_TEST_CASE(test_IncomingConnection_SelfAnswered, TestFixture)
       { ExpectedStep::ExpectedRequest::readFromClient, IOState::Done, 60 },
       /* headers + data (partial write) */
       { ExpectedStep::ExpectedRequest::writeToClient, IOState::NeedWrite, 1 },
+      /* nothing to read after that */
+      { ExpectedStep::ExpectedRequest::readFromClient, IOState::NeedRead, 0 },
       /* then the client closes the connection before we are done  */
       { ExpectedStep::ExpectedRequest::writeToClient, IOState::Done, 0 },
       /* server close */
