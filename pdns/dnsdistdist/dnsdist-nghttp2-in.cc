@@ -375,11 +375,6 @@ void IncomingHTTP2Connection::handleIO()
       if (nghttp2_session_want_read(d_session.get()) != 0) {
         updateIO(IOState::NeedRead, handleReadableIOCallback);
       }
-      else {
-        if (isIdle()) {
-          watchForRemoteHostClosingConnection();
-        }
-      }
     }
   }
   catch (const std::exception& e) {
@@ -400,12 +395,7 @@ void IncomingHTTP2Connection::writeToSocket(bool socketReady)
       d_out.clear();
       d_outPos = 0;
       if (active() && !d_connectionClosing) {
-        if (!isIdle()) {
-          updateIO(IOState::NeedRead, handleReadableIOCallback);
-        }
-        else {
-          watchForRemoteHostClosingConnection();
-        }
+        updateIO(IOState::NeedRead, handleReadableIOCallback);
       }
       else {
         stopIO();
@@ -919,10 +909,6 @@ int IncomingHTTP2Connection::on_frame_recv_callback(nghttp2_session* session, co
     auto stream = conn->d_currentStreams.find(streamID);
     if (stream != conn->d_currentStreams.end()) {
       conn->handleIncomingQuery(std::move(stream->second), streamID);
-
-      if (conn->isIdle()) {
-        conn->watchForRemoteHostClosingConnection();
-      }
     }
     else {
       vinfolog("Stream %d NOT FOUND", streamID);
@@ -953,10 +939,6 @@ int IncomingHTTP2Connection::on_stream_close_callback(nghttp2_session* session, 
   gettimeofday(&now, nullptr);
   auto request = std::move(stream->second);
   conn->d_currentStreams.erase(stream->first);
-
-  if (conn->isIdle()) {
-    conn->watchForRemoteHostClosingConnection();
-  }
 
   return 0;
 }
@@ -1219,20 +1201,6 @@ void IncomingHTTP2Connection::updateIO(IOState newState, const FDMultiplexer::ca
       ttd = getClientWriteTTD(now);
       d_ioState->update(newState, callback, shared, ttd);
     }
-  }
-}
-
-void IncomingHTTP2Connection::watchForRemoteHostClosingConnection()
-{
-  if (d_connectionDied) {
-    return;
-  }
-
-  if (hasPendingWrite()) {
-    updateIO(IOState::NeedWrite, &handleWritableIOCallback);
-  }
-  else if (!d_connectionClosing) {
-    updateIO(IOState::NeedRead, handleReadableIOCallback);
   }
 }
 
