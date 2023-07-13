@@ -354,6 +354,7 @@ void IncomingHTTP2Connection::handleIO()
       auto status = handleProxyProtocolPayload();
       if (status == ProxyProtocolResult::Done) {
         if (isProxyPayloadOutsideTLS()) {
+          d_state = State::doingHandshake;
           iostate = handleHandshake(now);
           if (d_connectionDied) {
             return;
