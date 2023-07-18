@@ -772,6 +772,7 @@ class TestProxyProtocolIncoming(ProxyProtocolTest):
         reverseProxyPort = 13053
         reverseProxy = threading.Thread(name='Mock Proxy Protocol Reverse Proxy', target=MockTCPReverseProxyAddingProxyProtocol, args=[reverseProxyPort, self._dohServerPPOutsidePort])
         reverseProxy.start()
+        time.sleep(1)
 
         receivedResponse = None
         conn = self.openDOHConnection(reverseProxyPort, self._caCert, timeout=2.0)
