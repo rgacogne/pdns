@@ -47,6 +47,7 @@ struct HealthCheckData
   Socket d_udpSocket;
   DNSName d_checkName;
   struct timeval d_ttd{0, 0};
+  struct timeval d_queryTime{0, 0};
   size_t d_bufferPos{0};
   uint16_t d_checkType;
   uint16_t d_checkClass;
@@ -332,7 +333,8 @@ bool queueHealthCheck(std::unique_ptr<FDMultiplexer>& mplexer, const std::shared
     auto data = std::make_shared<HealthCheckData>(*mplexer, ds, std::move(checkName), checkType, checkClass, queryID);
     data->d_initial = initialCheck;
 
-    gettimeofday(&data->d_ttd, nullptr);
+    gettimeofday(&data->d_queryTime, nullptr);
+    data->d_ttd = data->d_queryTime;
     data->d_ttd.tv_sec += ds->d_config.checkTimeout / 1000; /* ms to seconds */
     data->d_ttd.tv_usec += (ds->d_config.checkTimeout % 1000) * 1000; /* remaining ms to us */
     normalizeTV(data->d_ttd);
@@ -441,7 +443,18 @@ void handleQueuedHealthChecks(FDMultiplexer& mplexer, bool initial)
           mplexer.removeReadFD(timeout.first);
         }
         if (g_verboseHealthChecks) {
-          infolog("Timeout while waiting for the health check response (ID %d) from backend %s", data->d_queryID, data->d_ds->getNameWithAddr());
+          int descriptor = data->d_udpSocket.getHandle();
+          int mplexerDesc = timeout.first;
+          ComboAddress from;
+          from.sin4.sin_family = data->d_ds->d_config.remote.sin4.sin_family;
+          auto fromlen = from.getSocklen();
+          data->d_buffer.resize(512);
+          int savederrno = 0;
+          auto got = recvfrom(data->d_udpSocket.getHandle(), &data->d_buffer.at(0), data->d_buffer.size(), 0, reinterpret_cast<sockaddr *>(&from), &fromlen);
+          if (got < 0) {
+            savederrno = errno;
+          }
+          infolog("Timeout while waiting for the health check response (ID %d, socket %d/%d, reading result %d/%d, query at %d.%d, timeout at %d.%d) from backend %s", data->d_queryID, descriptor, mplexerDesc, got, savederrno, data->d_queryTime.tv_sec, data->d_queryTime.tv_usec, now.tv_sec, now.tv_usec, data->d_ds->getNameWithAddr());
         }
 
         data->d_ds->submitHealthCheckResult(initial, false);
