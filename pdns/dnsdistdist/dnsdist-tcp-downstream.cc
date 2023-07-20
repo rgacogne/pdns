@@ -118,7 +118,7 @@ bool ConnectionToBackend::reconnect()
       return true;
     }
     catch (const std::runtime_error& e) {
-      vinfolog("Connection to downstream server %s failed: %s", d_ds->getName(), e.what());
+      vinfolog("Connection to downstream server %s failed: %s", d_ds->getNameWithAddr(), e.what());
       d_downstreamFailures++;
       if (d_downstreamFailures >= d_ds->d_config.d_retries) {
         throw;
@@ -269,7 +269,7 @@ IOState TCPConnectionToBackend::queueNextQuery(std::shared_ptr<TCPConnectionToBa
 
 IOState TCPConnectionToBackend::sendQuery(std::shared_ptr<TCPConnectionToBackend>& conn, const struct timeval& now)
 {
-  DEBUGLOG("sending query to backend "<<conn->getDS()->getName()<<" over FD "<<conn->d_handler->getDescriptor());
+  DEBUGLOG("sending query to backend "<<conn->getDS()->getNameWithAddr()<<" over FD "<<conn->d_handler->getDescriptor());
 
   IOState state = conn->d_handler->tryWrite(conn->d_currentQuery.d_query.d_buffer, conn->d_currentPos, conn->d_currentQuery.d_query.d_buffer.size());
 
@@ -362,7 +362,7 @@ void TCPConnectionToBackend::handleIO(std::shared_ptr<TCPConnectionToBackend>& c
             iostate = conn->handleResponse(conn, now);
           }
           catch (const std::exception& e) {
-            vinfolog("Got an exception while handling TCP response from %s (client is %s): %s", conn->d_ds ? conn->d_ds->getName() : "unknown", conn->d_currentQuery.d_query.d_idstate.origRemote.toStringWithPort(), e.what());
+            vinfolog("Got an exception while handling TCP response from %s (client is %s): %s", conn->d_ds ? conn->d_ds->getNameWithAddr() : "unknown", conn->d_currentQuery.d_query.d_idstate.origRemote.toStringWithPort(), e.what());
             ioGuard.release();
             conn->release();
             return;
@@ -555,16 +555,16 @@ void TCPConnectionToBackend::handleTimeout(const struct timeval& now, bool write
   if (write) {
     if (isFresh() && d_queries == 0) {
       ++d_ds->tcpConnectTimeouts;
-      vinfolog("Timeout while connecting to TCP backend %s", d_ds->getName());
+      vinfolog("Timeout while connecting to TCP backend %s", d_ds->getNameWithAddr());
     }
     else {
       ++d_ds->tcpWriteTimeouts;
-      vinfolog("Timeout while writing to TCP backend %s", d_ds->getName());
+      vinfolog("Timeout while writing to TCP backend %s", d_ds->getNameWithAddr());
     }
   }
   else {
     ++d_ds->tcpReadTimeouts;
-    vinfolog("Timeout while reading from TCP backend %s", d_ds->getName());
+    vinfolog("Timeout while reading from TCP backend %s", d_ds->getNameWithAddr());
   }
 
   try {
