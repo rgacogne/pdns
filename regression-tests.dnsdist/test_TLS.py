@@ -143,6 +143,8 @@ class TLSTests(object):
             self.assertTrue(receivedResponse)
             receivedQuery.id = query.id
             self.assertEqual(query, receivedQuery)
+            print(response)
+            print(receivedResponse)
             self.assertEqual(response, receivedResponse)
 
         conn.close()
