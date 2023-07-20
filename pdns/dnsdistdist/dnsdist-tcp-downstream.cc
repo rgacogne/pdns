@@ -342,7 +342,7 @@ void TCPConnectionToBackend::handleIO(std::shared_ptr<TCPConnectionToBackend>& c
           DEBUGLOG("got response size from backend");
           conn->d_state = State::readingResponseFromBackend;
           conn->d_responseSize = conn->d_responseBuffer.at(0) * 256 + conn->d_responseBuffer.at(1);
-          cerr<<"got response size of "<<conn->d_responseSize<<" from backend"<<endl;
+          cerr<<"got response size of "<<conn->d_responseSize<<" from backend over FD "<<conn->getHandle()<<endl;
           conn->d_responseBuffer.reserve(conn->d_responseSize + /* we will need to prepend the size later */ 2);
           conn->d_responseBuffer.resize(conn->d_responseSize);
           conn->d_currentPos = 0;
