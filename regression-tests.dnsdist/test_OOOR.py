@@ -26,7 +26,7 @@ class OOORTCPResponder(object):
 
                 # computing the correct ID for the response
                 request = dns.message.from_wire(data)
-                #print("got a query for %s" % (request.question[0].name))
+                print("OOOR TCP responder got a query for %s" % (request.question[0].name))
                 if request.question[0].name == "0.simple.ooor.tests.powerdns.com":
                     time.sleep(1)
 
@@ -35,6 +35,7 @@ class OOORTCPResponder(object):
                 wire = response.to_wire()
                 conn.send(struct.pack("!H", len(wire)))
                 conn.send(wire)
+                print("OOOR TCP responder sent a response of size %d" % (len(wire)))
 
         except ConnectionError as err:
             print("Error in the thread handling reverse OOOR connections: %s" % (err))
@@ -229,6 +230,7 @@ class TestOOORWithClientNotBackend(DNSDistTest):
             receivedResponse = self.recvTCPResponseOverConnection(conn)
             self.assertTrue(receivedResponse)
             receivedResponses[str(receivedResponse.question[0].name)] = (receivedResponse)
+            print('got a response for %s' % (name))
 
         self.assertEqual(len(receivedResponses), 100)
         for idx in range(5):
