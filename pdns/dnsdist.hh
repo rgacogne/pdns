@@ -21,7 +21,6 @@
  */
 #pragma once
 #include "config.h"
-#include "ext/luawrapper/include/LuaContext.hpp"
 
 #include <condition_variable>
 #include <memory>
@@ -31,8 +30,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <unordered_map>
-
-#include <boost/variant.hpp>
 
 #include "circular_buffer.hh"
 #include "dnscrypt.hh"
@@ -439,8 +436,9 @@ private:
   bool d_passthrough{true};
 };
 
-typedef std::unordered_map<string, unsigned int> QueryCountRecords;
-typedef std::function<std::tuple<bool, string>(const DNSQuestion* dq)> QueryCountFilter;
+// could be moved to a different file
+using QueryCountRecords = std::unordered_map<string, unsigned int>;
+using QueryCountFilter = std::function<std::tuple<bool, string>(const DNSQuestion* dq)>;
 struct QueryCount {
   QueryCount()
   {
@@ -952,8 +950,6 @@ public:
 using servers_t = vector<std::shared_ptr<DownstreamState>>;
 
 void responderThread(std::shared_ptr<DownstreamState> state);
-extern LockGuarded<LuaContext> g_lua;
-extern std::string g_outputBuffer; // locking for this is ok, as locked by g_luamutex
 
 class DNSRule
 {
@@ -1091,11 +1087,6 @@ void tcpAcceptorThread(std::vector<ClientState*> states);
 #ifdef HAVE_DNS_OVER_HTTPS
 void dohThread(ClientState* cs);
 #endif /* HAVE_DNS_OVER_HTTPS */
-
-void setLuaNoSideEffect(); // if nothing has been declared, set that there are no side effects
-void setLuaSideEffect();   // set to report a side effect, cancelling all _no_ side effect calls
-bool getLuaNoSideEffect(); // set if there were only explicit declarations of _no_ side effect
-void resetLuaSideEffect(); // reset to indeterminate state
 
 bool responseContentMatches(const PacketBuffer& response, const DNSName& qname, const uint16_t qtype, const uint16_t qclass, const std::shared_ptr<DownstreamState>& remote, unsigned int& qnameWireLength);
 

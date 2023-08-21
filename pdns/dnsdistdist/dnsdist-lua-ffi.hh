@@ -22,6 +22,7 @@
 #pragma once
 
 #include "dnsdist.hh"
+#include "dnsdist-lua.hh"
 
 extern "C" {
 #include "dnsdist-lua-ffi-interface.h"

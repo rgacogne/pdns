@@ -25,6 +25,7 @@
 #include <unordered_set>
 
 #include "dolog.hh"
+#include "dnsdist-lua.hh"
 #include "dnsdist-rings.hh"
 #include "statnode.hh"
 

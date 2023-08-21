@@ -26,6 +26,11 @@
 #include "dnsparser.hh"
 #include <random>
 
+#include "ext/luawrapper/include/LuaContext.hpp"
+
+extern LockGuarded<LuaContext> g_lua;
+extern std::string g_outputBuffer; // locking for this is ok, as locked by g_lua's internal mutex
+
 struct ResponseConfig
 {
   boost::optional<bool> setAA{boost::none};
@@ -237,3 +242,8 @@ static inline void checkAllParametersConsumed(const std::string& func, const boo
     warnlog("%s: Unknown key '%s' given - ignored", func, key);
   }
 }
+
+void setLuaNoSideEffect(); // if nothing has been declared, set that there are no side effects
+void setLuaSideEffect();   // set to report a side effect, cancelling all _no_ side effect calls
+bool getLuaNoSideEffect(); // set if there were only explicit declarations of _no_ side effect
+void resetLuaSideEffect(); // reset to indeterminate state

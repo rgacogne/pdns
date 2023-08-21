@@ -42,6 +42,7 @@
 #include "connection-management.hh"
 #include "dolog.hh"
 #include "dnsdist.hh"
+#include "dnsdist-lua.hh"
 #include "dnsdist-console.hh"
 #include "sodcrypto.hh"
 #include "threadname.hh"
