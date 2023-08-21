@@ -30,6 +30,7 @@
 #include <poll.h>
 #include <thread>
 
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/program_options.hpp>
 
 #include "dns_random.hh"

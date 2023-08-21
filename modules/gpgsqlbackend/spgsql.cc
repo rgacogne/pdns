@@ -32,6 +32,8 @@
 #include "pdns/namespaces.hh"
 #include <algorithm>
 
+#include <boost/algorithm/string/replace.hpp>
+
 class SPgSQLStatement : public SSqlStatement
 {
 public:

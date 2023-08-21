@@ -22,6 +22,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <boost/algorithm/string/replace.hpp>
 #include "geoipbackend.hh"
 #include "geoipinterface.hh"
 #ifdef HAVE_GEOIP

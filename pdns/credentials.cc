@@ -24,6 +24,8 @@
 #include <cmath>
 #include <stdexcept>
 
+#include <boost/algorithm/string/predicate.hpp>
+
 #ifdef HAVE_LIBSODIUM
 #include <sodium.h>
 #endif

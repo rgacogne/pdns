@@ -60,6 +60,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <climits>
+#include <syslog.h>
 #ifdef __FreeBSD__
 #  include <pthread_np.h>
 #endif

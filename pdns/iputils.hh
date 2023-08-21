@@ -33,6 +33,8 @@
 #include <netdb.h>
 #include <sstream>
 
+#include <boost/algorithm/string/join.hpp>
+
 #include "namespaces.hh"
 
 #ifdef __APPLE__

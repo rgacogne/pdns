@@ -23,6 +23,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <boost/algorithm/string/trim.hpp>
 
 #include "reczones-helpers.hh"
 #include "arguments.hh"

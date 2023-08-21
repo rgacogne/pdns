@@ -66,6 +66,8 @@
 #include "libssl.hh"
 #endif
 
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/logic/tribool.hpp>
 #include <boost/uuid/string_generator.hpp>
 

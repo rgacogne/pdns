@@ -20,27 +20,22 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #pragma once
-#include <cinttypes>
-#include <cstring>
-#include <cstdio>
-#include <regex.h>
-#include <climits>
-#include <type_traits>
-
-#include <boost/algorithm/string.hpp>
-
-#include "dns.hh"
 #include <atomic>
+#include <cinttypes>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+#include <limits>
+#include <regex.h>
+#include <stdexcept>
+#include <string>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <ctime>
-#include <syslog.h>
-#include <stdexcept>
-#include <string>
-#include <cctype>
+#include <type_traits>
 #include <vector>
 
+#include "dns.hh"
 #include "namespaces.hh"
 
 class DNSName;

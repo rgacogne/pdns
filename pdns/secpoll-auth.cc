@@ -1,6 +1,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <boost/algorithm/string/replace.hpp>
 #include "secpoll-auth.hh"
 
 #include "logger.hh"

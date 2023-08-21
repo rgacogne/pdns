@@ -42,6 +42,8 @@
 #endif
 #endif /* HAVE_LIBEDIT */
 
+#include <boost/algorithm/string/trim.hpp>
+
 #include "dnsdist-systemd.hh"
 #ifdef HAVE_SYSTEMD
 #include <systemd/sd-daemon.h>

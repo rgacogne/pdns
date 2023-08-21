@@ -22,6 +22,8 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include "remotebackend.hh"
 
 PipeConnector::PipeConnector(std::map<std::string, std::string> optionsMap) :

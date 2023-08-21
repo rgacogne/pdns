@@ -26,6 +26,8 @@
 #ifndef DISABLE_CARBON
 
 #include <thread>
+#include <boost/algorithm/string/replace.hpp>
+
 #include "iputils.hh"
 #include "lock.hh"
 

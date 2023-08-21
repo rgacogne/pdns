@@ -23,6 +23,9 @@
 #include "config.h"
 #endif
 
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/erase.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/format.hpp>
 
 #include "utility.hh"

@@ -24,6 +24,8 @@
 #include "config.h"
 #endif
 
+#include <boost/algorithm/string/trim.hpp>
+
 #include "arguments.hh"
 #include "syncres.hh"
 #include "reczones-helpers.hh"

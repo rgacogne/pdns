@@ -12,6 +12,8 @@
 #include "base32.hh"
 #include "base64.hh"
 
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/program_options.hpp>
 #include <boost/assign/std/vector.hpp>
 #include <boost/assign/list_of.hpp>

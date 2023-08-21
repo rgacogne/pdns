@@ -1,5 +1,6 @@
 #include <thread>
 #include <future>
+#include <boost/algorithm/string/replace.hpp>
 #include <boost/format.hpp>
 #include <utility>
 #include <algorithm>

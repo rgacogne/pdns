@@ -22,6 +22,7 @@
 #include "config.h"
 
 #ifndef DISABLE_PROTOBUF
+#include <boost/algorithm/string/case_conv.hpp>
 #include "base64.hh"
 #include "dnsdist.hh"
 #include "dnsdist-protobuf.hh"

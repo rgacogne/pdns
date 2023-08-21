@@ -21,6 +21,7 @@
  */
 #pragma once
 
+#include <list>
 #include <thread>
 
 #include <boost/multi_index_container.hpp>

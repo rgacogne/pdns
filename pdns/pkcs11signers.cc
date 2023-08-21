@@ -2,6 +2,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/assign/std/vector.hpp> // for 'operator+=()'
 #include <boost/assign/list_of.hpp>
 

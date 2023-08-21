@@ -19,12 +19,14 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "dns.hh"
 #include <iostream>
 #include <string>
 #include <vector>
 #include <utility>
 #include <sstream>
+#include <boost/algorithm/string/predicate.hpp>
+
+#include "dns.hh"
 #include "qtype.hh"
 #include "misc.hh"
 

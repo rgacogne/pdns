@@ -23,6 +23,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <boost/noncopyable.hpp>
 #include "dnsname.hh"
 #include "lock.hh"
 #include "misc.hh"

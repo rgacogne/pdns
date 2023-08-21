@@ -3,9 +3,9 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-#include <boost/test/unit_test.hpp>
+#include <boost/algorithm/string/case_conv.hpp>
 #include <boost/assign/list_of.hpp>
-
+#include <boost/test/unit_test.hpp>
 #include <boost/tuple/tuple.hpp>
 
 #include "base32.hh"

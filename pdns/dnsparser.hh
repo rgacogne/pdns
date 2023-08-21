@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 #include <cerrno>
+#include <boost/algorithm/string/predicate.hpp>
 // #include <netinet/in.h>
 #include "misc.hh"
 

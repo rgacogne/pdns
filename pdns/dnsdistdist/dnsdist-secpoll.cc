@@ -24,6 +24,7 @@
 #ifndef DISABLE_SECPOLL
 
 #include <vector>
+#include <boost/algorithm/string/replace.hpp>
 
 #ifdef HAVE_LIBSODIUM
 #include <sodium.h>

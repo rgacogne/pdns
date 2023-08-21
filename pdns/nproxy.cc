@@ -37,6 +37,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <syslog.h>
 #include <unistd.h>
 #include "dnsrecords.hh"
 #include "mplexer.hh"
