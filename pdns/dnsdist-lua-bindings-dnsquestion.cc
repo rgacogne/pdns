@@ -25,6 +25,7 @@
 #include "dnsdist-ecs.hh"
 #include "dnsdist-internal-queries.hh"
 #include "dnsdist-lua.hh"
+#include "dnsdist-snmp.hh"
 #include "dnsparser.hh"
 
 void setupLuaBindingsDNSQuestion(LuaContext& luaCtx)
@@ -133,9 +134,9 @@ void setupLuaBindingsDNSQuestion(LuaContext& luaCtx)
 
   luaCtx.registerFunction<void(DNSQuestion::*)(std::string)>("sendTrap", [](const DNSQuestion& dq, boost::optional<std::string> reason) {
 #ifdef HAVE_NET_SNMP
-      if (g_snmpAgent && g_snmpTrapsEnabled) {
-        g_snmpAgent->sendDNSTrap(dq, reason ? *reason : "");
-      }
+    if (dnsdist::snmp::DNSDistSNMPConfig::areTrapsEnabled()) {
+      dnsdist::snmp::DNSDistSNMPConfig::getAgent().sendDNSTrap(dq, reason ? *reason : "");
+    }
 #endif /* HAVE_NET_SNMP */
     });
 
@@ -415,9 +416,9 @@ private:
 
   luaCtx.registerFunction<void(DNSResponse::*)(std::string)>("sendTrap", [](const DNSResponse& dr, boost::optional<std::string> reason) {
 #ifdef HAVE_NET_SNMP
-      if (g_snmpAgent && g_snmpTrapsEnabled) {
-        g_snmpAgent->sendDNSTrap(dr, reason ? *reason : "");
-      }
+    if (dnsdist::snmp::DNSDistSNMPConfig::areTrapsEnabled()) {
+      dnsdist::snmp::DNSDistSNMPConfig::getAgent().sendDNSTrap(dr, reason ? *reason : "");
+    }
 #endif /* HAVE_NET_SNMP */
     });
 

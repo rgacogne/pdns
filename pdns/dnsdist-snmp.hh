@@ -23,10 +23,50 @@
 
 #include "snmp-agent.hh"
 
+namespace dnsdist::snmp
+{
 class DNSDistSNMPAgent;
+
+struct DNSDistSNMPConfig
+{
+  static void enableTraps()
+  {
+    if (isEnabled()) {
+      s_snmpTrapsEnabled = true;
+    }
+  }
+
+  static bool isEnabled()
+  {
+    return s_snmpAgent != nullptr;
+  }
+
+  static bool areTrapsEnabled()
+  {
+    return isEnabled() && s_snmpTrapsEnabled;
+  }
+
+  static DNSDistSNMPAgent& getAgent()
+  {
+    if (!isEnabled()) {
+      throw std::runtime_error("Trying to get an unitialized SNMP agent");
+    }
+    return *s_snmpAgent;
+  }
+
+  static void enable(const std::string& name, const std::string& daemonSocket);
+  static void start();
+
+private:
+  static std::unique_ptr<DNSDistSNMPAgent> s_snmpAgent;
+  static bool s_snmpTrapsEnabled;
+};
+}
 
 #include "dnsdist.hh"
 
+namespace dnsdist::snmp
+{
 class DNSDistSNMPAgent: public SNMPAgent
 {
 public:
@@ -35,3 +75,4 @@ public:
   bool sendCustomTrap(const std::string& reason);
   bool sendDNSTrap(const DNSQuestion&, const std::string& reason="");
 };
+}

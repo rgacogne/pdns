@@ -279,6 +279,7 @@ testrunner_SOURCES = \
 	dnsdist-rings.cc dnsdist-rings.hh \
 	dnsdist-rules.cc dnsdist-rules.hh \
 	dnsdist-session-cache.cc dnsdist-session-cache.hh \
+	dnsdist-snmp.cc dnsdist-snmp.hh \
 	dnsdist-svc.cc dnsdist-svc.hh \
 	dnsdist-tcp-downstream.cc \
 	dnsdist-tcp.cc dnsdist-tcp.hh \
@@ -303,6 +304,7 @@ testrunner_SOURCES = \
 	proxy-protocol.cc proxy-protocol.hh \
 	qtype.cc qtype.hh \
 	sholder.hh \
+	snmp-agent.cc snmp-agent.hh \
 	sodcrypto.cc \
 	sstuff.hh \
 	stat_t.hh \
@@ -371,7 +373,8 @@ testrunner_LDADD = \
 	$(LUA_LIBS) \
 	$(RT_LIBS) \
 	$(LIBCAP_LIBS) \
-	$(ARC4RANDOM_LIBS)
+	$(ARC4RANDOM_LIBS) \
+	$(NET_SNMP_LIBS)
 
 if HAVE_CDB
 dnsdist_LDADD += $(CDB_LDFLAGS) $(CDB_LIBS)

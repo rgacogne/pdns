@@ -1096,11 +1096,6 @@ extern std::vector<std::shared_ptr<DNSCryptContext>> g_dnsCryptLocals;
 int handleDNSCryptQuery(PacketBuffer& packet, DNSCryptQuery& query, bool tcp, time_t now, PacketBuffer& response);
 bool checkDNSCryptQuery(const ClientState& cs, PacketBuffer& query, std::unique_ptr<DNSCryptQuery>& dnsCryptQuery, time_t now, bool tcp);
 
-#include "dnsdist-snmp.hh"
-
-extern bool g_snmpEnabled;
-extern bool g_snmpTrapsEnabled;
-extern DNSDistSNMPAgent* g_snmpAgent;
 extern bool g_addEDNSToSelfGeneratedResponses;
 
 extern std::set<std::string> g_capabilitiesToRetain;

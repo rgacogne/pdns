@@ -30,6 +30,7 @@
 #include "dnsdist-lua.hh"
 #include "dnsdist-ecs.hh"
 #include "dnsdist-rings.hh"
+#include "dnsdist-snmp.hh"
 #include "dolog.hh"
 
 uint16_t dnsdist_ffi_dnsquestion_get_qtype(const dnsdist_ffi_dnsquestion_t* dq)
@@ -563,8 +564,8 @@ bool dnsdist_ffi_dnsquestion_set_trailing_data(dnsdist_ffi_dnsquestion_t* dq, co
 
 void dnsdist_ffi_dnsquestion_send_trap(dnsdist_ffi_dnsquestion_t* dq, const char* reason, size_t reasonLen)
 {
-  if (g_snmpAgent && g_snmpTrapsEnabled) {
-    g_snmpAgent->sendDNSTrap(*dq->dq, std::string(reason, reasonLen));
+  if (dnsdist::snmp::DNSDistSNMPConfig::areTrapsEnabled()) {
+    dnsdist::snmp::DNSDistSNMPConfig::getAgent().sendDNSTrap(*dq->dq, std::string(reason, reasonLen));
   }
 }
 

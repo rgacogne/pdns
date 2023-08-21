@@ -7,16 +7,13 @@
 #include "dnsdist.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-lua-ffi.hh"
+#include "dnsdist-snmp.hh"
 #include "dolog.hh"
 
 uint16_t g_maxOutstanding{std::numeric_limits<uint16_t>::max()};
 
 #include "ext/luawrapper/include/LuaContext.hpp"
 LockGuarded<LuaContext> g_lua{LuaContext()};
-
-bool g_snmpEnabled{false};
-bool g_snmpTrapsEnabled{false};
-DNSDistSNMPAgent* g_snmpAgent{nullptr};
 
 #if BENCH_POLICIES
 bool g_verbose{true};
@@ -75,11 +72,6 @@ std::string DNSQuestion::getTrailingData() const
 }
 
 bool DNSQuestion::setTrailingData(const std::string& tail)
-{
-  return false;
-}
-
-bool DNSDistSNMPAgent::sendDNSTrap(const DNSQuestion& dq, const std::string& reason)
 {
   return false;
 }

@@ -30,6 +30,7 @@
 #include "dnsdist-protobuf.hh"
 #include "dnsdist-kvs.hh"
 #include "dnsdist-svc.hh"
+#include "dnsdist-snmp.hh"
 
 #include "dnstap.hh"
 #include "dnswriter.hh"
@@ -1582,8 +1583,8 @@ public:
   }
   DNSAction::Action operator()(DNSQuestion* dq, std::string* ruleresult) const override
   {
-    if (g_snmpAgent && g_snmpTrapsEnabled) {
-      g_snmpAgent->sendDNSTrap(*dq, d_reason);
+    if (dnsdist::snmp::DNSDistSNMPConfig::areTrapsEnabled()) {
+      dnsdist::snmp::DNSDistSNMPConfig::getAgent().sendDNSTrap(*dq, d_reason);
     }
 
     return Action::None;
@@ -1773,8 +1774,8 @@ public:
   }
   DNSResponseAction::Action operator()(DNSResponse* dr, std::string* ruleresult) const override
   {
-    if (g_snmpAgent && g_snmpTrapsEnabled) {
-      g_snmpAgent->sendDNSTrap(*dr, d_reason);
+    if (dnsdist::snmp::DNSDistSNMPConfig::areTrapsEnabled()) {
+      dnsdist::snmp::DNSDistSNMPConfig::getAgent().sendDNSTrap(*dr, d_reason);
     }
 
     return Action::None;

@@ -53,6 +53,7 @@
 #include "dnsdist-rings.hh"
 #include "dnsdist-secpoll.hh"
 #include "dnsdist-session-cache.hh"
+#include "dnsdist-snmp.hh"
 #include "dnsdist-tcp-downstream.hh"
 #include "dnsdist-web.hh"
 
@@ -2032,20 +2033,21 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (!checkConfigurationTime("snmpAgent")) {
       return;
     }
-    if (g_snmpEnabled) {
+    if (dnsdist::snmp::DNSDistSNMPConfig::isEnabled()) {
       errlog("snmpAgent() cannot be used twice!");
       g_outputBuffer = "snmpAgent() cannot be used twice!\n";
       return;
     }
 
-    g_snmpEnabled = true;
-    g_snmpTrapsEnabled = enableTraps;
-    g_snmpAgent = new DNSDistSNMPAgent("dnsdist", daemonSocket ? *daemonSocket : std::string());
+    dnsdist::snmp::DNSDistSNMPConfig::enable("dnsdist", daemonSocket ? *daemonSocket : std::string());
+    if (enableTraps) {
+      dnsdist::snmp::DNSDistSNMPConfig::enableTraps();
+    }
   });
 
   luaCtx.writeFunction("sendCustomTrap", [](const std::string& str) {
-    if (g_snmpAgent && g_snmpTrapsEnabled) {
-      g_snmpAgent->sendCustomTrap(str);
+    if (dnsdist::snmp::DNSDistSNMPConfig::areTrapsEnabled()) {
+      dnsdist::snmp::DNSDistSNMPConfig::getAgent().sendCustomTrap(str);
     }
   });
 #endif /* HAVE_NET_SNMP */

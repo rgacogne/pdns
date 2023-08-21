@@ -26,6 +26,7 @@
 #include "dnsdist-nghttp2.hh"
 #include "dnsdist-random.hh"
 #include "dnsdist-rings.hh"
+#include "dnsdist-snmp.hh"
 #include "dnsdist-tcp.hh"
 #include "dolog.hh"
 
@@ -789,8 +790,8 @@ void DownstreamState::submitHealthCheckResult(bool initial, bool newResult)
     }
 
     setUpStatus(newState);
-    if (g_snmpAgent && g_snmpTrapsEnabled) {
-      g_snmpAgent->sendBackendStatusChangeTrap(*this);
+    if (dnsdist::snmp::DNSDistSNMPConfig::areTrapsEnabled()) {
+      dnsdist::snmp::DNSDistSNMPConfig::getAgent().sendBackendStatusChangeTrap(*this);
     }
   }
 }

@@ -62,6 +62,7 @@
 #include "dnsdist-random.hh"
 #include "dnsdist-rings.hh"
 #include "dnsdist-secpoll.hh"
+#include "dnsdist-snmp.hh"
 #include "dnsdist-tcp.hh"
 #include "dnsdist-web.hh"
 #include "dnsdist-xpf.hh"
@@ -2846,9 +2847,7 @@ int main(int argc, char** argv)
     g_delay = new DelayPipe<DelayedPacket>();
 #endif /* DISABLE_DELAY_PIPE */
 
-    if (g_snmpAgent) {
-      g_snmpAgent->run();
-    }
+    dnsdist::snmp::DNSDistSNMPConfig::start();
 
     if (!g_maxTCPClientThreads) {
       g_maxTCPClientThreads = static_cast<size_t>(10);
