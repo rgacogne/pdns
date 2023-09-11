@@ -534,6 +534,7 @@ class TestProxyProtocolIncoming(ProxyProtocolTest):
     _dohServerPPOutsidePort = pickAvailablePort()
     _dohServerPPInsidePort = pickAvailablePort()
     _config_params = ['_dohServerPPOutsidePort', '_serverCert', '_serverKey', '_dohServerPPInsidePort', '_serverCert', '_serverKey', '_proxyResponderPort']
+    _verboseMode = True
 
     def testNoHeader(self):
         """
