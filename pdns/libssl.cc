@@ -742,6 +742,29 @@ bool OpenSSLTLSTicketKey::nameMatches(const unsigned char name[TLS_TICKETS_KEY_N
 
 #if OPENSSL_VERSION_MAJOR >= 3
 static const std::string sha256KeyName{"sha256"};
+using Params = std::unique_ptr<OSSL_PARAM, decltype(&OSSL_PARAM_free)>;
+
+static Params& getTicketKeyParams()
+{
+  static thread_local Params ticketKeyParams{nullptr, OSSL_PARAM_free};
+  if (ticketKeyParams) {
+    return ticketKeyParams;
+  }
+
+  using ParamsBuilder = std::unique_ptr<OSSL_PARAM_BLD, decltype(&OSSL_PARAM_BLD_free)>;
+
+  auto params_build = ParamsBuilder(OSSL_PARAM_BLD_new(), OSSL_PARAM_BLD_free);
+  if (params_build == nullptr) {
+    return ticketKeyParams;
+  }
+
+  if (OSSL_PARAM_BLD_push_utf8_string(params_build.get(), OSSL_MAC_PARAM_DIGEST, sha256KeyName.c_str(), sha256KeyName.size()) == 0) {
+    return ticketKeyParams;
+  }
+
+  ticketKeyParams = Params(OSSL_PARAM_BLD_to_param(params_build.get()), OSSL_PARAM_free);
+  return ticketKeyParams;
+}
 #endif
 
 #if OPENSSL_VERSION_MAJOR >= 3
@@ -761,19 +784,7 @@ int OpenSSLTLSTicketKey::encrypt(unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE
   }
 
 #if OPENSSL_VERSION_MAJOR >= 3
-  using ParamsBuilder = std::unique_ptr<OSSL_PARAM_BLD, decltype(&OSSL_PARAM_BLD_free)>;
-  using Params = std::unique_ptr<OSSL_PARAM, decltype(&OSSL_PARAM_free)>;
-
-  auto params_build = ParamsBuilder(OSSL_PARAM_BLD_new(), OSSL_PARAM_BLD_free);
-  if (params_build == nullptr) {
-    return -1;
-  }
-
-  if (OSSL_PARAM_BLD_push_utf8_string(params_build.get(), OSSL_MAC_PARAM_DIGEST, sha256KeyName.c_str(), sha256KeyName.size()) == 0) {
-    return -1;
-  }
-
-  auto params = Params(OSSL_PARAM_BLD_to_param(params_build.get()), OSSL_PARAM_free);
+  auto& params = getTicketKeyParams();
   if (params == nullptr) {
     return -1;
   }
@@ -801,19 +812,7 @@ bool OpenSSLTLSTicketKey::decrypt(const unsigned char* iv, EVP_CIPHER_CTX* ectx,
 #endif
 {
 #if OPENSSL_VERSION_MAJOR >= 3
-  using ParamsBuilder = std::unique_ptr<OSSL_PARAM_BLD, decltype(&OSSL_PARAM_BLD_free)>;
-  using Params = std::unique_ptr<OSSL_PARAM, decltype(&OSSL_PARAM_free)>;
-
-  auto params_build = ParamsBuilder(OSSL_PARAM_BLD_new(), OSSL_PARAM_BLD_free);
-  if (params_build == nullptr) {
-    return false;
-  }
-
-  if (OSSL_PARAM_BLD_push_utf8_string(params_build.get(), OSSL_MAC_PARAM_DIGEST, sha256KeyName.c_str(), sha256KeyName.size()) == 0) {
-    return false;
-  }
-
-  auto params = Params(OSSL_PARAM_BLD_to_param(params_build.get()), OSSL_PARAM_free);
+  auto& params = getTicketKeyParams();
   if (params == nullptr) {
     return false;
   }

@@ -2697,6 +2697,36 @@ int main(int argc, char** argv)
 
     infolog("dnsdist %s comes with ABSOLUTELY NO WARRANTY. This is free software, and you are welcome to redistribute it according to the terms of the GPL version 2", VERSION);
 
+    registerOpenSSLUser();
+    CPUTime cpuTimer;
+    DTime dtime;
+    cpuTimer.start();
+    dtime.set();
+    std::vector<std::thread> threads;
+    for (size_t tidx = 0; tidx < 1024; tidx++) {
+      threads.emplace_back([]() {
+        OpenSSLTLSTicketKey ticketKey;
+        unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE]{};
+        unsigned char iv[EVP_MAX_IV_LENGTH];
+        EVP_CIPHER_CTX* ectx = EVP_CIPHER_CTX_new();
+        EVP_MAC_CTX* hctx = EVP_MAC_CTX_new(EVP_MAC_fetch(nullptr, "hmac", nullptr));
+        //HMAC_CTX* hctx = HMAC_CTX_new();
+        for (size_t idx = 0; idx < 10000; idx++) {
+          if (ticketKey.encrypt(keyName, iv, ectx, hctx) != 1) {
+            cerr<<"Woops"<<endl;
+            exit(1);
+          }
+        }
+      });
+    }
+    for (auto& t : threads) {
+      t.join();
+    }
+    auto cpuElapsed = cpuTimer.ndiff();
+    auto timeElapsed = dtime.udiffNoReset();
+    cerr<<"- "<<threads.size()<<" threads: Total: "<<timeElapsed<<", CPU: "<<cpuElapsed<<endl;
+    exit(0);
+
     dnsdist::g_asyncHolder = std::make_unique<dnsdist::AsynchronousHolder>();
 
     auto todo = setupLua(*(g_lua.lock()), false, false, g_cmdLine.config);
