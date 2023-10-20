@@ -10,7 +10,7 @@ on:
 
 jobs:
   call-build-packages-auth:
-    uses: PowerDNS/pdns/.github/workflows/build-packages.yml@master
+    uses: rgacogne/pdns/.github/workflows/build-packages.yml@update-slsa-generator
     if: startsWith(github.ref_name, 'auth')
     with:
       is_release: 'YES'
@@ -22,7 +22,7 @@ jobs:
       DOWNLOADS_AUTOBUILT_HOSTKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_HOSTKEY }}
 
   call-build-packages-dnsdist:
-    uses: PowerDNS/pdns/.github/workflows/build-packages.yml@master
+    uses: rgacogne/pdns/.github/workflows/build-packages.yml@update-slsa-generator
     if: startsWith(github.ref_name, 'dnsdist')
     with:
       is_release: 'YES'
@@ -34,7 +34,7 @@ jobs:
       DOWNLOADS_AUTOBUILT_HOSTKEY: ${{ secrets.DOWNLOADS_AUTOBUILT_HOSTKEY }}
 
   call-build-packages-rec:
-    uses: PowerDNS/pdns/.github/workflows/build-packages.yml@master
+    uses: rgacogne/pdns/.github/workflows/build-packages.yml@update-slsa-generator
     if: startsWith(github.ref_name, 'rec')
     with:
       is_release: 'YES'
