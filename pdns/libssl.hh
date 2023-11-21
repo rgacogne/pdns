@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <fstream>
 #include <map>
@@ -12,6 +13,8 @@
 #include "config.h"
 #include "circular_buffer.hh"
 #include "lock.hh"
+
+#include "dnsdist-tls-tickets.hh"
 
 enum class LibsslTLSVersion : uint8_t { Unknown, TLS10, TLS11, TLS12, TLS13 };
 
@@ -76,9 +79,6 @@ struct TLSErrorCounters
 void registerOpenSSLUser();
 void unregisterOpenSSLUser();
 
-/* From rfc5077 Section 4. Recommended Ticket Construction */
-#define TLS_TICKETS_KEY_NAME_SIZE (16)
-
 /* AES-256 */
 #define TLS_TICKETS_CIPHER_KEY_SIZE (32)
 #define TLS_TICKETS_CIPHER_ALGO (EVP_aes_256_cbc)
@@ -87,53 +87,43 @@ void unregisterOpenSSLUser();
 #define TLS_TICKETS_MAC_KEY_SIZE (32)
 #define TLS_TICKETS_MAC_ALGO (EVP_sha256)
 
-class OpenSSLTLSTicketKey
+class OpenSSLTLSTicketKey : public dnsdist::tls::tickets::TLSTicketKeyInterface
 {
 public:
   OpenSSLTLSTicketKey();
   OpenSSLTLSTicketKey(std::ifstream& file);
-  ~OpenSSLTLSTicketKey();
+  ~OpenSSLTLSTicketKey() override;
 
-  bool nameMatches(const unsigned char name[TLS_TICKETS_KEY_NAME_SIZE]) const;
+  [[nodiscard]] bool nameMatches(const unsigned char name[dnsdist::tls::tickets::s_key_name_size]) const override;
 
 #if OPENSSL_VERSION_MAJOR >= 3
-  int encrypt(unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx) const;
-  bool decrypt(const unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx) const;
+  [[nodiscard]] int encrypt(unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx) const;
+  [[nodiscard]] bool decrypt(const unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx) const;
 #else
-  int encrypt(unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx) const;
-  bool decrypt(const unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx) const;
+  [[nodiscard]] int encrypt(unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx) const;
+  [[nodiscard]] bool decrypt(const unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx) const;
 #endif
 
 private:
-  unsigned char d_name[TLS_TICKETS_KEY_NAME_SIZE];
-  unsigned char d_cipherKey[TLS_TICKETS_CIPHER_KEY_SIZE];
-  unsigned char d_hmacKey[TLS_TICKETS_MAC_KEY_SIZE];
+  /* AES-256 */
+  static constexpr size_t s_cipher_key_size = 32U;
+  /* HMAC SHA-256 */
+  static constexpr size_t s_mac_key_size = 32U;
+
+  std::array<unsigned char, dnsdist::tls::tickets::s_key_name_size> d_name;
+  std::array<unsigned char, s_cipher_key_size> d_cipherKey;
+  std::array<unsigned char, s_mac_key_size> d_hmacKey;
 };
 
-class OpenSSLTLSTicketKeysRing
-{
-public:
-  OpenSSLTLSTicketKeysRing(size_t capacity);
-  ~OpenSSLTLSTicketKeysRing();
-  std::shared_ptr<OpenSSLTLSTicketKey> getEncryptionKey();
-  std::shared_ptr<OpenSSLTLSTicketKey> getDecryptionKey(unsigned char name[TLS_TICKETS_KEY_NAME_SIZE], bool& activeKey);
-  size_t getKeysCount();
-  void loadTicketsKeys(const std::string& keyFile);
-  void rotateTicketsKey(time_t now);
-
-private:
-  void addKey(std::shared_ptr<OpenSSLTLSTicketKey>&& newKey);
-
-  SharedLockGuarded<boost::circular_buffer<std::shared_ptr<OpenSSLTLSTicketKey> > > d_ticketKeys;
-};
+using OpenSSLTLSTicketKeysRing = dnsdist::tls::tickets::TLSTicketKeysRing<OpenSSLTLSTicketKey>;
 
 void* libssl_get_ticket_key_callback_data(SSL* s);
 void libssl_set_ticket_key_callback_data(SSL_CTX* ctx, void* data);
 
 #if OPENSSL_VERSION_MAJOR >= 3
-int libssl_ticket_key_callback(SSL* s, OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc);
+int libssl_ticket_key_callback(OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc);
 #else
-int libssl_ticket_key_callback(SSL* s, OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc);
+int libssl_ticket_key_callback(OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc);
 #endif
 
 #ifndef DISABLE_OCSP_STAPLING

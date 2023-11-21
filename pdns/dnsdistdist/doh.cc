@@ -31,6 +31,7 @@
 #include "dnsdist-metrics.hh"
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsdist-rules.hh"
+#include "dnsdist-tls-tickets.hh"
 #include "dnsdist-xpf.hh"
 #include "libssl.hh"
 #include "threadname.hh"
@@ -66,7 +67,6 @@ public:
   DOHAcceptContext()
   {
     memset(&d_h2o_accept_ctx, 0, sizeof(d_h2o_accept_ctx));
-    d_rotatingTicketsKey.clear();
   }
   DOHAcceptContext(const DOHAcceptContext&) = delete;
   DOHAcceptContext(DOHAcceptContext&&) = delete;
@@ -93,7 +93,7 @@ public:
 
   [[nodiscard]] time_t getNextTicketsKeyRotation() const
   {
-    return d_ticketsKeyNextRotation;
+    return d_ticketKeys->getNextRotation();
   }
 
   [[nodiscard]] size_t getTicketsKeysCount() const
@@ -112,10 +112,6 @@ public:
     }
 
     d_ticketKeys->rotateTicketsKey(now);
-
-    if (d_ticketsKeyRotationDelay > 0) {
-      d_ticketsKeyNextRotation = now + d_ticketsKeyRotationDelay;
-    }
   }
 
   void loadTicketsKeys(const std::string& keyFile)
@@ -124,50 +120,15 @@ public:
       return;
     }
     d_ticketKeys->loadTicketsKeys(keyFile);
-
-    if (d_ticketsKeyRotationDelay > 0) {
-      d_ticketsKeyNextRotation = time(nullptr) + d_ticketsKeyRotationDelay;
-    }
-  }
-
-  void handleTicketsKeyRotation()
-  {
-    if (d_ticketsKeyRotationDelay == 0) {
-      return;
-    }
-
-    time_t now = time(nullptr);
-    if (now > d_ticketsKeyNextRotation) {
-      if (d_rotatingTicketsKey.test_and_set()) {
-        /* someone is already rotating */
-        return;
-      }
-      try {
-        rotateTicketsKey(now);
-
-        d_rotatingTicketsKey.clear();
-      }
-      catch(const std::runtime_error& e) {
-        d_rotatingTicketsKey.clear();
-        throw std::runtime_error(std::string("Error generating a new tickets key for TLS context:") + e.what());
-      }
-      catch(...) {
-        d_rotatingTicketsKey.clear();
-        throw;
-      }
-    }
   }
 
   std::map<int, std::string> d_ocspResponses;
   std::unique_ptr<OpenSSLTLSTicketKeysRing> d_ticketKeys{nullptr};
   std::unique_ptr<FILE, int(*)(FILE*)> d_keyLogFile{nullptr, fclose};
   ClientState* d_cs{nullptr};
-  time_t d_ticketsKeyRotationDelay{0};
 
 private:
   h2o_accept_ctx_t d_h2o_accept_ctx{};
-  time_t d_ticketsKeyNextRotation{0};
-  std::atomic_flag d_rotatingTicketsKey;
 };
 
 struct DOHUnit;
@@ -1450,10 +1411,10 @@ static int ocsp_stapling_callback(SSL* ssl, void* arg)
 
 #if OPENSSL_VERSION_MAJOR >= 3
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays): OpenSSL API
-static int ticket_key_callback(SSL* sslContext, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* ivector, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc)
+static int ticket_key_callback([[maybe_unused]] SSL* sslContext, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* ivector, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc)
 #else
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays): OpenSSL API
-static int ticket_key_callback(SSL *sslContext, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* ivector, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc)
+static int ticket_key_callback([[maybe_unused]] SSL *sslContext, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* ivector, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc)
 #endif
 {
   auto* ctx = static_cast<DOHAcceptContext*>(libssl_get_ticket_key_callback_data(sslContext));
@@ -1461,9 +1422,7 @@ static int ticket_key_callback(SSL *sslContext, unsigned char keyName[TLS_TICKET
     return -1;
   }
 
-  ctx->handleTicketsKeyRotation();
-
-  auto ret = libssl_ticket_key_callback(sslContext, *ctx->d_ticketKeys, keyName, ivector, ectx, hctx, enc);
+  auto ret = libssl_ticket_key_callback(*ctx->d_ticketKeys, keyName, ivector, ectx, hctx, enc);
   if (enc == 0) {
     if (ret == 0) {
       ++ctx->d_cs->tlsUnknownTicketKey;
@@ -1490,7 +1449,7 @@ static void setupTLSContext(DOHAcceptContext& acceptCtx,
   }
 
   if (tlsConfig.d_enableTickets && tlsConfig.d_numberOfTicketsKeys > 0) {
-    acceptCtx.d_ticketKeys = std::make_unique<OpenSSLTLSTicketKeysRing>(tlsConfig.d_numberOfTicketsKeys);
+    acceptCtx.d_ticketKeys = std::make_unique<OpenSSLTLSTicketKeysRing>(tlsConfig.d_numberOfTicketsKeys, tlsConfig.d_ticketsKeyRotationDelay, true);
 #if OPENSSL_VERSION_MAJOR >= 3
     SSL_CTX_set_tlsext_ticket_key_evp_cb(ctx.get(), &ticket_key_callback);
 #else
@@ -1514,9 +1473,8 @@ static void setupTLSContext(DOHAcceptContext& acceptCtx,
 
   h2o_ssl_register_alpn_protocols(ctx.get(), h2o_http2_alpn_protocols);
 
-  acceptCtx.d_ticketsKeyRotationDelay = tlsConfig.d_ticketsKeyRotationDelay;
   if (tlsConfig.d_ticketKeyFile.empty()) {
-    acceptCtx.handleTicketsKeyRotation();
+    acceptCtx.rotateTicketsKey(time(nullptr));
   }
   else {
     acceptCtx.loadTicketsKeys(tlsConfig.d_ticketKeyFile);
@@ -1532,7 +1490,6 @@ static void setupAcceptContext(DOHAcceptContext& ctx, DOHServerConfig& dsc, bool
   nativeCtx->ctx = &dsc.h2o_ctx;
   nativeCtx->hosts = dsc.h2o_config.hosts;
   auto dohFrontend = std::atomic_load_explicit(&dsc.dohFrontend, std::memory_order_acquire);
-  ctx.d_ticketsKeyRotationDelay = dohFrontend->d_tlsContext.d_tlsConfig.d_ticketsKeyRotationDelay;
 
   if (setupTLS && dohFrontend->isHTTPS()) {
     try {
@@ -1697,13 +1654,6 @@ void H2ODOHFrontend::loadTicketsKeys(const std::string& keyFile)
 {
   if (d_dsc && d_dsc->accept_ctx) {
     d_dsc->accept_ctx->loadTicketsKeys(keyFile);
-  }
-}
-
-void H2ODOHFrontend::handleTicketsKeyRotation()
-{
-  if (d_dsc && d_dsc->accept_ctx) {
-    d_dsc->accept_ctx->handleTicketsKeyRotation();
   }
 }
 

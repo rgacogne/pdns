@@ -28,12 +28,12 @@ public:
   {
   }
 
-  std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) override
+  [[nodiscard]] std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) override
   {
     return std::make_unique<MockupTLSConnection>(socket);
   }
 
-  std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool hostIsAddr, int socket, const struct timeval& timeout) override
+  [[nodiscard]] std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool hostIsAddr, int socket, const struct timeval& timeout) override
   {
     return std::make_unique<MockupTLSConnection>(socket, true, d_needProxyProtocol);
   }
@@ -42,12 +42,17 @@ public:
   {
   }
 
-  size_t getTicketsKeysCount() override
+  [[nodiscard]] size_t getTicketsKeysCount() override
   {
     return 0;
   }
 
-  std::string getName() const override
+  [[nodiscard]] time_t getNextTicketsKeyRotation() const override
+  {
+    return 0;
+  }
+
+  [[nodiscard]] std::string getName() const override
   {
     return "Mockup TLS";
   }

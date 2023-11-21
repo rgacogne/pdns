@@ -159,10 +159,6 @@ struct DOHFrontend
   {
   }
 
-  virtual void handleTicketsKeyRotation()
-  {
-  }
-
   virtual std::string getNextTicketsKeyRotation()
   {
     return std::string();
@@ -180,7 +176,6 @@ struct DOHFrontend
 
   virtual void rotateTicketsKey(time_t now);
   virtual void loadTicketsKeys(const std::string& keyFile);
-  virtual void handleTicketsKeyRotation();
   virtual std::string getNextTicketsKeyRotation() const;
   virtual size_t getTicketsKeysCount();
 #endif /* HAVE_DNS_OVER_HTTPS */

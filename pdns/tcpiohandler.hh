@@ -73,46 +73,19 @@ class TLSCtx
 public:
   TLSCtx()
   {
-    d_rotatingTicketsKey.clear();
   }
   virtual ~TLSCtx() {}
-  virtual std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) = 0;
-  virtual std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool hostIsAddr, int socket, const struct timeval& timeout) = 0;
+  [[nodiscard]] virtual std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) = 0;
+  [[nodiscard]] virtual std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool hostIsAddr, int socket, const struct timeval& timeout) = 0;
   virtual void rotateTicketsKey(time_t now) = 0;
   virtual void loadTicketsKeys(const std::string& /* file */)
   {
     throw std::runtime_error("This TLS backend does not have the capability to load a tickets key from a file");
   }
 
-  void handleTicketsKeyRotation(time_t now)
-  {
-    if (d_ticketsKeyRotationDelay != 0 && now > d_ticketsKeyNextRotation) {
-      if (d_rotatingTicketsKey.test_and_set()) {
-        /* someone is already rotating */
-        return;
-      }
-      try {
-        rotateTicketsKey(now);
-        d_rotatingTicketsKey.clear();
-      }
-      catch(const std::runtime_error& e) {
-        d_rotatingTicketsKey.clear();
-        throw std::runtime_error(std::string("Error generating a new tickets key for TLS context:") + e.what());
-      }
-      catch(...) {
-        d_rotatingTicketsKey.clear();
-        throw;
-      }
-    }
-  }
-
-  time_t getNextTicketsKeyRotation() const
-  {
-    return d_ticketsKeyNextRotation;
-  }
-
-  virtual size_t getTicketsKeysCount() = 0;
-  virtual std::string getName() const = 0;
+  [[nodiscard]] virtual time_t getNextTicketsKeyRotation() const = 0;
+  [[nodiscard]] virtual size_t getTicketsKeysCount() = 0;
+  [[nodiscard]] virtual std::string getName() const = 0;
 
   /* set the advertised ALPN protocols, in client or server context */
   virtual bool setALPNProtos(const std::vector<std::vector<uint8_t>>& /* protos */)
@@ -125,11 +98,6 @@ public:
   {
     return false;
   }
-
-protected:
-  std::atomic_flag d_rotatingTicketsKey;
-  std::atomic<time_t> d_ticketsKeyNextRotation{0};
-  time_t d_ticketsKeyRotationDelay{0};
 };
 
 class TLSFrontend

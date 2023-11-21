@@ -4,6 +4,7 @@
 #include "iputils.hh"
 #include "lock.hh"
 #include "tcpiohandler.hh"
+#include "dnsdist-tls-tickets.hh"
 
 const bool TCPIOHandler::s_disableConnectForUnitTests = false;
 
@@ -26,7 +27,7 @@ const bool TCPIOHandler::s_disableConnectForUnitTests = false;
 class OpenSSLFrontendContext
 {
 public:
-  OpenSSLFrontendContext(const ComboAddress& addr, const TLSConfig& tlsConfig): d_ticketKeys(tlsConfig.d_numberOfTicketsKeys)
+  OpenSSLFrontendContext(const ComboAddress& addr, const TLSConfig& tlsConfig): d_ticketKeys(tlsConfig.d_numberOfTicketsKeys, tlsConfig.d_ticketsKeyRotationDelay, true)
   {
     registerOpenSSLUser();
 
@@ -601,8 +602,6 @@ public:
   {
     OpenSSLTLSConnection::generateConnectionIndexIfNeeded();
 
-    d_ticketsKeyRotationDelay = fe.d_tlsConfig.d_ticketsKeyRotationDelay;
-
     if (fe.d_tlsConfig.d_enableTickets && fe.d_tlsConfig.d_numberOfTicketsKeys > 0) {
       /* use our own ticket keys handler so we can rotate them */
 #if OPENSSL_VERSION_MAJOR >= 3
@@ -632,10 +631,10 @@ public:
 
     try {
       if (fe.d_tlsConfig.d_ticketKeyFile.empty()) {
-        handleTicketsKeyRotation(time(nullptr));
+        d_feContext->d_ticketKeys.rotateTicketsKey(time(nullptr));
       }
       else {
-        OpenSSLTLSIOCtx::loadTicketsKeys(fe.d_tlsConfig.d_ticketKeyFile);
+        d_feContext->d_ticketKeys.loadTicketsKeys(fe.d_tlsConfig.d_ticketKeyFile);
       }
     }
     catch (const std::exception& e) {
@@ -742,9 +741,9 @@ public:
   }
 
 #if OPENSSL_VERSION_MAJOR >= 3
-  static int ticketKeyCb(SSL* s, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc)
+  static int ticketKeyCb(SSL* s, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc)
 #else
-  static int ticketKeyCb(SSL* s, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc)
+  static int ticketKeyCb(SSL* s, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc)
 #endif
   {
     auto* ctx = reinterpret_cast<OpenSSLFrontendContext*>(libssl_get_ticket_key_callback_data(s));
@@ -752,7 +751,7 @@ public:
       return -1;
     }
 
-    int ret = libssl_ticket_key_callback(s, ctx->d_ticketKeys, keyName, iv, ectx, hctx, enc);
+    int ret = libssl_ticket_key_callback(ctx->d_ticketKeys, keyName, iv, ectx, hctx, enc);
     if (enc == 0) {
       if (ret == 0 || ret == 2) {
         auto* conn = reinterpret_cast<OpenSSLTLSConnection*>(SSL_get_ex_data(s, OpenSSLTLSConnection::getConnectionIndex()));
@@ -792,14 +791,12 @@ public:
     return 1;
   }
 
-  std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) override
+  [[nodiscard]] std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) override
   {
-    handleTicketsKeyRotation(now);
-
     return std::make_unique<OpenSSLTLSConnection>(socket, timeout, d_feContext);
   }
 
-  std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool hostIsAddr, int socket, const struct timeval& timeout) override
+  [[nodiscard]] std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool hostIsAddr, int socket, const struct timeval& timeout) override
   {
     auto conn = std::make_unique<OpenSSLTLSConnection>(host, hostIsAddr, socket, timeout, d_tlsCtx);
     if (d_ktls) {
@@ -811,27 +808,24 @@ public:
   void rotateTicketsKey(time_t now) override
   {
     d_feContext->d_ticketKeys.rotateTicketsKey(now);
-
-    if (d_ticketsKeyRotationDelay > 0) {
-      d_ticketsKeyNextRotation = now + d_ticketsKeyRotationDelay;
-    }
   }
 
   void loadTicketsKeys(const std::string& keyFile) override final
   {
     d_feContext->d_ticketKeys.loadTicketsKeys(keyFile);
-
-    if (d_ticketsKeyRotationDelay > 0) {
-      d_ticketsKeyNextRotation = time(nullptr) + d_ticketsKeyRotationDelay;
-    }
   }
 
-  size_t getTicketsKeysCount() override
+  [[nodiscard]] size_t getTicketsKeysCount() override
   {
     return d_feContext->d_ticketKeys.getKeysCount();
   }
 
-  std::string getName() const override
+  [[nodiscard]] time_t getNextTicketsKeyRotation() const override
+  {
+    return d_feContext->d_ticketKeys.getNextRotation();
+  }
+
+  [[nodiscard]] std::string getName() const override
   {
     return "openssl";
   }
@@ -960,7 +954,7 @@ public:
     safe_memory_lock(d_key.data, d_key.size);
   }
 
-  GnuTLSTicketsKey(const std::string& keyFile)
+  GnuTLSTicketsKey(std::ifstream& keyStream)
   {
     /* to be sure we are loading the correct amount of data, which
        may change between versions, let's generate a correct key first */
@@ -971,15 +965,11 @@ public:
     safe_memory_lock(d_key.data, d_key.size);
 
     try {
-      ifstream file(keyFile);
-      file.read(reinterpret_cast<char*>(d_key.data), d_key.size);
+      keyStream.read(reinterpret_cast<char*>(d_key.data), d_key.size);
 
-      if (file.fail()) {
-        file.close();
-        throw std::runtime_error("Invalid GnuTLS tickets key file " + keyFile);
+      if (keyStream.fail()) {
+        throw std::runtime_error("Invalid GnuTLS tickets key file");
       }
-
-      file.close();
     }
     catch (const std::exception& e) {
       safe_memory_release(d_key.data, d_key.size);
@@ -1571,7 +1561,6 @@ public:
   GnuTLSIOCtx(TLSFrontend& fe): d_enableTickets(fe.d_tlsConfig.d_enableTickets)
   {
     int rc = 0;
-    d_ticketsKeyRotationDelay = fe.d_tlsConfig.d_ticketsKeyRotationDelay;
 
     gnutls_certificate_credentials_t creds;
     rc = gnutls_certificate_allocate_credentials(&creds);
@@ -1612,16 +1601,19 @@ public:
       throw std::runtime_error("Error setting up TLS cipher preferences to '" + fe.d_tlsConfig.d_ciphers + "' (" + gnutls_strerror(rc) + ") on " + fe.d_addr.toStringWithPort());
     }
 
-    try {
-      if (fe.d_tlsConfig.d_ticketKeyFile.empty()) {
-        handleTicketsKeyRotation(time(nullptr));
+    if (d_enableTickets) {
+      d_ticketsKeysRing = std::make_unique<GnuTLSTicketKeysRing>(1, fe.d_tlsConfig.d_ticketsKeyRotationDelay, false);
+      try {
+        if (fe.d_tlsConfig.d_ticketKeyFile.empty()) {
+          d_ticketsKeysRing->rotateTicketsKey(time(nullptr));
+        }
+        else {
+          d_ticketsKeysRing->loadTicketsKeys(fe.d_tlsConfig.d_ticketKeyFile);
+        }
       }
-      else {
-        GnuTLSIOCtx::loadTicketsKeys(fe.d_tlsConfig.d_ticketKeyFile);
+      catch(const std::runtime_error& e) {
+        throw std::runtime_error("Error generating tickets key for TLS context on " + fe.d_addr.toStringWithPort() + ": " + e.what());
       }
-    }
-    catch(const std::runtime_error& e) {
-      throw std::runtime_error("Error generating tickets key for TLS context on " + fe.d_addr.toStringWithPort() + ": " + e.what());
     }
   }
 
@@ -1673,15 +1665,9 @@ public:
     }
   }
 
-  std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) override
+  [[nodiscard]] std::unique_ptr<TLSConnection> getConnection(int socket, const struct timeval& timeout, time_t now) override
   {
-    handleTicketsKeyRotation(now);
-
-    std::shared_ptr<GnuTLSTicketsKey> ticketsKey;
-    {
-      ticketsKey = *(d_ticketsKey.read_lock());
-    }
-
+    auto ticketsKey = d_ticketsKeysRing->getEncryptionKey();
     auto connection = std::make_unique<GnuTLSConnection>(socket, timeout, d_creds, d_priorityCache, ticketsKey, d_enableTickets);
     if (!d_protos.empty()) {
       connection->setALPNProtos(d_protos);
@@ -1721,7 +1707,7 @@ public:
     return entry;
   }
 
-  std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool, int socket, const struct timeval& timeout) override
+  [[nodiscard]] std::unique_ptr<TLSConnection> getClientConnection(const std::string& host, bool, int socket, const struct timeval& timeout) override
   {
     auto creds = getPerThreadCredentials(d_contextParameters->d_validateCertificates, d_contextParameters->d_caStore);
     auto connection = std::make_unique<GnuTLSConnection>(host, socket, timeout, creds, d_priorityCache, d_validateCerts);
@@ -1733,43 +1719,37 @@ public:
 
   void rotateTicketsKey(time_t now) override
   {
-    if (!d_enableTickets) {
+    if (!d_enableTickets || !d_ticketsKeysRing) {
       return;
     }
 
-    auto newKey = std::make_shared<GnuTLSTicketsKey>();
-
-    {
-      *(d_ticketsKey.write_lock()) = std::move(newKey);
-    }
-
-    if (d_ticketsKeyRotationDelay > 0) {
-      d_ticketsKeyNextRotation = now + d_ticketsKeyRotationDelay;
-    }
+    d_ticketsKeysRing->rotateTicketsKey(now);
   }
 
   void loadTicketsKeys(const std::string& file) override final
   {
-    if (!d_enableTickets) {
+    if (!d_enableTickets || !d_ticketsKeysRing) {
       return;
     }
 
-    auto newKey = std::make_shared<GnuTLSTicketsKey>(file);
-    {
-      *(d_ticketsKey.write_lock()) = std::move(newKey);
-    }
-
-    if (d_ticketsKeyRotationDelay > 0) {
-      d_ticketsKeyNextRotation = time(nullptr) + d_ticketsKeyRotationDelay;
-    }
+    d_ticketsKeysRing->loadTicketsKeys(file);
   }
 
-  size_t getTicketsKeysCount() override
+  [[nodiscard]] size_t getTicketsKeysCount() override
   {
-    return *(d_ticketsKey.read_lock()) != nullptr ? 1 : 0;
+    if (!d_ticketsKeysRing) {
+      return 0;
+    }
+
+    return d_ticketsKeysRing->getKeysCount();
   }
 
-  std::string getName() const override
+  [[nodiscard]] time_t getNextTicketsKeyRotation() const override
+  {
+    return d_ticketsKeysRing->getNextRotation();
+  }
+
+  [[nodiscard]] std::string getName() const override
   {
     return "gnutls";
   }
@@ -1785,12 +1765,14 @@ public:
   }
 
 private:
+  using GnuTLSTicketKeysRing = dnsdist::tls::tickets::TLSTicketKeysRing<GnuTLSTicketsKey>;
+
   /* client context parameters */
   std::unique_ptr<TLSContextParameters> d_contextParameters{nullptr};
   std::shared_ptr<gnutls_certificate_credentials_st> d_creds;
   std::vector<std::vector<uint8_t>> d_protos;
   gnutls_priority_t d_priorityCache{nullptr};
-  SharedLockGuarded<std::shared_ptr<GnuTLSTicketsKey>> d_ticketsKey{nullptr};
+  std::unique_ptr<GnuTLSTicketKeysRing> d_ticketsKeysRing{nullptr};
   bool d_enableTickets{true};
   bool d_validateCerts{true};
 };

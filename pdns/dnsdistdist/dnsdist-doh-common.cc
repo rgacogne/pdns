@@ -98,10 +98,6 @@ void DOHFrontend::loadTicketsKeys(const std::string& keyFile)
   return d_tlsContext.loadTicketsKeys(keyFile);
 }
 
-void DOHFrontend::handleTicketsKeyRotation()
-{
-}
-
 std::string DOHFrontend::getNextTicketsKeyRotation() const
 {
   return d_tlsContext.getNextTicketsKeyRotation();

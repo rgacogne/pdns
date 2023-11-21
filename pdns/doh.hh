@@ -46,7 +46,6 @@ public:
 
   void rotateTicketsKey(time_t now) override;
   void loadTicketsKeys(const std::string& keyFile) override;
-  void handleTicketsKeyRotation() override;
   std::string getNextTicketsKeyRotation() const override;
   size_t getTicketsKeysCount() override;
 };

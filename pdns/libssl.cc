@@ -256,9 +256,9 @@ void libssl_set_ticket_key_callback_data(SSL_CTX* ctx, void* data)
 }
 
 #if OPENSSL_VERSION_MAJOR >= 3
-int libssl_ticket_key_callback(SSL* /* s */, OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc)
+int libssl_ticket_key_callback(OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx, int enc)
 #else
-int libssl_ticket_key_callback(SSL* /* s */, OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc)
+int libssl_ticket_key_callback(OpenSSLTLSTicketKeysRing& keyring, unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx, int enc)
 #endif
 {
   if (enc != 0) {
@@ -621,122 +621,58 @@ bool libssl_set_min_tls_version(std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)
 #endif
 }
 
-OpenSSLTLSTicketKeysRing::OpenSSLTLSTicketKeysRing(size_t capacity)
-{
-  d_ticketKeys.write_lock()->set_capacity(capacity);
-}
-
-OpenSSLTLSTicketKeysRing::~OpenSSLTLSTicketKeysRing()
-{
-}
-
-void OpenSSLTLSTicketKeysRing::addKey(std::shared_ptr<OpenSSLTLSTicketKey>&& newKey)
-{
-  d_ticketKeys.write_lock()->push_front(std::move(newKey));
-}
-
-std::shared_ptr<OpenSSLTLSTicketKey> OpenSSLTLSTicketKeysRing::getEncryptionKey()
-{
-  return d_ticketKeys.read_lock()->front();
-}
-
-std::shared_ptr<OpenSSLTLSTicketKey> OpenSSLTLSTicketKeysRing::getDecryptionKey(unsigned char name[TLS_TICKETS_KEY_NAME_SIZE], bool& activeKey)
-{
-  auto keys = d_ticketKeys.read_lock();
-  for (auto& key : *keys) {
-    if (key->nameMatches(name)) {
-      activeKey = (key == keys->front());
-      return key;
-    }
-  }
-  return nullptr;
-}
-
-size_t OpenSSLTLSTicketKeysRing::getKeysCount()
-{
-  return d_ticketKeys.read_lock()->size();
-}
-
-void OpenSSLTLSTicketKeysRing::loadTicketsKeys(const std::string& keyFile)
-{
-  bool keyLoaded = false;
-  std::ifstream file(keyFile);
-  try {
-    do {
-      auto newKey = std::make_shared<OpenSSLTLSTicketKey>(file);
-      addKey(std::move(newKey));
-      keyLoaded = true;
-    }
-    while (!file.fail());
-  }
-  catch (const std::exception& e) {
-    /* if we haven't been able to load at least one key, fail */
-    if (!keyLoaded) {
-      throw;
-    }
-  }
-
-  file.close();
-}
-
-void OpenSSLTLSTicketKeysRing::rotateTicketsKey(time_t /* now */)
-{
-  auto newKey = std::make_shared<OpenSSLTLSTicketKey>();
-  addKey(std::move(newKey));
-}
-
 OpenSSLTLSTicketKey::OpenSSLTLSTicketKey()
 {
-  if (RAND_bytes(d_name, sizeof(d_name)) != 1) {
+  if (RAND_bytes(d_name.data(), d_name.size()) != 1) {
     throw std::runtime_error("Error while generating the name of the OpenSSL TLS ticket key");
   }
 
-  if (RAND_bytes(d_cipherKey, sizeof(d_cipherKey)) != 1) {
+  if (RAND_bytes(d_cipherKey.data(), d_cipherKey.size()) != 1) {
     throw std::runtime_error("Error while generating the cipher key of the OpenSSL TLS ticket key");
   }
 
-  if (RAND_bytes(d_hmacKey, sizeof(d_hmacKey)) != 1) {
+  if (RAND_bytes(d_hmacKey.data(), d_hmacKey.size()) != 1) {
     throw std::runtime_error("Error while generating the HMAC key of the OpenSSL TLS ticket key");
   }
 #ifdef HAVE_LIBSODIUM
-  sodium_mlock(d_name, sizeof(d_name));
-  sodium_mlock(d_cipherKey, sizeof(d_cipherKey));
-  sodium_mlock(d_hmacKey, sizeof(d_hmacKey));
+  sodium_mlock(d_name.data(), d_name.size());
+  sodium_mlock(d_cipherKey.data(), d_cipherKey.size());
+  sodium_mlock(d_hmacKey.data(), d_hmacKey.size());
 #endif /* HAVE_LIBSODIUM */
 }
 
 OpenSSLTLSTicketKey::OpenSSLTLSTicketKey(std::ifstream& file)
 {
-  file.read(reinterpret_cast<char*>(d_name), sizeof(d_name));
-  file.read(reinterpret_cast<char*>(d_cipherKey), sizeof(d_cipherKey));
-  file.read(reinterpret_cast<char*>(d_hmacKey), sizeof(d_hmacKey));
+  file.read(reinterpret_cast<char*>(d_name.data()), d_name.size());
+  file.read(reinterpret_cast<char*>(d_cipherKey.data()), d_cipherKey.size());
+  file.read(reinterpret_cast<char*>(d_hmacKey.data()), d_hmacKey.size());
 
   if (file.fail()) {
     throw std::runtime_error("Unable to load a ticket key from the OpenSSL tickets key file");
   }
 #ifdef HAVE_LIBSODIUM
-  sodium_mlock(d_name, sizeof(d_name));
-  sodium_mlock(d_cipherKey, sizeof(d_cipherKey));
-  sodium_mlock(d_hmacKey, sizeof(d_hmacKey));
+  sodium_mlock(d_name.data(), d_name.size());
+  sodium_mlock(d_cipherKey.data(), d_cipherKey.size());
+  sodium_mlock(d_hmacKey.data(), d_hmacKey.size());
 #endif /* HAVE_LIBSODIUM */
 }
 
 OpenSSLTLSTicketKey::~OpenSSLTLSTicketKey()
 {
 #ifdef HAVE_LIBSODIUM
-  sodium_munlock(d_name, sizeof(d_name));
-  sodium_munlock(d_cipherKey, sizeof(d_cipherKey));
-  sodium_munlock(d_hmacKey, sizeof(d_hmacKey));
+  sodium_munlock(d_name.data(), d_name.size());
+  sodium_munlock(d_cipherKey.data(), d_cipherKey.size());
+  sodium_munlock(d_hmacKey.data(), d_hmacKey.size());
 #else
-  OPENSSL_cleanse(d_name, sizeof(d_name));
-  OPENSSL_cleanse(d_cipherKey, sizeof(d_cipherKey));
-  OPENSSL_cleanse(d_hmacKey, sizeof(d_hmacKey));
+  OPENSSL_cleanse(d_name.data(), d_name.size());
+  OPENSSL_cleanse(d_cipherKey.data(), d_cipherKey.size());
+  OPENSSL_cleanse(d_hmacKey.data(), d_hmacKey.size());
 #endif /* HAVE_LIBSODIUM */
 }
 
-bool OpenSSLTLSTicketKey::nameMatches(const unsigned char name[TLS_TICKETS_KEY_NAME_SIZE]) const
+bool OpenSSLTLSTicketKey::nameMatches(const unsigned char name[dnsdist::tls::tickets::s_key_name_size]) const
 {
-  return (memcmp(d_name, name, sizeof(d_name)) == 0);
+  return (memcmp(d_name.data(), name, d_name.size()) == 0);
 }
 
 #if OPENSSL_VERSION_MAJOR >= 3
@@ -744,18 +680,18 @@ static const std::string sha256KeyName{"sha256"};
 #endif
 
 #if OPENSSL_VERSION_MAJOR >= 3
-int OpenSSLTLSTicketKey::encrypt(unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx) const
+int OpenSSLTLSTicketKey::encrypt(unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, EVP_MAC_CTX* hctx) const
 #else
-int OpenSSLTLSTicketKey::encrypt(unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx) const
+int OpenSSLTLSTicketKey::encrypt(unsigned char keyName[dnsdist::tls::tickets::s_key_name_size], unsigned char* iv, EVP_CIPHER_CTX* ectx, HMAC_CTX* hctx) const
 #endif
 {
-  memcpy(keyName, d_name, sizeof(d_name));
+  memcpy(keyName, d_name.data(), d_name.size());
 
   if (RAND_bytes(iv, EVP_MAX_IV_LENGTH) != 1) {
     return -1;
   }
 
-  if (EVP_EncryptInit_ex(ectx, TLS_TICKETS_CIPHER_ALGO(), nullptr, d_cipherKey, iv) != 1) {
+  if (EVP_EncryptInit_ex(ectx, TLS_TICKETS_CIPHER_ALGO(), nullptr, d_cipherKey.data(), iv) != 1) {
     return -1;
   }
 
@@ -781,11 +717,11 @@ int OpenSSLTLSTicketKey::encrypt(unsigned char keyName[TLS_TICKETS_KEY_NAME_SIZE
     return -1;
   }
 
-  if (EVP_MAC_init(hctx, d_hmacKey, sizeof(d_hmacKey), nullptr) == 0) {
+  if (EVP_MAC_init(hctx, d_hmacKey.data(), d_hmacKey.size(), nullptr) == 0) {
     return -1;
   }
 #else
-  if (HMAC_Init_ex(hctx, d_hmacKey, sizeof(d_hmacKey), TLS_TICKETS_MAC_ALGO(), nullptr) != 1) {
+  if (HMAC_Init_ex(hctx, d_hmacKey.data(), d_hmacKey.size(), TLS_TICKETS_MAC_ALGO(), nullptr) != 1) {
     return -1;
   }
 #endif
@@ -821,16 +757,16 @@ bool OpenSSLTLSTicketKey::decrypt(const unsigned char* iv, EVP_CIPHER_CTX* ectx,
     return false;
   }
 
-  if (EVP_MAC_init(hctx, d_hmacKey, sizeof(d_hmacKey), nullptr) == 0) {
+  if (EVP_MAC_init(hctx, d_hmacKey.data(), d_hmacKey.size(), nullptr) == 0) {
     return false;
   }
 #else
-  if (HMAC_Init_ex(hctx, d_hmacKey, sizeof(d_hmacKey), TLS_TICKETS_MAC_ALGO(), nullptr) != 1) {
+  if (HMAC_Init_ex(hctx, d_hmacKey.data(), d_hmacKey.size(), TLS_TICKETS_MAC_ALGO(), nullptr) != 1) {
     return false;
   }
 #endif
 
-  if (EVP_DecryptInit_ex(ectx, TLS_TICKETS_CIPHER_ALGO(), nullptr, d_cipherKey, iv) != 1) {
+  if (EVP_DecryptInit_ex(ectx, TLS_TICKETS_CIPHER_ALGO(), nullptr, d_cipherKey.data(), iv) != 1) {
     return false;
   }
 
