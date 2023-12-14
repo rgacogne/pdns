@@ -19,3 +19,5 @@ jobs:
           submodules: recursive
       - run: git log --oneline --decorate | head -20
       - run: git diff --no-prefix -U0 HEAD^..HEAD
+      - run: echo ${{ github.event.pull_request.base.sha }}
+      - run: echo ${{ github.event.pull_request.head.sha }}
