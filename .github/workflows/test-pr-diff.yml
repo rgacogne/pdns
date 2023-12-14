@@ -1,0 +1,21 @@
+---
+name: 'test PR diff'
+
+on:
+  push:
+  pull_request:
+
+permissions: # least privileges, see https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions
+  contents: read
+
+jobs:
+  do-diff:
+    name: do diff
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
+          submodules: recursive
+      - run: git log --oneline --decorate | head -20
+      - run: git diff --no-prefix -U0 HEAD^..HEAD
