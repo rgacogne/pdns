@@ -46,6 +46,7 @@ jobs:
       run:
         working-directory: ./pdns-${{ env.BUILDER_VERSION }}
     steps:
+      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 5
@@ -115,6 +116,7 @@ jobs:
       run:
         working-directory: ./pdns/recursordist/pdns-recursor-${{ env.BUILDER_VERSION }}
     steps:
+      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 5
@@ -189,6 +191,7 @@ jobs:
       run:
         working-directory: ./pdns/dnsdistdist/dnsdist-${{ env.BUILDER_VERSION }}
     steps:
+      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 5
