@@ -297,8 +297,8 @@ bool resumeQuery(std::unique_ptr<CrossProtocolQuery>&& query)
     }
 
 #ifdef HAVE_DNS_OVER_HTTPS
-    if (dnsQuestion.ids.du != nullptr) {
-      dnsQuestion.ids.du->downstream = query->downstream;
+    if (dnsQuestion.getDOHUnit() != nullptr) {
+      dnsQuestion.getDOHUnit()->downstream = query->downstream;
     }
 #endif
 

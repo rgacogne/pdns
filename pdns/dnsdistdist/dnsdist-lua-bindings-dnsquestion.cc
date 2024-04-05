@@ -504,47 +504,47 @@ void setupLuaBindingsDNSQuestion(LuaContext& luaCtx)
 
 #ifdef HAVE_DNS_OVER_HTTPS
   luaCtx.registerFunction<std::string (DNSQuestion::*)(void) const>("getHTTPPath", [](const DNSQuestion& dnsQuestion) {
-    if (dnsQuestion.ids.du == nullptr) {
+    if (dnsQuestion.getDOHUnit() == nullptr) {
       return std::string();
     }
-    return dnsQuestion.ids.du->getHTTPPath();
+    return dnsQuestion.getDOHUnit()->getHTTPPath();
   });
 
   luaCtx.registerFunction<std::string (DNSQuestion::*)(void) const>("getHTTPQueryString", [](const DNSQuestion& dnsQuestion) {
-    if (dnsQuestion.ids.du == nullptr) {
+    if (dnsQuestion.getDOHUnit() == nullptr) {
       return std::string();
     }
-    return dnsQuestion.ids.du->getHTTPQueryString();
+    return dnsQuestion.getDOHUnit()->getHTTPQueryString();
   });
 
   luaCtx.registerFunction<std::string (DNSQuestion::*)(void) const>("getHTTPHost", [](const DNSQuestion& dnsQuestion) {
-    if (dnsQuestion.ids.du == nullptr) {
+    if (dnsQuestion.getDOHUnit() == nullptr) {
       return std::string();
     }
-    return dnsQuestion.ids.du->getHTTPHost();
+    return dnsQuestion.getDOHUnit()->getHTTPHost();
   });
 
   luaCtx.registerFunction<std::string (DNSQuestion::*)(void) const>("getHTTPScheme", [](const DNSQuestion& dnsQuestion) {
-    if (dnsQuestion.ids.du == nullptr) {
+    if (dnsQuestion.getDOHUnit() == nullptr) {
       return std::string();
     }
-    return dnsQuestion.ids.du->getHTTPScheme();
+    return dnsQuestion.getDOHUnit()->getHTTPScheme();
   });
 
   luaCtx.registerFunction<LuaAssociativeTable<std::string> (DNSQuestion::*)(void) const>("getHTTPHeaders", [](const DNSQuestion& dnsQuestion) {
-    if (dnsQuestion.ids.du == nullptr) {
+    if (dnsQuestion.getDOHUnit() == nullptr) {
       return LuaAssociativeTable<std::string>();
     }
-    return dnsQuestion.ids.du->getHTTPHeaders();
+    return dnsQuestion.getDOHUnit()->getHTTPHeaders();
   });
 
   luaCtx.registerFunction<void (DNSQuestion::*)(uint64_t statusCode, const std::string& body, const boost::optional<std::string> contentType)>("setHTTPResponse", [](DNSQuestion& dnsQuestion, uint64_t statusCode, const std::string& body, const boost::optional<std::string>& contentType) {
-    if (dnsQuestion.ids.du == nullptr) {
+    if (dnsQuestion.getDOHUnit() == nullptr) {
       return;
     }
     checkParameterBound("DNSQuestion::setHTTPResponse", statusCode, std::numeric_limits<uint16_t>::max());
     PacketBuffer vect(body.begin(), body.end());
-    dnsQuestion.ids.du->setHTTPResponse(statusCode, std::move(vect), contentType ? *contentType : "");
+    dnsQuestion.getDOHUnit()->setHTTPResponse(statusCode, std::move(vect), contentType ? *contentType : "");
   });
 #endif /* HAVE_DNS_OVER_HTTPS */
 

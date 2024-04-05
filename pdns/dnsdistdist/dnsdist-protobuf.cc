@@ -295,10 +295,11 @@ const ProtoBufMetaKey::TypeContainer ProtoBufMetaKey::s_types = {
   ProtoBufMetaKey::KeyTypeDescription{"b64-content", Type::B64Content, [](const DNSQuestion& dnsquestion, const std::string&, uint8_t) -> std::vector<std::string> { const auto& data = dnsquestion.getData(); return {Base64Encode(std::string(data.begin(), data.end()))}; }, false},
 #ifdef HAVE_DNS_OVER_HTTPS
   ProtoBufMetaKey::KeyTypeDescription{"doh-header", Type::DoHHeader, [](const DNSQuestion& dnsquestion, const std::string& name, uint8_t) -> std::vector<std::string> {
-                                        if (!dnsquestion.ids.du) {
+                                        const auto& dohUnit = dnsquestion.getDOHUnit();
+                                        if (!dohUnit) {
                                           return {};
                                         }
-                                        auto headers = dnsquestion.ids.du->getHTTPHeaders();
+                                        auto headers = dohUnit->getHTTPHeaders();
                                         auto iter = headers.find(name);
                                         if (iter != headers.end()) {
                                           return {iter->second};
@@ -307,31 +308,35 @@ const ProtoBufMetaKey::TypeContainer ProtoBufMetaKey::s_types = {
                                       },
                                       true, false},
   ProtoBufMetaKey::KeyTypeDescription{"doh-host", Type::DoHHost, [](const DNSQuestion& dnsquestion, const std::string&, uint8_t) -> std::vector<std::string> {
-                                        if (dnsquestion.ids.du) {
-                                          return {dnsquestion.ids.du->getHTTPHost()};
+                                        const auto& dohUnit = dnsquestion.getDOHUnit();
+                                        if (!dohUnit) {
+                                          return {};
                                         }
-                                        return {};
+                                        return {dohUnit->getHTTPHost()};
                                       },
                                       true, false},
   ProtoBufMetaKey::KeyTypeDescription{"doh-path", Type::DoHPath, [](const DNSQuestion& dnsquestion, const std::string&, uint8_t) -> std::vector<std::string> {
-                                        if (dnsquestion.ids.du) {
-                                          return {dnsquestion.ids.du->getHTTPPath()};
+                                        const auto& dohUnit = dnsquestion.getDOHUnit();
+                                        if (!dohUnit) {
+                                          return {};
                                         }
-                                        return {};
+                                        return {dohUnit->getHTTPPath()};
                                       },
                                       false},
   ProtoBufMetaKey::KeyTypeDescription{"doh-query-string", Type::DoHQueryString, [](const DNSQuestion& dnsquestion, const std::string&, uint8_t) -> std::vector<std::string> {
-                                        if (dnsquestion.ids.du) {
-                                          return {dnsquestion.ids.du->getHTTPQueryString()};
+                                        const auto& dohUnit = dnsquestion.getDOHUnit();
+                                        if (!dohUnit) {
+                                          return {};
                                         }
-                                        return {};
+                                        return {dohUnit->getHTTPQueryString()};
                                       },
                                       false},
   ProtoBufMetaKey::KeyTypeDescription{"doh-scheme", Type::DoHScheme, [](const DNSQuestion& dnsquestion, const std::string&, uint8_t) -> std::vector<std::string> {
-                                        if (dnsquestion.ids.du) {
-                                          return {dnsquestion.ids.du->getHTTPScheme()};
+                                        const auto& dohUnit = dnsquestion.getDOHUnit();
+                                        if (!dohUnit) {
+                                          return {};
                                         }
-                                        return {};
+                                        return {dohUnit->getHTTPScheme()};
                                       },
                                       false, false},
 #endif // HAVE_DNS_OVER_HTTPS

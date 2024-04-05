@@ -180,6 +180,16 @@ struct DNSQuestion
     return ids.cs;
   }
 
+  std::unique_ptr<DOHUnitInterface>& getDOHUnit() const
+  {
+    return ids.du;
+  }
+
+  void setDOHUnit(std::unique_ptr<DOHUnitInterface>&& dohUnit)
+  {
+    ids.du = std::move(dohUnit);
+  }
+
 protected:
   PacketBuffer& data;
 

@@ -738,7 +738,7 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   if (streamID) {
     auto unit = getDOHUnit(*streamID);
     if (unit) {
-      dnsQuestion.ids.du = std::move(unit);
+      dnsQuestion.setDOHUnit(std::move(unit));
     }
   }
 
@@ -752,7 +752,7 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
   }
 
   if (streamID) {
-    restoreDOHUnit(std::move(dnsQuestion.ids.du));
+    restoreDOHUnit(std::move(dnsQuestion.getDOHUnit()));
   }
 
   if (result == ProcessQueryResult::Drop) {
@@ -812,13 +812,13 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
     if (streamID) {
       auto unit = getDOHUnit(*streamID);
       if (unit) {
-        dnsQuestion.ids.du = std::move(unit);
+        dnsQuestion.setDOHUnit(std::move(unit));
       }
     }
     if (assignOutgoingUDPQueryToBackend(backend, queryID, dnsQuestion, query)) {
       return QueryProcessingResult::Forwarded;
     }
-    restoreDOHUnit(std::move(dnsQuestion.ids.du));
+    restoreDOHUnit(std::move(dnsQuestion.getDOHUnit()));
     // fallback to the normal flow
   }
 

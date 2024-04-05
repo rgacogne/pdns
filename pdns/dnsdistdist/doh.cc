@@ -506,10 +506,10 @@ public:
       static thread_local LocalStateHolder<vector<dnsdist::rules::ResponseRuleAction>> localRespRuleActions = dnsdist::rules::getResponseRuleChainHolder(dnsdist::rules::ResponseRuleChain::ResponseRules).getLocal();
       static thread_local LocalStateHolder<vector<dnsdist::rules::ResponseRuleAction>> localCacheInsertedRespRuleActions = dnsdist::rules::getResponseRuleChainHolder(dnsdist::rules::ResponseRuleChain::CacheInsertedResponseRules).getLocal();
 
-      dr.ids.du = std::move(dohUnit);
+      dr.setDOHUnit(std::move(dohUnit));
 
-      if (!processResponse(dynamic_cast<DOHUnit*>(dr.ids.du.get())->response, *localRespRuleActions, *localCacheInsertedRespRuleActions, dr, false)) {
-        if (dr.ids.du) {
+      if (!processResponse(dynamic_cast<DOHUnit*>(dr.getDOHUnit().get())->response, *localRespRuleActions, *localCacheInsertedRespRuleActions, dr, false)) {
+        if (dr.getDOHUnit()) {
           dohUnit = getDUFromIDS(dr.ids);
           dohUnit->status_code = 503;
           sendDoHUnitToTheMainThread(std::move(dohUnit), "Response dropped by rules");
@@ -641,7 +641,7 @@ std::shared_ptr<DoHTCPCrossQuerySender> DoHCrossProtocolQuery::s_sender = std::m
 
 std::unique_ptr<CrossProtocolQuery> getDoHCrossProtocolQueryFromDQ(DNSQuestion& dq, bool isResponse)
 {
-  if (!dq.ids.du) {
+  if (!dq.getDOHUnit()) {
     throw std::runtime_error("Trying to create a DoH cross protocol query without a valid DoH unit");
   }
 
@@ -1656,9 +1656,9 @@ void DOHUnit::handleUDPResponse(PacketBuffer&& udpResponse, InternalQueryState&&
     dnsheader cleartextDH{};
     memcpy(&cleartextDH, dnsResponse.getHeader().get(), sizeof(cleartextDH));
 
-    dnsResponse.ids.du = std::move(dohUnit);
+    dnsResponse.setDOHUnit(std::move(dohUnit));
     if (!processResponse(udpResponse, *localRespRuleActions, *localCacheInsertedRespRuleActions, dnsResponse, false)) {
-      if (dnsResponse.ids.du) {
+      if (dnsResponse.getDOHUnit()) {
         dohUnit = getDUFromIDS(dnsResponse.ids);
         dohUnit->status_code = 503;
         sendDoHUnitToTheMainThread(std::move(dohUnit), "Response dropped by rules");

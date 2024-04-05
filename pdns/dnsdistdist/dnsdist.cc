@@ -1721,7 +1721,7 @@ ProcessQueryResult processQuery(DNSQuestion& dnsQuestion, LocalHolders& holders,
 
 bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& downstream, uint16_t queryID, DNSQuestion& dnsQuestion, PacketBuffer& query, bool actuallySend)
 {
-  bool doh = dnsQuestion.ids.du != nullptr;
+  bool doh = dnsQuestion.getDOHUnit() != nullptr;
 
   bool failed = false;
   if (downstream->d_config.useProxyProtocol) {
@@ -1729,7 +1729,7 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& downstrea
       addProxyProtocol(dnsQuestion, &dnsQuestion.ids.d_proxyProtocolPayloadSize);
     }
     catch (const std::exception& e) {
-      vinfolog("Adding proxy protocol payload to %s query from %s failed: %s", (dnsQuestion.ids.du ? "DoH" : ""), dnsQuestion.ids.origDest.toStringWithPort(), e.what());
+      vinfolog("Adding proxy protocol payload to %s query from %s failed: %s", (dnsQuestion.getDOHUnit() ? "DoH" : ""), dnsQuestion.ids.origDest.toStringWithPort(), e.what());
       return false;
     }
   }
@@ -1771,7 +1771,7 @@ bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& downstrea
          in the meantime, so be it. */
       auto cleared = downstream->getState(idOffset);
       if (cleared) {
-        dnsQuestion.ids.du = std::move(cleared->du);
+        dnsQuestion.setDOHUnit(std::move(cleared->du));
       }
       ++dnsdist::metrics::g_stats.downstreamSendErrors;
       ++downstream->sendErrors;
