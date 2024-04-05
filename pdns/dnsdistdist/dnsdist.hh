@@ -190,6 +190,62 @@ struct DNSQuestion
     ids.du = std::move(dohUnit);
   }
 
+  bool isDOHOriginated() const
+  {
+    return ids.du != nullptr;
+  }
+
+  std::string getHTTPPath() const
+  {
+    if (!isDOHOriginated()) {
+      return {};
+    }
+    return getDOHUnit()->getHTTPPath();
+  }
+
+  std::string getHTTPQueryString() const
+  {
+    if (!isDOHOriginated()) {
+      return {};
+    }
+    return getDOHUnit()->getHTTPQueryString();
+  }
+
+  const std::string& getHTTPHost() const
+  {
+    static const std::string empty;
+    if (!isDOHOriginated()) {
+      return empty;
+    }
+    return getDOHUnit()->getHTTPHost();
+  }
+
+  const std::string& getHTTPScheme() const
+  {
+    static const std::string empty;
+    if (!isDOHOriginated()) {
+      return empty;
+    }
+    return getDOHUnit()->getHTTPScheme();
+  }
+
+  const std::unordered_map<std::string, std::string>& getHTTPHeaders() const
+  {
+    static const std::unordered_map<std::string, std::string> empty;
+    if (!isDOHOriginated()) {
+      return empty;
+    }
+    return getDOHUnit()->getHTTPHeaders();
+  }
+
+  void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType = "")
+  {
+    if (!isDOHOriginated()) {
+      throw std::runtime_error("Trying to set the HTTP response on a non-DoH originated query");
+    }
+    return getDOHUnit()->setHTTPResponse(statusCode, std::move(body), contentType);
+  }
+
 protected:
   PacketBuffer& data;
 

@@ -2076,11 +2076,11 @@ public:
 
   DNSAction::Action operator()(DNSQuestion* dnsquestion, std::string* ruleresult) const override
   {
-    if (!dnsquestion->getDOHUnit()) {
+    if (!dnsquestion->isDOHOriginated()) {
       return Action::None;
     }
 
-    dnsquestion->getDOHUnit()->setHTTPResponse(d_code, PacketBuffer(d_body), d_contentType);
+    dnsquestion->setHTTPResponse(d_code, PacketBuffer(d_body), d_contentType);
     dnsdist::PacketMangling::editDNSHeaderFromPacket(dnsquestion->getMutableData(), [this](dnsheader& header) {
       header.qr = true; // for good measure
       setResponseHeadersFromConfig(header, d_responseConfig);

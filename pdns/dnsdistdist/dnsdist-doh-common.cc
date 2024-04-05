@@ -32,11 +32,11 @@ HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& reg
 
 bool HTTPHeaderRule::matches(const DNSQuestion* dnsQuestion) const
 {
-  if (!dnsQuestion->getDOHUnit()) {
+  if (!dnsQuestion->isDOHOriginated()) {
     return false;
   }
 
-  const auto& headers = dnsQuestion->getDOHUnit()->getHTTPHeaders();
+  const auto& headers = dnsQuestion->getHTTPHeaders();
   for (const auto& header : headers) {
     if (header.first == d_header) {
       return d_regex.match(header.second);
@@ -57,11 +57,11 @@ HTTPPathRule::HTTPPathRule(std::string path) :
 
 bool HTTPPathRule::matches(const DNSQuestion* dnsQuestion) const
 {
-  if (!dnsQuestion->getDOHUnit()) {
+  if (!dnsQuestion->isDOHOriginated()) {
     return false;
   }
 
-  const auto path = dnsQuestion->getDOHUnit()->getHTTPPath();
+  const auto path = dnsQuestion->getHTTPPath();
   return d_path == path;
 }
 
@@ -77,11 +77,11 @@ HTTPPathRegexRule::HTTPPathRegexRule(const std::string& regex) :
 
 bool HTTPPathRegexRule::matches(const DNSQuestion* dnsQuestion) const
 {
-  if (!dnsQuestion->getDOHUnit()) {
+  if (!dnsQuestion->isDOHOriginated()) {
     return false;
   }
 
-  return d_regex.match(dnsQuestion->getDOHUnit()->getHTTPPath());
+  return d_regex.match(dnsQuestion->getHTTPPath());
 }
 
 string HTTPPathRegexRule::toString() const
