@@ -263,6 +263,7 @@ def finalize_server():
     sys.stdout.buffer.write(server_stderr.read())
     server_stderr.close()
 
+    return serverproc.returncode
 
 print("Waiting for webserver port to become available...")
 available = False
@@ -320,6 +321,9 @@ finally:
     if wait:
         print("Waiting as requested, press ENTER to stop.")
         raw_input()
-    finalize_server()
+    exitcode = finalize_server()
+    if returncode == 0 and exitcode != 0:
+      print('Process exited with return code %d' % (exitcode))
+      sys.exit(exitcode)
 
 sys.exit(returncode)
