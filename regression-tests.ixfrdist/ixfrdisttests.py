@@ -103,6 +103,9 @@ failed-soa-retry: 3
                     if cls._ixfrdist.poll() is None:
                         cls._ixfrdist.kill()
                     cls._ixfrdist.wait()
+                if cls._ixfrdist.returncode != 0:
+                    raise AssertionError('Process exited with return code %d' % (cls._ixfrdist.returncode))
+
         except OSError as e:
             # There is a race-condition with the poll() and
             # kill() statements, when the process is dead on the
@@ -201,4 +204,3 @@ failed-soa-retry: 3
     def setUp(self):
         # This function is called before every tests
         super(IXFRDistTest, self).setUp()
-
