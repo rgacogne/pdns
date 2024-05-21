@@ -1192,10 +1192,24 @@ static void tbhandler(int num)
 }
 #endif
 
-#ifdef COVERAGE
+/* g++ defines __SANITIZE_THREAD__
+   clang++ supports the nice __has_feature(thread_sanitizer),
+   let's merge them */
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define __SANITIZE_THREAD__ 1
+#endif
+#if __has_feature(address_sanitizer)
+#define __SANITIZE_ADDRESS__ 1
+#endif
+#endif
+
+#if defined(COVERAGE) || defined(__SANITIZE_THREAD__) || (defined(__SANITIZE_ADDRESS__) && defined(HAVE_LEAK_SANITIZER_INTERFACE))
 static void sigTermHandler([[maybe_unused]] int signal)
 {
+#ifdef COVERAGE
   pdns::coverage::dumpCoverageData();
+#endif /* COVERAGE */
   _exit(EXIT_SUCCESS);
 }
 #endif /* COVERAGE */
@@ -1277,7 +1291,7 @@ int main(int argc, char** argv)
       cerr << "Um, we did get here!" << endl;
     }
 
-#ifdef COVERAGE
+#if defined(COVERAGE) || defined(__SANITIZE_THREAD__) || (defined(__SANITIZE_ADDRESS__) && defined(HAVE_LEAK_SANITIZER_INTERFACE))
     if (!::arg().mustDo("guardian") && !::arg().mustDo("daemon")) {
       signal(SIGTERM, sigTermHandler);
     }
