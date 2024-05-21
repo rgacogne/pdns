@@ -92,8 +92,11 @@ MDBDbi::MDBDbi(MDB_env* /* env */, MDB_txn* txn, const string_view dbname, int f
 MDBEnv::MDBEnv(const char* fname, int flags, int mode, uint64_t mapsizeMB)
 {
   mdb_env_create(&d_env);
-  if(mdb_env_set_mapsize(d_env, mapsizeMB * 1048576))
+  if(mdb_env_set_mapsize(d_env, mapsizeMB * 1048576)) {
+    mdb_env_close(d_env);
     throw std::runtime_error("setting map size");
+  }
+
     /*
 Various other options may also need to be set before opening the handle, e.g. mdb_env_set_mapsize(), mdb_env_set_maxreaders(), mdb_env_set_maxdbs(),
     */
