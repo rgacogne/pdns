@@ -134,6 +134,8 @@ std::pair<uint32_t, uint32_t> LMDBBackend::getSchemaVersionAndShards(std::string
       return {5u, 0u};
     }
 
+    mdb_txn_abort(txn);
+    mdb_env_close(env);
     throw std::runtime_error("mdb_get pdns.schemaversion failed");
   }
 
@@ -151,6 +153,8 @@ std::pair<uint32_t, uint32_t> LMDBBackend::getSchemaVersionAndShards(std::string
     schemaversion = ntohl(schemaversion);
   }
   else {
+    mdb_txn_abort(txn);
+    mdb_env_close(env);
     throw std::runtime_error("pdns.schemaversion had unexpected size");
   }
 
@@ -167,6 +171,8 @@ std::pair<uint32_t, uint32_t> LMDBBackend::getSchemaVersionAndShards(std::string
       exit(1);
     }
 
+    mdb_txn_abort(txn);
+    mdb_env_close(env);
     throw std::runtime_error("mdb_get pdns.shards failed");
   }
 
@@ -181,6 +187,8 @@ std::pair<uint32_t, uint32_t> LMDBBackend::getSchemaVersionAndShards(std::string
     shards = ntohl(shards);
   }
   else {
+    mdb_txn_abort(txn);
+    mdb_env_close(env);
     throw std::runtime_error("pdns.shards had unexpected size");
   }
 
@@ -571,12 +579,16 @@ bool LMDBBackend::upgradeToSchemav5(std::string& filename)
     key.mv_size = keyname.size();
 
     if ((rc = mdb_get(txn, dbi, &key, &data))) {
+      mdb_txn_abort(txn);
+      mdb_env_close(env);
       throw std::runtime_error("mdb_get pdns.shards failed");
     }
 
     uint32_t value;
 
     if (data.mv_size != sizeof(uint32_t)) {
+      mdb_txn_abort(txn);
+      mdb_env_close(env);
       throw std::runtime_error("got non-uint32_t key");
     }
 
@@ -598,6 +610,8 @@ bool LMDBBackend::upgradeToSchemav5(std::string& filename)
     tdata.mv_size = stdata.size();
 
     if ((rc = mdb_put(txn, dbi, &key, &tdata, 0)) != 0) {
+      mdb_txn_abort(txn);
+      mdb_env_close(env);
       throw std::runtime_error("mdb_put failed");
     }
   }
@@ -609,6 +623,8 @@ bool LMDBBackend::upgradeToSchemav5(std::string& filename)
     key.mv_size = keyname.size();
 
     if ((rc = mdb_get(txn, dbi, &key, &data))) {
+      mdb_txn_abort(txn);
+      mdb_env_close(env);
       throw std::runtime_error("mdb_get pdns.shards failed");
     }
 
@@ -622,6 +638,8 @@ bool LMDBBackend::upgradeToSchemav5(std::string& filename)
     tdata.mv_size = stdata.size();
 
     if ((rc = mdb_put(txn, dbi, &key, &tdata, 0)) != 0) {
+      mdb_txn_abort(txn);
+      mdb_env_close(env);
       throw std::runtime_error("mdb_put failed");
     }
   }
