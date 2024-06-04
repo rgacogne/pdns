@@ -70,13 +70,11 @@ int bpf_qname_filter(struct __sk_buff *skb)
   ssize_t labellen = skb->cb[3];
   size_t idx = 2;
   struct QNameKey qkey = { 0 };
-  u32 val = skb->cb[1];
-  if (val) {
-    qkey.qname[0] = val;
+  if (skb->cb[1]) {
+    qkey.qname[0] = skb->cb[1];
   }
-  val = skb->cb[2];
-  if (val) {
-    qkey.qname[1] = val;
+  if (skb->cb[2]) {
+    qkey.qname[1] = skb->cb[2];
   }
   uint8_t temp;
 
@@ -423,7 +421,9 @@ int bpf_dns_filter(struct __sk_buff *skb) {
   else if (skb->protocol == ntohs(0x86DD)) {
     struct KeyV6 key;
     int off = nh_off + offsetof(struct ipv6hdr, saddr);
-    key.src[0] = load_byte(skb, off++);
+    bpf_skb_load_bytes(skb, off, key.src, sizeof(key.src));
+    // memcpy(key.src, data + off, sizeof(key.src));
+    /*key.src[0] = load_byte(skb, off++);
     key.src[1] = load_byte(skb, off++);
     key.src[2] = load_byte(skb, off++);
     key.src[3] = load_byte(skb, off++);
@@ -438,7 +438,7 @@ int bpf_dns_filter(struct __sk_buff *skb) {
     key.src[12] = load_byte(skb, off++);
     key.src[13] = load_byte(skb, off++);
     key.src[14] = load_byte(skb, off++);
-    key.src[15] = load_byte(skb, off++);
+    key.src[15] = load_byte(skb, off++);*/
 
     u64* counter = v6filter.lookup(&key);
     if (counter) {
@@ -468,7 +468,7 @@ int bpf_dns_filter(struct __sk_buff *skb) {
   skb->cb[0] = (uint32_t) qname_off;
   u16 qtype;
 
-  uint8_t temp = load_byte(skb, qname_off);
+  uint64_t temp = load_byte(skb, qname_off);
   if (temp > 63) {
     return 0;
   }
