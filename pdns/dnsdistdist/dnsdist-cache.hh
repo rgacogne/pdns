@@ -24,6 +24,7 @@
 #include <atomic>
 #include <unordered_map>
 
+#include "circular_buffer.hh"
 #include "iputils.hh"
 #include "lock.hh"
 #include "noinitvector.hh"
@@ -35,10 +36,12 @@ struct DNSQuestion;
 class DNSDistPacketCache : boost::noncopyable
 {
 public:
+  using KeyType = uint32_t;
+
   DNSDistPacketCache(size_t maxEntries, uint32_t maxTTL = 86400, uint32_t minTTL = 0, uint32_t tempFailureTTL = 60, uint32_t maxNegativeTTL = 3600, uint32_t staleTTL = 60, bool dontAge = false, uint32_t shards = 1, bool deferrableInsertLock = true, bool parseECS = false);
 
-  void insert(uint32_t key, const boost::optional<Netmask>& subnet, uint16_t queryFlags, bool dnssecOK, const DNSName& qname, uint16_t qtype, uint16_t qclass, const PacketBuffer& response, bool receivedOverUDP, uint8_t rcode, boost::optional<uint32_t> tempFailureTTL);
-  bool get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_t* keyOut, boost::optional<Netmask>& subnet, bool dnssecOK, bool receivedOverUDP, uint32_t allowExpired = 0, bool skipAging = false, bool truncatedOK = true, bool recordMiss = true);
+  void insert(KeyType key, const boost::optional<Netmask>& subnet, uint16_t queryFlags, bool dnssecOK, const DNSName& qname, uint16_t qtype, uint16_t qclass, const PacketBuffer& response, bool receivedOverUDP, uint8_t rcode, boost::optional<uint32_t> tempFailureTTL);
+  bool get(DNSQuestion& dnsQuestion, uint16_t queryId, KeyType* keyOut, boost::optional<Netmask>& subnet, bool dnssecOK, bool receivedOverUDP, uint32_t allowExpired = 0, bool skipAging = false, bool truncatedOK = true, bool recordMiss = true);
   size_t purgeExpired(size_t upTo, const time_t now);
   size_t expunge(size_t upTo = 0);
   size_t expungeByName(const DNSName& name, uint16_t qtype = QType::ANY, bool suffixMatch = false);
@@ -83,30 +86,58 @@ public:
   void setMaximumEntrySize(size_t maxSize);
   size_t getMaximumEntrySize() const { return d_maximumEntrySize; }
 
-  uint32_t getKey(const DNSName::string_t& qname, size_t qnameWireLength, const PacketBuffer& packet, bool receivedOverUDP);
+  KeyType getKey(const DNSName::string_t& qname, size_t qnameWireLength, const PacketBuffer& packet, bool receivedOverUDP);
 
   static uint32_t getMinTTL(const char* packet, uint16_t length, bool* seenNoDataSOA);
   static bool getClientSubnet(const PacketBuffer& packet, size_t qnameWireLength, boost::optional<Netmask>& subnet);
 
 private:
+  template <class Type>
+  struct MovableAtomic
+  {
+    MovableAtomic() = default;
+    MovableAtomic(const MovableAtomic& rhs): inner(rhs.inner.load())
+    {
+    }
+    MovableAtomic(MovableAtomic&& rhs): inner(rhs.inner.load())
+    {
+    }
+    MovableAtomic& operator=(MovableAtomic&& rhs)
+    {
+      inner.store(rhs.inner.load());
+      return *this;
+    }
+    MovableAtomic& operator=(const MovableAtomic& rhs)
+    {
+      inner.store(rhs.inner.load());
+      return *this;
+    }
+
+    std::atomic<Type> inner{0};
+  };
+
   struct CacheValue
   {
     time_t getTTD() const { return validity; }
+    boost::optional<Netmask> subnet;
     std::string value;
     DNSName qname;
-    boost::optional<Netmask> subnet;
+    time_t added{0};
+    time_t validity{0};
     uint16_t qtype{0};
     uint16_t qclass{0};
     uint16_t queryFlags{0};
-    time_t added{0};
-    time_t validity{0};
     uint16_t len{0};
+    mutable MovableAtomic<uint8_t> freq;
     bool receivedOverUDP{false};
     bool dnssecOK{false};
   };
 
   class CacheShard
   {
+    static constexpr double s_ghostSizeRatio = 0.5;
+    static constexpr double s_smallSizeRatio = 0.1;
+
   public:
     CacheShard()
     {
@@ -115,18 +146,29 @@ private:
     {
     }
 
-    void setSize(size_t maxSize)
-    {
-      d_map.write_lock()->reserve(maxSize);
-    }
+    void setSize(size_t maxSize);
 
-    SharedLockGuarded<std::unordered_map<uint32_t, CacheValue>> d_map;
+    struct ShardData
+    {
+      std::unordered_map<KeyType, CacheValue> d_map;
+      std::unordered_set<KeyType> d_ghostSet;
+      boost::circular_buffer<KeyType> d_ghostFIFO;
+      boost::circular_buffer<KeyType> d_mainFIFO;
+      boost::circular_buffer<KeyType> d_smallFIFO;
+    };
+
+    void evict(ShardData& data);
+    void evictMain(ShardData& data);
+    void evictSmall(ShardData& data);
+
+    SharedLockGuarded<ShardData> d_data;
     std::atomic<uint64_t> d_entriesCount{0};
   };
 
   bool cachedValueMatches(const CacheValue& cachedValue, uint16_t queryFlags, const DNSName& qname, uint16_t qtype, uint16_t qclass, bool receivedOverUDP, bool dnssecOK, const boost::optional<Netmask>& subnet) const;
-  uint32_t getShardIndex(uint32_t key) const;
-  void insertLocked(CacheShard& shard, std::unordered_map<uint32_t, CacheValue>& map, uint32_t key, CacheValue& newValue);
+  uint32_t getShardIndex(KeyType key) const;
+  void insertLocked(CacheShard& shard, CacheShard::ShardData& data, KeyType key, CacheValue& newValue);
+  void handleHit(const CacheValue& value);
 
   std::vector<CacheShard> d_shards;
   std::unordered_set<uint16_t> d_optionsToSkip{EDNSOptionCode::COOKIE};
