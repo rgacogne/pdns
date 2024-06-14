@@ -92,19 +92,118 @@ bool DNSDistPacketCache::cachedValueMatches(const CacheValue& cachedValue, uint1
   return true;
 }
 
-void DNSDistPacketCache::insertLocked(CacheShard& shard, std::unordered_map<uint32_t, CacheValue>& map, uint32_t key, CacheValue& newValue)
+void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
 {
-  /* check again now that we hold the lock to prevent a race */
-  if (map.size() >= (d_settings.d_maxEntries / d_settings.d_shardCount)) {
-    return;
+  bool evicted = false;
+  while (!evicted && data.d_smallFIFO.size() > 0) {
+    auto key = data.d_smallFIFO.back();
+    data.d_smallFIFO.pop_back();
+    const auto entryIt = data.d_map.find(key);
+    if (entryIt == data.d_map.end()) {
+      // entry has been (manually?) removed from the cache already,
+      // move on
+      continue;
+    }
+    if (entryIt->second.freq.inner.load() > 0) {
+      // at least one hit, move it to main
+      if (data.d_mainFIFO.full()) {
+        evictMain(data);
+      }
+      data.d_mainFIFO.push_front(key);
+    }
+    else {
+      // never used, good bye, but we will keep it in ghost for a while
+      data.d_map.erase(entryIt);
+      --d_entriesCount;
+      if (data.d_ghostFIFO.full()) {
+        auto ghostKey = data.d_ghostFIFO.back();
+        data.d_ghostFIFO.pop_back();
+        data.d_ghostSet.erase(ghostKey);
+      }
+      data.d_ghostSet.insert(key);
+      evicted = true;
+    }
+  }
+}
+
+void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
+{
+  bool evicted = false;
+  while (!evicted && data.d_mainFIFO.size() > 0) {
+    auto key = data.d_mainFIFO.back();
+    data.d_mainFIFO.pop_back();
+    const auto entryIt = data.d_map.find(key);
+    if (entryIt == data.d_map.end()) {
+      // entry has been (manually?) removed from the cache already,
+      // move on
+      continue;
+    }
+    auto freq = entryIt->second.freq.inner.load();
+    if (freq > 0) {
+      // the entry has been useful, let's move it
+      // to the front of the FIFO after decreasing
+      // the frequency counter so it might be removed
+      // eventually if it stops being usefull
+      entryIt->second.freq.inner.store(freq - 1);
+      data.d_mainFIFO.push_front(key);
+    }
+    else {
+      // not used recently, bye
+      data.d_map.erase(entryIt);
+      --d_entriesCount;
+      evicted = true;
+    }
+  }
+}
+
+void DNSDistPacketCache::CacheShard::evict(CacheShard::ShardData& data)
+{
+  if (data.d_map.size() >= data.d_smallFIFO.size()) {
+    evictSmall(data);
+  }
+  else {
+    evictMain(data);
+  }
+}
+
+void DNSDistPacketCache::CacheShard::setSize(size_t maxSize)
+{
+  auto data = d_data.write_lock();
+  const auto mainFIFOSize = std::round(maxSize * (1.0 - s_smallSizeRatio));
+  const auto smallFIFOSize = std::round(maxSize * s_smallSizeRatio);
+  if (smallFIFOSize < 1) {
+    throw std::runtime_error("Trying to create a too small packet cache, please consider increasing the size or reducing the number of shards");
+  }
+  data->d_map.reserve(maxSize);
+  data->d_mainFIFO.set_capacity(mainFIFOSize);
+  data->d_ghostSet.reserve(std::round(mainFIFOSize / 2));
+  data->d_ghostFIFO.set_capacity(std::round(mainFIFOSize / 2));
+  data->d_smallFIFO.set_capacity(smallFIFOSize);
+}
+
+void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& data, uint32_t key, CacheValue& newValue)
+{
+  while (data.d_map.size() >= (d_settings.d_maxEntries / d_settings.d_shardCount)) {
+    shard.evict(data);
   }
 
-  std::unordered_map<uint32_t, CacheValue>::iterator mapIt;
-  bool result{false};
-  std::tie(mapIt, result) = map.insert({key, newValue});
+  auto [mapIt, result] = data.d_map.emplace(key, std::move(newValue));
 
   if (result) {
     ++shard.d_entriesCount;
+    if (data.d_ghostSet.count(key) == 1) {
+      if (data.d_mainFIFO.full()) {
+        shard.evictMain(data);
+      }
+      data.d_mainFIFO.push_front(key);
+    }
+    else {
+      if (data.d_smallFIFO.full()) {
+        shard.evictSmall(data);
+      }
+      data.d_smallFIFO.push_front(key);
+    }
+
     return;
   }
 
@@ -123,7 +222,7 @@ void DNSDistPacketCache::insertLocked(CacheShard& shard, std::unordered_map<uint
     return;
   }
 
-  value = newValue;
+  value = std::move(newValue);
 }
 
 void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& subnet, uint16_t queryFlags, bool dnssecOK, const DNSName& qname, uint16_t qtype, uint16_t qclass, const PacketBuffer& response, bool receivedOverUDP, uint8_t rcode, boost::optional<uint32_t> tempFailureTTL)
@@ -176,12 +275,7 @@ void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& su
     }
   }
 
-  uint32_t shardIndex = getShardIndex(key);
-
-  if (d_shards.at(shardIndex).d_entriesCount >= (d_settings.d_maxEntries / d_settings.d_shardCount)) {
-    return;
-  }
-
+  const auto shardIndex = getShardIndex(key);
   const time_t now = time(nullptr);
   time_t newValidity = now + minTTL;
   CacheValue newValue;
@@ -200,8 +294,7 @@ void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& su
   auto& shard = d_shards.at(shardIndex);
 
   if (d_settings.d_deferrableInsertLock) {
-    auto lock = shard.d_map.try_write_lock();
-
+    auto lock = shard.d_data.try_write_lock();
     if (!lock.owns_lock()) {
       ++d_deferredInserts;
       return;
@@ -209,9 +302,21 @@ void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& su
     insertLocked(shard, *lock, key, newValue);
   }
   else {
-    auto lock = shard.d_map.write_lock();
+    auto lock = shard.d_data.write_lock();
 
     insertLocked(shard, *lock, key, newValue);
+  }
+}
+
+void DNSDistPacketCache::handleHit(const CacheValue& entry)
+{
+  ++d_hits;
+
+  auto freq = entry.freq.inner.load();
+  while (freq < 3) {
+    if (entry.freq.inner.compare_exchange_weak(freq, freq + 1)) {
+      break;
+    }
   }
 }
 
@@ -240,14 +345,15 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
   auto& response = dnsQuestion.getMutableData();
   auto& shard = d_shards.at(shardIndex);
   {
-    auto map = shard.d_map.try_read_lock();
-    if (!map.owns_lock()) {
+    auto data = shard.d_data.try_read_lock();
+    if (!data.owns_lock()) {
       ++d_deferredLookups;
       return false;
     }
 
-    auto mapIt = map->find(key);
-    if (mapIt == map->end()) {
+    auto& map = data->d_map;
+    auto mapIt = map.find(key);
+    if (mapIt == map.end()) {
       if (recordMiss) {
         ++d_misses;
       }
@@ -288,7 +394,7 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
 
     if (value.len == sizeof(dnsheader)) {
       /* DNS header only, our work here is done */
-      ++d_hits;
+      handleHit(value);
       return true;
     }
 
@@ -308,6 +414,8 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
     else {
       age = (value.validity - value.added) - d_settings.d_staleTTL;
     }
+
+    handleHit(value);
   }
 
   if (!d_settings.d_dontAge && !skipAging) {
@@ -324,7 +432,6 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
     }
   }
 
-  ++d_hits;
   return true;
 }
 
@@ -341,18 +448,19 @@ size_t DNSDistPacketCache::purgeExpired(size_t upTo, const time_t now)
 
   ++d_cleanupCount;
   for (auto& shard : d_shards) {
-    auto map = shard.d_map.write_lock();
-    if (map->size() <= maxPerShard) {
+    auto data = shard.d_data.write_lock();
+    auto& map = data->d_map;
+    if (map.size() <= maxPerShard) {
       continue;
     }
 
-    size_t toRemove = map->size() - maxPerShard;
+    size_t toRemove = map.size() - maxPerShard;
 
-    for (auto it = map->begin(); toRemove > 0 && it != map->end();) {
+    for (auto it = map.begin(); toRemove > 0 && it != map.end();) {
       const CacheValue& value = it->second;
 
       if (value.validity <= now) {
-        it = map->erase(it);
+        it = map.erase(it);
         --toRemove;
         --shard.d_entriesCount;
         ++removed;
@@ -378,26 +486,27 @@ size_t DNSDistPacketCache::expunge(size_t upTo)
   size_t removed = 0;
 
   for (auto& shard : d_shards) {
-    auto map = shard.d_map.write_lock();
+    auto data = shard.d_data.write_lock();
+    auto& map = data->d_map;
 
-    if (map->size() <= maxPerShard) {
+    if (map.size() <= maxPerShard) {
       continue;
     }
 
-    size_t toRemove = map->size() - maxPerShard;
+    size_t toRemove = map.size() - maxPerShard;
 
-    auto beginIt = map->begin();
+    auto beginIt = map.begin();
     auto endIt = beginIt;
 
-    if (map->size() >= toRemove) {
+    if (map.size() >= toRemove) {
       std::advance(endIt, toRemove);
-      map->erase(beginIt, endIt);
+      map.erase(beginIt, endIt);
       shard.d_entriesCount -= toRemove;
       removed += toRemove;
     }
     else {
-      removed += map->size();
-      map->clear();
+      removed += map.size();
+      map.clear();
       shard.d_entriesCount = 0;
     }
   }
@@ -410,13 +519,14 @@ size_t DNSDistPacketCache::expungeByName(const DNSName& name, uint16_t qtype, bo
   size_t removed = 0;
 
   for (auto& shard : d_shards) {
-    auto map = shard.d_map.write_lock();
+    auto data = shard.d_data.write_lock();
+    auto& map = data->d_map;
 
-    for (auto it = map->begin(); it != map->end();) {
+    for (auto it = map.begin(); it != map.end();) {
       const CacheValue& value = it->second;
 
       if ((value.qname == name || (suffixMatch && value.qname.isPartOf(name))) && (qtype == QType::ANY || qtype == value.qtype)) {
-        it = map->erase(it);
+        it = map.erase(it);
         --shard.d_entriesCount;
         ++removed;
       }
@@ -510,9 +620,10 @@ uint64_t DNSDistPacketCache::dump(int fileDesc, bool rawResponse)
   uint64_t count = 0;
   time_t now = time(nullptr);
   for (auto& shard : d_shards) {
-    auto map = shard.d_map.read_lock();
+    auto data = shard.d_data.read_lock();
+    const auto& map = data->d_map;
 
-    for (const auto& entry : *map) {
+    for (const auto& entry : map) {
       const CacheValue& value = entry.second;
       count++;
 
@@ -546,9 +657,10 @@ std::set<DNSName> DNSDistPacketCache::getDomainsContainingRecords(const ComboAdd
   std::set<DNSName> domains;
 
   for (auto& shard : d_shards) {
-    auto map = shard.d_map.read_lock();
+    auto data = shard.d_data.read_lock();
+    const auto& map = data->d_map;
 
-    for (const auto& entry : *map) {
+    for (const auto& entry : map) {
       const CacheValue& value = entry.second;
 
       try {
@@ -603,9 +715,10 @@ std::set<ComboAddress> DNSDistPacketCache::getRecordsForDomain(const DNSName& do
   std::set<ComboAddress> addresses;
 
   for (auto& shard : d_shards) {
-    auto map = shard.d_map.read_lock();
+    auto data = shard.d_data.read_lock();
+    const auto& map = data->d_map;
 
-    for (const auto& entry : *map) {
+    for (const auto& entry : map) {
       const CacheValue& value = entry.second;
 
       try {
