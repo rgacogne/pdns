@@ -525,7 +525,7 @@ Copyright 2001-2002 Randy Charles Morin
 The Encode static method takes an array of 8-bit values and returns a base-64 stream.
 */
 
-std::string Base64Encode(const std::string& src)
+std::string Base64Encode(const std::string_view& src)
 {
   std::string retval;
   if (src.empty()) {

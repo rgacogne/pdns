@@ -126,14 +126,13 @@ private:
   {
     time_t getTTD() const { return validity; }
     boost::optional<Netmask> subnet;
-    std::string value;
+    PacketBuffer value;
     DNSName qname;
     time_t added{0};
     time_t validity{0};
     uint16_t qtype{0};
     uint16_t qclass{0};
     uint16_t queryFlags{0};
-    uint16_t len{0};
     mutable MovableAtomic<uint8_t> freq;
     bool receivedOverUDP{false};
     bool dnssecOK{false};

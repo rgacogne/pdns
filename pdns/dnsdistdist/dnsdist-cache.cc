@@ -284,12 +284,11 @@ void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& su
   newValue.qtype = qtype;
   newValue.qclass = qclass;
   newValue.queryFlags = queryFlags;
-  newValue.len = response.size();
   newValue.validity = newValidity;
   newValue.added = now;
   newValue.receivedOverUDP = receivedOverUDP;
   newValue.dnssecOK = dnssecOK;
-  newValue.value = std::string(response.begin(), response.end());
+  newValue.value = response;
   newValue.subnet = subnet;
 
   auto& shard = d_shards.at(shardIndex);
@@ -372,7 +371,7 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
       stale = true;
     }
 
-    if (value.len < sizeof(dnsheader)) {
+    if (value.value.size() < sizeof(dnsheader)) {
       return false;
     }
 
@@ -389,24 +388,24 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
       }
     }
 
-    response.resize(value.len);
+    response.resize(value.value.size());
     memcpy(&response.at(0), &queryId, sizeof(queryId));
     memcpy(&response.at(sizeof(queryId)), &value.value.at(sizeof(queryId)), sizeof(dnsheader) - sizeof(queryId));
 
-    if (value.len == sizeof(dnsheader)) {
+    if (value.value.size() == sizeof(dnsheader)) {
       /* DNS header only, our work here is done */
       handleHit(value);
       return true;
     }
 
     const size_t dnsQNameLen = dnsQName.length();
-    if (value.len < (sizeof(dnsheader) + dnsQNameLen)) {
+    if (value.value.size() < (sizeof(dnsheader) + dnsQNameLen)) {
       return false;
     }
 
     memcpy(&response.at(sizeof(dnsheader)), dnsQName.c_str(), dnsQNameLen);
-    if (value.len > (sizeof(dnsheader) + dnsQNameLen)) {
-      memcpy(&response.at(sizeof(dnsheader) + dnsQNameLen), &value.value.at(sizeof(dnsheader) + dnsQNameLen), value.len - (sizeof(dnsheader) + dnsQNameLen));
+    if (value.value.size() > (sizeof(dnsheader) + dnsQNameLen)) {
+      memcpy(&response.at(sizeof(dnsheader) + dnsQNameLen), &value.value.at(sizeof(dnsheader) + dnsQNameLen), value.value.size() - (sizeof(dnsheader) + dnsQNameLen));
     }
 
     if (!stale) {
@@ -630,16 +629,17 @@ uint64_t DNSDistPacketCache::dump(int fileDesc, bool rawResponse)
 
       try {
         uint8_t rcode = 0;
-        if (value.len >= sizeof(dnsheader)) {
+        if (value.value.size() >= sizeof(dnsheader)) {
           dnsheader dnsHeader{};
           memcpy(&dnsHeader, value.value.data(), sizeof(dnsheader));
           rcode = dnsHeader.rcode;
         }
 
-        fprintf(filePtr.get(), "%s %" PRId64 " %s %s ; ecs %s, rcode %" PRIu8 ", key %" PRIu32 ", length %" PRIu16 ", received over UDP %d, added %" PRId64 ", dnssecOK %d, raw query flags %" PRIu16, value.qname.toString().c_str(), static_cast<int64_t>(value.validity - now), QClass(value.qclass).toString().c_str(), QType(value.qtype).toString().c_str(), value.subnet ? value.subnet.get().toString().c_str() : "empty", rcode, entry.first, value.len, value.receivedOverUDP ? 1 : 0, static_cast<int64_t>(value.added), value.dnssecOK ? 1 : 0, value.queryFlags);
+        fprintf(filePtr.get(), "%s %" PRId64 " %s %s ; ecs %s, rcode %" PRIu8 ", key %" PRIu32 ", length %" PRIu16 ", received over UDP %d, added %" PRId64 ", dnssecOK %d, raw query flags %" PRIu16, value.qname.toString().c_str(), static_cast<int64_t>(value.validity - now), QClass(value.qclass).toString().c_str(), QType(value.qtype).toString().c_str(), value.subnet ? value.subnet.get().toString().c_str() : "empty", rcode, entry.first, static_cast<uint16_t>(value.value.size()), value.receivedOverUDP ? 1 : 0, static_cast<int64_t>(value.added), value.dnssecOK ? 1 : 0, value.queryFlags);
 
         if (rawResponse) {
-          std::string rawDataResponse = Base64Encode(value.value);
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+          auto rawDataResponse = Base64Encode(std::string_view(reinterpret_cast<const char*>(value.value.data()), value.value.size()));
           fprintf(filePtr.get(), ", base64response %s", rawDataResponse.c_str());
         }
         fprintf(filePtr.get(), "\n");
@@ -665,7 +665,7 @@ std::set<DNSName> DNSDistPacketCache::getDomainsContainingRecords(const ComboAdd
       const CacheValue& value = entry.second;
 
       try {
-        if (value.len < sizeof(dnsheader)) {
+        if (value.value.size() < sizeof(dnsheader)) {
           continue;
         }
 
@@ -675,7 +675,7 @@ std::set<DNSName> DNSDistPacketCache::getDomainsContainingRecords(const ComboAdd
         }
 
         bool found = false;
-        bool valid = visitDNSPacket(value.value, [addr, &found](uint8_t /* section */, uint16_t qclass, uint16_t qtype, uint32_t /* ttl */, uint16_t rdatalength, const char* rdata) {
+        bool valid = visitDNSPacket(std::string_view(reinterpret_cast<const char*>(value.value.data()), value.value.size()), [addr, &found](uint8_t /* section */, uint16_t qclass, uint16_t qtype, uint32_t /* ttl */, uint16_t rdatalength, const char* rdata) {
           if (qtype == QType::A && qclass == QClass::IN && addr.isIPv4() && rdatalength == 4 && rdata != nullptr) {
             ComboAddress parsed;
             parsed.sin4.sin_family = AF_INET;
@@ -727,7 +727,7 @@ std::set<ComboAddress> DNSDistPacketCache::getRecordsForDomain(const DNSName& do
           continue;
         }
 
-        if (value.len < sizeof(dnsheader)) {
+        if (value.value.size() < sizeof(dnsheader)) {
           continue;
         }
 
@@ -736,7 +736,7 @@ std::set<ComboAddress> DNSDistPacketCache::getRecordsForDomain(const DNSName& do
           continue;
         }
 
-        visitDNSPacket(value.value, [&addresses](uint8_t /* section */, uint16_t qclass, uint16_t qtype, uint32_t /* ttl */, uint16_t rdatalength, const char* rdata) {
+        visitDNSPacket(std::string_view(reinterpret_cast<const char*>(value.value.data()), value.value.size()), [&addresses](uint8_t /* section */, uint16_t qclass, uint16_t qtype, uint32_t /* ttl */, uint16_t rdatalength, const char* rdata) {
           if (qtype == QType::A && qclass == QClass::IN && rdatalength == 4 && rdata != nullptr) {
             ComboAddress parsed;
             parsed.sin4.sin_family = AF_INET;

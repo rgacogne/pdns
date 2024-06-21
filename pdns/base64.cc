@@ -58,7 +58,7 @@ template<typename Container> int B64Decode(const std::string& src, Container& ds
 
 template int B64Decode<std::string>(const std::string& strInput, std::string& strOutput);
 
-std::string Base64Encode(const std::string& src)
+std::string Base64Encode(const std::string_view& src)
 {
   if (!src.empty()) {
     size_t olen = 0;
@@ -67,7 +67,7 @@ std::string Base64Encode(const std::string& src)
     bio = BIO_new(BIO_s_mem());
     bio = BIO_push(b64, bio);
     BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
-    int bioWriteRet = BIO_write(bio, src.c_str(), src.length());
+    int bioWriteRet = BIO_write(bio, src.data(), src.length());
     if (bioWriteRet < 0 || (size_t) bioWriteRet != src.length()) {
       BIO_free_all(bio);
       throw std::runtime_error("BIO_write failed to write all data to memory buffer");

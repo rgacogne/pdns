@@ -23,4 +23,4 @@
 #include <string>
 
 template<typename Container> int B64Decode(const std::string& strInput, Container& strOutput);
-std::string Base64Encode (const std::string& src);
+std::string Base64Encode (const std::string_view& src);
