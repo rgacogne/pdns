@@ -192,6 +192,7 @@ void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& 
   if (result) {
     ++shard.d_entriesCount;
     if (data.d_ghostSet.count(key) == 1) {
+      data.d_ghostSet.erase(key);
       if (data.d_mainFIFO.full()) {
         shard.evictMain(data);
       }
