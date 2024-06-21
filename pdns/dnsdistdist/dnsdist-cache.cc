@@ -181,7 +181,7 @@ void DNSDistPacketCache::CacheShard::setSize(size_t maxSize)
   data->d_smallFIFO.set_capacity(smallFIFOSize);
 }
 
-void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& data, uint32_t key, CacheValue& newValue)
+void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& data, uint32_t key, CacheValue&& newValue)
 {
   while (data.d_map.size() >= (d_settings.d_maxEntries / d_settings.d_shardCount)) {
     shard.evict(data);
@@ -299,12 +299,12 @@ void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& su
       ++d_deferredInserts;
       return;
     }
-    insertLocked(shard, *lock, key, newValue);
+    insertLocked(shard, *lock, key, std::move(newValue));
   }
   else {
     auto lock = shard.d_data.write_lock();
 
-    insertLocked(shard, *lock, key, newValue);
+    insertLocked(shard, *lock, key, std::move(newValue));
   }
 }
 
