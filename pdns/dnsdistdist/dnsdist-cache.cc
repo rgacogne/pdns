@@ -29,6 +29,11 @@
 #include "ednssubnet.hh"
 #include "packetcache.hh"
 
+bool DNSDistPacketCache::CacheValue::isGhost() const
+{
+  return freq.inner.load() == -1;
+}
+
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters): too cumbersome to change at this point
 DNSDistPacketCache::DNSDistPacketCache(size_t maxEntries, uint32_t maxTTL, uint32_t minTTL, uint32_t tempFailureTTL, uint32_t maxNegativeTTL, uint32_t staleTTL, bool dontAge, uint32_t shards, bool deferrableInsertLock, bool parseECS) :
   d_maxEntries(maxEntries), d_shardCount(shards), d_maxTTL(maxTTL), d_tempFailureTTL(tempFailureTTL), d_maxNegativeTTL(maxNegativeTTL), d_minTTL(minTTL), d_staleTTL(staleTTL), d_dontAge(dontAge), d_deferrableInsertLock(deferrableInsertLock), d_parseECS(parseECS)
@@ -100,6 +105,7 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
       continue;
     }
     if (entryIt->second.freq.inner.load() > 0) {
+      cerr<<"promoting "<<entryIt->first<<" to small because freq is "<<entryIt->second.freq.inner.load()<<endl;
       // at least one hit, move it to main
       if (data.d_mainFIFO.full()) {
         evictMain(data);
@@ -108,14 +114,16 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
     }
     else {
       // never used, good bye, but we will keep it in ghost for a while
-      data.d_map.erase(entryIt);
+      //data.d_map.erase(entryIt);
+      cerr<<"moving "<<entryIt->first<<" to ghost"<<endl;
+      entryIt->second.value.clear();
+      entryIt->second.freq.inner.store(-1);
       --d_entriesCount;
       if (data.d_ghostFIFO.full()) {
         auto ghostKey = data.d_ghostFIFO.back();
         data.d_ghostFIFO.pop_back();
-        data.d_ghostSet.erase(ghostKey);
+        data.d_map.erase(ghostKey);
       }
-      data.d_ghostSet.insert(key);
       evicted = true;
     }
   }
@@ -153,7 +161,7 @@ void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
 
 void DNSDistPacketCache::CacheShard::evict(CacheShard::ShardData& data)
 {
-  if (data.d_map.size() >= data.d_smallFIFO.size()) {
+  if (data.d_smallFIFO.full()) {
     evictSmall(data);
   }
   else {
@@ -169,16 +177,16 @@ void DNSDistPacketCache::CacheShard::setSize(size_t maxSize)
   if (smallFIFOSize < 1) {
     throw std::runtime_error("Trying to create a too small packet cache, please consider increasing the size or reducing the number of shards");
   }
-  data->d_map.reserve(maxSize);
+  data->d_map.reserve(maxSize * (1.0 + s_ghostSizeRatio));
   data->d_mainFIFO.set_capacity(mainFIFOSize);
-  data->d_ghostSet.reserve(std::round(mainFIFOSize / 2));
+  //data->d_ghostSet.reserve(std::round(mainFIFOSize / 2));
   data->d_ghostFIFO.set_capacity(std::round(mainFIFOSize / 2));
   data->d_smallFIFO.set_capacity(smallFIFOSize);
 }
 
 void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& data, uint32_t key, CacheValue&& newValue)
 {
-  while (data.d_map.size() >= (d_maxEntries / d_shardCount)) {
+  while (shard.d_entriesCount >= (d_maxEntries / d_shardCount)) {
     shard.evict(data);
   }
 
@@ -186,26 +194,32 @@ void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& 
 
   if (result) {
     ++shard.d_entriesCount;
-    if (data.d_ghostSet.count(key) == 1) {
-      data.d_ghostSet.erase(key);
-      if (data.d_mainFIFO.full()) {
-        shard.evictMain(data);
-      }
-      data.d_mainFIFO.push_front(key);
+    cerr<<"inserted key "<<key<<endl;
+    if (data.d_smallFIFO.full()) {
+      cerr<<"small is full, evicting"<<endl;
+      shard.evictSmall(data);
     }
-    else {
-      if (data.d_smallFIFO.full()) {
-        shard.evictSmall(data);
-      }
-      data.d_smallFIFO.push_front(key);
-    }
+    data.d_smallFIFO.push_front(key);
 
+    return;
+  }
+
+  CacheValue& value = mapIt->second;
+  cerr<<"existing entry for "<<key<<endl;
+  /* was the existing entry a ghost ? */
+  if (value.isGhost()) {
+    cerr<<"existing entry for "<<key<<" is a ghost"<<endl;
+    value = std::move(newValue);
+    if (data.d_mainFIFO.full()) {
+      cerr<<"main is full, evicting"<<endl;
+      shard.evictMain(data);
+    }
+    data.d_mainFIFO.push_front(key);
     return;
   }
 
   /* in case of collision, don't override the existing entry
      except if it has expired */
-  CacheValue& value = mapIt->second;
   bool wasExpired = value.validity <= newValue.added;
 
   if (!wasExpired && !cachedValueMatches(value, newValue.queryFlags, newValue.qname, newValue.qtype, newValue.qclass, newValue.receivedOverUDP, newValue.dnssecOK, newValue.subnet)) {
@@ -316,7 +330,7 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
 
   const auto& dnsQName = dnsQuestion.ids.qname.getStorage();
   uint32_t key = getKey(dnsQName, dnsQuestion.ids.qname.wirelength(), dnsQuestion.getData(), receivedOverUDP);
-
+  cerr<<"lookup key is "<<key<<endl;
   if (keyOut != nullptr) {
     *keyOut = key;
   }
@@ -340,10 +354,11 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
 
     auto& map = data->d_map;
     auto mapIt = map.find(key);
-    if (mapIt == map.end()) {
+    if (mapIt == map.end() || mapIt->second.isGhost()) {
       if (recordMiss) {
         ++d_misses;
       }
+      cerr<<"miss, is ghost "<<(mapIt != map.end())<<endl;
       return false;
     }
 
@@ -436,18 +451,18 @@ size_t DNSDistPacketCache::purgeExpired(size_t upTo, const time_t now)
 
   ++d_cleanupCount;
   for (auto& shard : d_shards) {
-    auto data = shard.d_data.write_lock();
-    auto& map = data->d_map;
-    if (map.size() <= maxPerShard) {
+    if (shard.d_entriesCount <= maxPerShard) {
       continue;
     }
+    auto data = shard.d_data.write_lock();
+    auto& map = data->d_map;
 
-    size_t toRemove = map.size() - maxPerShard;
+    size_t toRemove = shard.d_entriesCount - maxPerShard;
 
     for (auto it = map.begin(); toRemove > 0 && it != map.end();) {
       const CacheValue& value = it->second;
 
-      if (value.validity <= now) {
+      if (!value.isGhost() && value.validity <= now) {
         it = map.erase(it);
         --toRemove;
         --shard.d_entriesCount;
@@ -474,18 +489,18 @@ size_t DNSDistPacketCache::expunge(size_t upTo)
   size_t removed = 0;
 
   for (auto& shard : d_shards) {
+    if (shard.d_entriesCount <= maxPerShard) {
+      continue;
+    }
     auto data = shard.d_data.write_lock();
     auto& map = data->d_map;
 
-    if (map.size() <= maxPerShard) {
-      continue;
-    }
-
-    size_t toRemove = map.size() - maxPerShard;
+    size_t toRemove = shard.d_entriesCount - maxPerShard;
 
     auto beginIt = map.begin();
     auto endIt = beginIt;
 
+#warning this is broken because of ghost entries
     if (map.size() >= toRemove) {
       std::advance(endIt, toRemove);
       map.erase(beginIt, endIt);
@@ -513,7 +528,7 @@ size_t DNSDistPacketCache::expungeByName(const DNSName& name, uint16_t qtype, bo
     for (auto it = map.begin(); it != map.end();) {
       const CacheValue& value = it->second;
 
-      if ((value.qname == name || (suffixMatch && value.qname.isPartOf(name))) && (qtype == QType::ANY || qtype == value.qtype)) {
+      if (!value.isGhost() && (value.qname == name || (suffixMatch && value.qname.isPartOf(name))) && (qtype == QType::ANY || qtype == value.qtype)) {
         it = map.erase(it);
         --shard.d_entriesCount;
         ++removed;
@@ -609,6 +624,10 @@ uint64_t DNSDistPacketCache::dump(int fileDesc)
 
     for (const auto& entry : map) {
       const CacheValue& value = entry.second;
+      if (value.isGhost()) {
+        continue;
+      }
+
       count++;
 
       try {
@@ -647,7 +666,7 @@ std::set<DNSName> DNSDistPacketCache::getDomainsContainingRecords(const ComboAdd
       const CacheValue& value = entry.second;
 
       try {
-        if (value.value.size() < sizeof(dnsheader)) {
+        if (value.isGhost() || value.value.size() < sizeof(dnsheader)) {
           continue;
         }
 
@@ -706,7 +725,7 @@ std::set<ComboAddress> DNSDistPacketCache::getRecordsForDomain(const DNSName& do
       const CacheValue& value = entry.second;
 
       try {
-        if (value.qname != domain) {
+        if (value.isGhost() || value.qname != domain) {
           continue;
         }
 
@@ -749,4 +768,31 @@ std::set<ComboAddress> DNSDistPacketCache::getRecordsForDomain(const DNSName& do
 void DNSDistPacketCache::setMaximumEntrySize(size_t maxSize)
 {
   d_maximumEntrySize = maxSize;
+}
+
+uint64_t DNSDistPacketCache::getSmallFIFOSize()
+{
+  uint64_t count = 0;
+  for (auto& shard : d_shards) {
+    count += shard.d_data.read_lock()->d_smallFIFO.size();
+  }
+  return count;
+}
+
+uint64_t DNSDistPacketCache::getMainFIFOSize()
+{
+  uint64_t count = 0;
+  for (auto& shard : d_shards) {
+    count += shard.d_data.read_lock()->d_mainFIFO.size();
+  }
+  return count;
+}
+
+uint64_t DNSDistPacketCache::getGhostFIFOSize()
+{
+  uint64_t count = 0;
+  for (auto& shard : d_shards) {
+    count += shard.d_data.read_lock()->d_ghostFIFO.size();
+  }
+  return count;
 }

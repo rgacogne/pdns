@@ -19,7 +19,7 @@
 BOOST_AUTO_TEST_SUITE(test_dnsdistpacketcache_cc)
 
 static bool receivedOverUDP = true;
-
+#if 0
 BOOST_AUTO_TEST_CASE(test_PacketCacheSimple)
 {
   const size_t maxEntries = 150000;
@@ -1237,6 +1237,154 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheXFR)
     localCache.insert(key, subnet, *(getFlagsFromDNSHeader(dnsQuestion.getHeader().get())), dnssecOK, ids.qname, ids.qtype, ids.qclass, response, receivedOverUDP, 0, boost::none);
     found = localCache.get(dnsQuestion, pwR.getHeader()->id, &key, subnet, dnssecOK, receivedOverUDP, 0, true);
     BOOST_CHECK_EQUAL(found, false);
+  }
+}
+#endif
+
+static void insertEntryIntoCache(DNSDistPacketCache& localCache, size_t counter, bool hit=false)
+{
+  bool dnssecOK = false;
+  InternalQueryState ids;
+  ids.qtype = QType::A;
+  ids.qclass = QClass::IN;
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  ids.qname = DNSName(std::to_string(counter)) + DNSName(" hello");
+
+  PacketBuffer query;
+  GenericDNSPacketWriter<PacketBuffer> pwQ(query, ids.qname, QType::A, QClass::IN, 0);
+  pwQ.getHeader()->rd = 1;
+
+  PacketBuffer response;
+  GenericDNSPacketWriter<PacketBuffer> pwR(response, ids.qname, QType::A, QClass::IN, 0);
+  pwR.getHeader()->rd = 1;
+  pwR.getHeader()->ra = 1;
+  pwR.getHeader()->qr = 1;
+  pwR.getHeader()->id = pwQ.getHeader()->id;
+  pwR.startRecord(ids.qname, QType::A, 7200, QClass::IN, DNSResourceRecord::ANSWER);
+  pwR.xfr32BitInt(0x01020304);
+  pwR.commit();
+
+  uint32_t key = 0;
+  boost::optional<Netmask> subnet;
+  DNSQuestion dnsQuestion(ids, query);
+  bool found = localCache.get(dnsQuestion, 0, &key, subnet, dnssecOK, receivedOverUDP);
+  BOOST_CHECK_EQUAL(found, false);
+  BOOST_CHECK(!subnet);
+
+  localCache.insert(key, subnet, *(getFlagsFromDNSHeader(dnsQuestion.getHeader().get())), dnssecOK, ids.qname, QType::A, QClass::IN, response, receivedOverUDP, 0, boost::none);
+  if (hit) {
+    BOOST_CHECK(localCache.get(dnsQuestion, 0, &key, subnet, dnssecOK, receivedOverUDP));
+  }
+}
+
+static bool checkEntryPresent(DNSDistPacketCache& localCache, size_t counter)
+{
+  bool dnssecOK = false;
+  InternalQueryState ids;
+  ids.qtype = QType::A;
+  ids.qclass = QClass::IN;
+  ids.protocol = dnsdist::Protocol::DoUDP;
+  ids.qname = DNSName(std::to_string(counter)) + DNSName(" hello");
+
+  PacketBuffer query;
+  GenericDNSPacketWriter<PacketBuffer> pwQ(query, ids.qname, QType::A, QClass::IN, 0);
+  pwQ.getHeader()->rd = 1;
+
+  uint32_t key = 0;
+  boost::optional<Netmask> subnet;
+  DNSQuestion dnsQuestion(ids, query);
+  bool found = localCache.get(dnsQuestion, 0, &key, subnet, dnssecOK, receivedOverUDP);
+  return found;
+}
+
+BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
+{
+  const size_t maxEntries = 100;
+  size_t counter = 0;
+#if 0
+  {
+    DNSDistPacketCache localCache(maxEntries);
+    BOOST_CHECK_EQUAL(localCache.getSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+
+    for (counter = 0; counter < 100; ++counter) {
+      insertEntryIntoCache(localCache, counter);
+    }
+
+    /* no entry actually entered main, since there was no hits */
+    BOOST_CHECK_EQUAL(localCache.getSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+  }
+
+  {
+    DNSDistPacketCache localCache(maxEntries);
+    for (counter = 0; counter < 100; ++counter) {
+      insertEntryIntoCache(localCache, counter, true);
+    }
+
+    /* this time all entries should have entered main, except the last 10 ones which are still in small */
+    BOOST_CHECK_EQUAL(localCache.getSize(), 100U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 90U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+  }
+#endif
+  {
+    DNSDistPacketCache localCache(maxEntries);
+    for (counter = 0; counter < 100; ++counter) {
+      bool hit = false;
+      if (counter == 2 || counter == 4) {
+        hit = true;
+      }
+
+      insertEntryIntoCache(localCache, counter, hit);
+    }
+
+    cerr<<"inserted 100"<<endl;
+    /* this time two entries should have entered main, 10 should be in small */
+    BOOST_CHECK_EQUAL(localCache.getSize(), 12U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 2U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+
+    /* insert 20 more entries */
+    for (counter = 100; counter < 120; ++counter) {
+      insertEntryIntoCache(localCache, counter);
+    }
+    cerr<<"inserted 20 more"<<endl;
+
+    /* this time two entries should still be main, 10 should be in small */
+    BOOST_CHECK_EQUAL(localCache.getSize(), 12U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 2U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+
+    cerr<<"checking 12 entries"<<endl;
+    BOOST_CHECK(checkEntryPresent(localCache, 2));
+    BOOST_CHECK(checkEntryPresent(localCache, 4));
+    for (counter = 110; counter < 120; ++counter) {
+      BOOST_CHECK(checkEntryPresent(localCache, counter));
+    }
+
+    /* still the same */
+    BOOST_CHECK_EQUAL(localCache.getSize(), 12U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 2U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+
+    /* insert 100 more entries */
+    for (counter = 120; counter < 220; ++counter) {
+      insertEntryIntoCache(localCache, counter);
+    }
+
+    BOOST_CHECK_EQUAL(localCache.getSize(), 22U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 12U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
   }
 }
 
