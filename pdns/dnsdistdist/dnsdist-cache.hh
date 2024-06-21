@@ -76,6 +76,9 @@ public:
   uint64_t getTTLTooShorts() const { return d_ttlTooShorts.load(); }
   uint64_t getCleanupCount() const { return d_cleanupCount.load(); }
   uint64_t getEntriesCount();
+  uint64_t getSmallFIFOSize();
+  uint64_t getMainFIFOSize();
+  uint64_t getGhostFIFOSize();
   uint64_t dump(int fileDesc, bool rawResponse = false);
 
   /* get the list of domains (qnames) that contains the given address in an A or AAAA record */
@@ -119,11 +122,12 @@ private:
       return *this;
     }
 
-    std::atomic<Type> inner{0};
+    mutable std::atomic<Type> inner{0};
   };
 
   struct CacheValue
   {
+    bool isGhost() const;
     time_t getTTD() const { return validity; }
     boost::optional<Netmask> subnet;
     PacketBuffer value;
@@ -133,7 +137,7 @@ private:
     uint16_t qtype{0};
     uint16_t qclass{0};
     uint16_t queryFlags{0};
-    mutable MovableAtomic<uint8_t> freq;
+    MovableAtomic<int8_t> freq;
     bool receivedOverUDP{false};
     bool dnssecOK{false};
   };
@@ -156,7 +160,6 @@ private:
     struct ShardData
     {
       std::unordered_map<KeyType, CacheValue> d_map;
-      std::unordered_set<KeyType> d_ghostSet;
       boost::circular_buffer<KeyType> d_ghostFIFO;
       boost::circular_buffer<KeyType> d_mainFIFO;
       boost::circular_buffer<KeyType> d_smallFIFO;
