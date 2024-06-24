@@ -509,7 +509,7 @@ size_t DNSDistPacketCache::expunge(size_t upTo)
 
     size_t toRemove = shard.d_entriesCount - maxPerShard;
     size_t removedFromThisShard = 0;
-    for (auto currentIt = map.begin(); removedFromThisShard < toRemove && currentIt != map.end(); ) {
+    for (auto currentIt = map.begin(); removedFromThisShard < toRemove && currentIt != map.end();) {
       if (!currentIt->second.isGhost()) {
         ++removedFromThisShard;
       }
