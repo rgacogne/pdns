@@ -105,17 +105,15 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
       continue;
     }
     if (entryIt->second.freq.inner.load() > 0) {
-      cerr<<"promoting "<<entryIt->first<<" to small because freq is "<<entryIt->second.freq.inner.load()<<endl;
       // at least one hit, move it to main
       if (data.d_mainFIFO.full()) {
         evictMain(data);
       }
+      entryIt->second.freq.inner.store(0);
       data.d_mainFIFO.push_front(key);
     }
     else {
       // never used, good bye, but we will keep it in ghost for a while
-      //data.d_map.erase(entryIt);
-      cerr<<"moving "<<entryIt->first<<" to ghost"<<endl;
       entryIt->second.value.clear();
       entryIt->second.freq.inner.store(-1);
       --d_entriesCount;
@@ -124,6 +122,7 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
         data.d_ghostFIFO.pop_back();
         data.d_map.erase(ghostKey);
       }
+      data.d_ghostFIFO.push_back(key);
       evicted = true;
     }
   }
@@ -173,15 +172,15 @@ void DNSDistPacketCache::CacheShard::setSize(size_t maxSize)
 {
   auto data = d_data.write_lock();
   const auto mainFIFOSize = std::round(maxSize * (1.0 - s_smallSizeRatio));
+  const auto ghostFIFOSize = std::round(maxSize * (1.0 - s_smallSizeRatio) / 2);
   const auto smallFIFOSize = std::round(maxSize * s_smallSizeRatio);
   if (smallFIFOSize < 1) {
     throw std::runtime_error("Trying to create a too small packet cache, please consider increasing the size or reducing the number of shards");
   }
   data->d_map.reserve(maxSize * (1.0 + s_ghostSizeRatio));
   data->d_mainFIFO.set_capacity(mainFIFOSize);
-  //data->d_ghostSet.reserve(std::round(mainFIFOSize / 2));
-  data->d_ghostFIFO.set_capacity(std::round(mainFIFOSize / 2));
   data->d_smallFIFO.set_capacity(smallFIFOSize);
+  data->d_ghostFIFO.set_capacity(ghostFIFOSize);
 }
 
 void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& data, uint32_t key, CacheValue&& newValue)
@@ -190,13 +189,11 @@ void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& 
     shard.evict(data);
   }
 
-  auto [mapIt, result] = data.d_map.emplace(key, std::move(newValue));
+  auto [mapIt, result] = data.d_map.try_emplace(key, std::move(newValue));
 
   if (result) {
     ++shard.d_entriesCount;
-    cerr<<"inserted key "<<key<<endl;
     if (data.d_smallFIFO.full()) {
-      cerr<<"small is full, evicting"<<endl;
       shard.evictSmall(data);
     }
     data.d_smallFIFO.push_front(key);
@@ -205,13 +202,11 @@ void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& 
   }
 
   CacheValue& value = mapIt->second;
-  cerr<<"existing entry for "<<key<<endl;
   /* was the existing entry a ghost ? */
   if (value.isGhost()) {
-    cerr<<"existing entry for "<<key<<" is a ghost"<<endl;
+    ++shard.d_entriesCount;
     value = std::move(newValue);
     if (data.d_mainFIFO.full()) {
-      cerr<<"main is full, evicting"<<endl;
       shard.evictMain(data);
     }
     data.d_mainFIFO.push_front(key);
@@ -330,7 +325,6 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
 
   const auto& dnsQName = dnsQuestion.ids.qname.getStorage();
   uint32_t key = getKey(dnsQName, dnsQuestion.ids.qname.wirelength(), dnsQuestion.getData(), receivedOverUDP);
-  cerr<<"lookup key is "<<key<<endl;
   if (keyOut != nullptr) {
     *keyOut = key;
   }
@@ -358,7 +352,6 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
       if (recordMiss) {
         ++d_misses;
       }
-      cerr<<"miss, is ghost "<<(mapIt != map.end())<<endl;
       return false;
     }
 

@@ -165,6 +165,9 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
         stats["insertCollisions"] = cache->getInsertCollisions();
         stats["ttlTooShorts"] = cache->getTTLTooShorts();
         stats["cleanupCount"] = cache->getCleanupCount();
+        stats["ghostEntries"] = cache->getGhostFIFOSize();
+        stats["mainEntries"] = cache->getMainFIFOSize();
+        stats["smallEntries"] = cache->getSmallFIFOSize();
       }
       return stats;
     });

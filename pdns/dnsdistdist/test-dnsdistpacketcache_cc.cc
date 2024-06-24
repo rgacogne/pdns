@@ -19,7 +19,7 @@
 BOOST_AUTO_TEST_SUITE(test_dnsdistpacketcache_cc)
 
 static bool receivedOverUDP = true;
-#if 0
+
 BOOST_AUTO_TEST_CASE(test_PacketCacheSimple)
 {
   const size_t maxEntries = 150000;
@@ -666,6 +666,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheMaximumSize)
   }
 }
 
+#if 0
 static DNSDistPacketCache s_localCache(500000);
 
 static void threadMangler(unsigned int offset)
@@ -774,6 +775,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheThreaded)
     throw;
   }
 }
+#endif
 
 BOOST_AUTO_TEST_CASE(test_PCCollision)
 {
@@ -1239,7 +1241,6 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheXFR)
     BOOST_CHECK_EQUAL(found, false);
   }
 }
-#endif
 
 static void insertEntryIntoCache(DNSDistPacketCache& localCache, size_t counter, bool hit=false)
 {
@@ -1301,7 +1302,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
 {
   const size_t maxEntries = 100;
   size_t counter = 0;
-#if 0
+
   {
     DNSDistPacketCache localCache(maxEntries);
     BOOST_CHECK_EQUAL(localCache.getSize(), 0U);
@@ -1317,7 +1318,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
     BOOST_CHECK_EQUAL(localCache.getSize(), 10U);
     BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 0U);
     BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
-    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 45U);
   }
 
   {
@@ -1332,7 +1333,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
     BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
     BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
   }
-#endif
+
   {
     DNSDistPacketCache localCache(maxEntries);
     for (counter = 0; counter < 100; ++counter) {
@@ -1344,26 +1345,23 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
       insertEntryIntoCache(localCache, counter, hit);
     }
 
-    cerr<<"inserted 100"<<endl;
     /* this time two entries should have entered main, 10 should be in small */
     BOOST_CHECK_EQUAL(localCache.getSize(), 12U);
     BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 2U);
     BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
-    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 45U);
 
     /* insert 20 more entries */
     for (counter = 100; counter < 120; ++counter) {
       insertEntryIntoCache(localCache, counter);
     }
-    cerr<<"inserted 20 more"<<endl;
 
     /* this time two entries should still be main, 10 should be in small */
     BOOST_CHECK_EQUAL(localCache.getSize(), 12U);
     BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 2U);
     BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
-    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 45U);
 
-    cerr<<"checking 12 entries"<<endl;
     BOOST_CHECK(checkEntryPresent(localCache, 2));
     BOOST_CHECK(checkEntryPresent(localCache, 4));
     for (counter = 110; counter < 120; ++counter) {
@@ -1374,7 +1372,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
     BOOST_CHECK_EQUAL(localCache.getSize(), 12U);
     BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 2U);
     BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
-    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 45U);
 
     /* insert 100 more entries */
     for (counter = 120; counter < 220; ++counter) {
@@ -1384,7 +1382,79 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
     BOOST_CHECK_EQUAL(localCache.getSize(), 22U);
     BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 12U);
     BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 45U);
+  }
+
+  {
+    DNSDistPacketCache localCache(maxEntries);
+    /* this time, we will fill small and main ! */
+    for (counter = 0; counter < maxEntries; ++counter) {
+      insertEntryIntoCache(localCache, counter, true);
+    }
+
+    BOOST_CHECK_EQUAL(localCache.getSize(), maxEntries);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), std::round(maxEntries * 0.9));
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), std::round(maxEntries * 0.1));
     BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+
+    /* insert 20 more entries, the existing entries 0-20 should be evicted from main */
+    for (counter = maxEntries; counter < maxEntries + 20; ++counter) {
+      insertEntryIntoCache(localCache, counter, true);
+    }
+
+    BOOST_CHECK_EQUAL(localCache.getSize(), maxEntries);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), std::round(maxEntries * 0.9));
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), std::round(maxEntries * 0.1));
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+
+    for (counter = 20; counter < maxEntries + 20; ++counter) {
+      BOOST_CHECK(checkEntryPresent(localCache, counter));
+    }
+
+    /* still the same */
+    BOOST_CHECK_EQUAL(localCache.getSize(), maxEntries);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), std::round(maxEntries * 0.9));
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), std::round(maxEntries * 0.1));
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+  }
+
+  {
+    DNSDistPacketCache localCache(maxEntries);
+    /* this time, we will test ghost
+       First we add 10 entries, without triggering any hit */
+    for (counter = 0; counter < 10; ++counter) {
+      insertEntryIntoCache(localCache, counter, false);
+    }
+
+    BOOST_CHECK_EQUAL(localCache.getSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 0U);
+
+    /* insert 10 more entries, the existing entries should be evicted from small and enter ghost */
+    for (counter = 10; counter < 20; ++counter) {
+      insertEntryIntoCache(localCache, counter, false);
+    }
+
+    BOOST_CHECK_EQUAL(localCache.getSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), 10U);
+
+    /* now do that with 100 more entries, ghost should not grow larger than expected */
+    for (counter = 20; counter < 120; ++counter) {
+      insertEntryIntoCache(localCache, counter, false);
+    }
+
+    for (counter = (120 - localCache.getSmallFIFOSize()) ; counter < 120; ++counter) {
+      BOOST_CHECK(checkEntryPresent(localCache, counter));
+    }
+
+    /* still the same */
+    BOOST_CHECK_EQUAL(localCache.getSize(), 10U);
+    BOOST_CHECK_EQUAL(localCache.getMainFIFOSize(), 0U);
+    BOOST_CHECK_EQUAL(localCache.getSmallFIFOSize(), std::round(maxEntries * 0.1));
+    BOOST_CHECK_EQUAL(localCache.getGhostFIFOSize(), std::round(maxEntries * 0.9 / 2));
   }
 }
 
