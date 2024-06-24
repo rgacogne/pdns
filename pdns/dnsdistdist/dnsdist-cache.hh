@@ -99,10 +99,12 @@ private:
   struct MovableAtomic
   {
     MovableAtomic() = default;
-    MovableAtomic(const MovableAtomic& rhs): inner(rhs.inner.load())
+    MovableAtomic(const MovableAtomic& rhs) :
+      inner(rhs.inner.load())
     {
     }
-    MovableAtomic(MovableAtomic&& rhs): inner(rhs.inner.load())
+    MovableAtomic(MovableAtomic&& rhs) :
+      inner(rhs.inner.load())
     {
     }
     MovableAtomic& operator=(MovableAtomic&& rhs)
