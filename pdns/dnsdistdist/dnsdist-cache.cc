@@ -96,6 +96,7 @@ bool DNSDistPacketCache::cachedValueMatches(const CacheValue& cachedValue, uint1
 void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
 {
   bool evicted = false;
+  auto now = time(nullptr);
   while (!evicted && data.d_smallFIFO.size() > 0) {
     auto key = data.d_smallFIFO.back();
     data.d_smallFIFO.pop_back();
@@ -105,7 +106,12 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
       // move on
       continue;
     }
-    if (entryIt->second.freq.inner.load() > 0) {
+    if (entryIt->second.validity <= now) {
+      data.d_map.erase(entryIt);
+      --d_entriesCount;
+      evicted = true;
+    }
+    else if (entryIt->second.freq.inner.load() > 0) {
       // at least one hit, move it to main
       if (data.d_mainFIFO.full()) {
         evictMain(data);
@@ -117,13 +123,13 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
       // never used, good bye, but we will keep it in ghost for a while
       entryIt->second.value.clear();
       entryIt->second.freq.inner.store(-1);
-      --d_entriesCount;
       if (data.d_ghostFIFO.full()) {
         auto ghostKey = data.d_ghostFIFO.back();
         data.d_ghostFIFO.pop_back();
         data.d_map.erase(ghostKey);
       }
       data.d_ghostFIFO.push_back(key);
+      --d_entriesCount;
       evicted = true;
     }
   }
@@ -132,6 +138,7 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
 void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
 {
   bool evicted = false;
+  auto now = time(nullptr);
   while (!evicted && data.d_mainFIFO.size() > 0) {
     auto key = data.d_mainFIFO.back();
     data.d_mainFIFO.pop_back();
@@ -142,7 +149,7 @@ void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
       continue;
     }
     auto freq = entryIt->second.freq.inner.load();
-    if (freq > 0) {
+    if (freq > 0 && entryIt->second.validity > now) {
       // the entry has been useful, let's move it
       // to the front of the FIFO after decreasing
       // the frequency counter so it might be removed
@@ -490,22 +497,15 @@ size_t DNSDistPacketCache::expunge(size_t upTo)
     auto& map = data->d_map;
 
     size_t toRemove = shard.d_entriesCount - maxPerShard;
-
-    auto beginIt = map.begin();
-    auto endIt = beginIt;
-
-#warning this is broken because of ghost entries
-    if (map.size() >= toRemove) {
-      std::advance(endIt, toRemove);
-      map.erase(beginIt, endIt);
-      shard.d_entriesCount -= toRemove;
-      removed += toRemove;
+    size_t removedFromThisShard = 0;
+    for (auto currentIt = map.begin(); removedFromThisShard < toRemove && currentIt != map.end(); ) {
+      if (!currentIt->second.isGhost()) {
+        ++removedFromThisShard;
+      }
+      currentIt = map.erase(currentIt);
     }
-    else {
-      removed += map.size();
-      map.clear();
-      shard.d_entriesCount = 0;
-    }
+    shard.d_entriesCount -= removedFromThisShard;
+    removed += removedFromThisShard;
   }
 
   return removed;
