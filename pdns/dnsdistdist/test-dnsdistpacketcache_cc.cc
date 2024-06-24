@@ -1242,7 +1242,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheXFR)
   }
 }
 
-static void insertEntryIntoCache(DNSDistPacketCache& localCache, size_t counter, bool hit=false)
+static void insertEntryIntoCache(DNSDistPacketCache& localCache, size_t counter, bool hit = false)
 {
   bool dnssecOK = false;
   InternalQueryState ids;
@@ -1446,7 +1446,7 @@ BOOST_AUTO_TEST_CASE(test_PacketCacheS3Fifo)
       insertEntryIntoCache(localCache, counter, false);
     }
 
-    for (counter = (120 - localCache.getSmallFIFOSize()) ; counter < 120; ++counter) {
+    for (counter = (120 - localCache.getSmallFIFOSize()); counter < 120; ++counter) {
       BOOST_CHECK(checkEntryPresent(localCache, counter));
     }
 
