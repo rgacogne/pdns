@@ -439,7 +439,8 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
   return true;
 }
 
-size_t DNSDistPacketCache::removeViaFIFO(CacheShard& shard, CacheShard::ShardData& data, FIFOToExpungeFrom from, size_t& toRemove, const time_t now, bool onlyExpired) {
+size_t DNSDistPacketCache::removeViaFIFO(CacheShard& shard, CacheShard::ShardData& data, FIFOToExpungeFrom from, size_t& toRemove, const time_t now, bool onlyExpired)
+{
   auto& map = data.d_map;
   auto& fifo = from == FIFOToExpungeFrom::SmallFIFO ? data.d_smallFIFO : data.d_mainFIFO;
   size_t removed = 0;
