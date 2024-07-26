@@ -1045,38 +1045,39 @@ class TestCachingWithExistingEDNS(DNSDistTest):
 class TestCachingCacheFull(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(1, {maxTTL=86400, minTTL=1, numberOfShards=1})
+    pc = newPacketCache(10, {maxTTL=86400, minTTL=1, numberOfShards=1})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
     def testCacheFull(self):
         """
-        Cache: No new entries are cached when the cache is full
+        Cache: New entries are still cached when the cache is full
 
         """
         misses = 0
-        name = 'cachenotfullyet.cache.tests.powerdns.com.'
-        query = dns.message.make_query(name, 'A', 'IN')
-        response = dns.message.make_response(query)
-        rrset = dns.rrset.from_text(name,
-                                    3600,
-                                    dns.rdataclass.IN,
-                                    dns.rdatatype.A,
-                                    '127.0.0.1')
-        response.answer.append(rrset)
+        for idx in range(10):
+            name = 'cachenotfullyet-' + str(idx) + '.cache.tests.powerdns.com.'
+            query = dns.message.make_query(name, 'A', 'IN')
+            response = dns.message.make_response(query)
+            rrset = dns.rrset.from_text(name,
+                                        3600,
+                                        dns.rdataclass.IN,
+                                        dns.rdatatype.A,
+                                        '127.0.0.1')
+            response.answer.append(rrset)
 
-        # Miss
-        (receivedQuery, receivedResponse) = self.sendUDPQuery(query, response)
-        self.assertTrue(receivedQuery)
-        self.assertTrue(receivedResponse)
-        receivedQuery.id = query.id
-        self.assertEqual(query, receivedQuery)
-        self.assertEqual(response, receivedResponse)
-        misses += 1
+            # Miss
+            (receivedQuery, receivedResponse) = self.sendUDPQuery(query, response)
+            self.assertTrue(receivedQuery)
+            self.assertTrue(receivedResponse)
+            receivedQuery.id = query.id
+            self.assertEqual(query, receivedQuery)
+            self.assertEqual(response, receivedResponse)
+            misses += 1
 
-        # next queries should hit the cache
-        (_, receivedResponse) = self.sendUDPQuery(query, response=None, useQueue=False)
-        self.assertEqual(receivedResponse, response)
+            # next queries should hit the cache
+            (_, receivedResponse) = self.sendUDPQuery(query, response=None, useQueue=False)
+            self.assertEqual(receivedResponse, response)
 
         # ok, now the cache is full, send another query
         name = 'cachefull.cache.tests.powerdns.com.'
@@ -1098,14 +1099,9 @@ class TestCachingCacheFull(DNSDistTest):
         self.assertEqual(response, receivedResponse)
         misses += 1
 
-        # next queries should NOT hit the cache
-        (receivedQuery, receivedResponse) = self.sendUDPQuery(query, response)
-        self.assertTrue(receivedQuery)
-        self.assertTrue(receivedResponse)
-        receivedQuery.id = query.id
-        self.assertEqual(query, receivedQuery)
-        self.assertEqual(response, receivedResponse)
-        misses += 1
+        # next queries should hit the cache
+        (receivedQuery, receivedResponse) = self.sendUDPQuery(query, response=None, useQueue=False)
+        self.assertEqual(receivedResponse, response)
 
         total = 0
         for key in self._responsesCounter:
@@ -1435,6 +1431,7 @@ class TestCacheManagement(DNSDistTest):
     controlSocket("127.0.0.1:%d")
     newServer{address="127.0.0.1:%d"}
     """
+
     def testCacheExpunge(self):
         """
         Cache: Expunge
@@ -2323,7 +2320,7 @@ class TestCachingECSWithPoolECS(DNSDistTest):
     _consoleKeyB64 = base64.b64encode(_consoleKey).decode('ascii')
     _config_params = ['_consoleKeyB64', '_consolePort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, numberOfShards=1})
     getPool(""):setCache(pc)
     getPool(""):setECS(true)
     setKey("%s")
