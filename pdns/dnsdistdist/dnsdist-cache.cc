@@ -439,6 +439,47 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
   return true;
 }
 
+size_t DNSDistPacketCache::removeViaFIFO(CacheShard& shard, CacheShard::ShardData& data, FIFOToExpungeFrom from, size_t& toRemove, const time_t now, bool onlyExpired) {
+  auto& map = data.d_map;
+  auto& fifo = from == FIFOToExpungeFrom::SmallFIFO ? data.d_smallFIFO : data.d_mainFIFO;
+  size_t removed = 0;
+
+  for (auto fifoIt = fifo.rbegin(); toRemove > 0 && fifoIt != fifo.rend();) {
+    auto mapIt = map.find(*fifoIt);
+    if (mapIt == map.end()) {
+      /* unfortunately we can only remove from the FIFO
+         if we are looking at the last element */
+      if (fifoIt == fifo.rbegin()) {
+        fifo.pop_back();
+        fifoIt = fifo.rbegin();
+      }
+      else {
+        ++fifoIt;
+      }
+      continue;
+    }
+
+    const CacheValue& value = mapIt->second;
+    if (!value.isGhost() && (!onlyExpired || value.validity <= now)) {
+      map.erase(mapIt);
+      --toRemove;
+      --shard.d_entriesCount;
+      ++removed;
+      /* unfortunately we can only remove from the FIFO
+         if we are looking at the last element */
+      if (fifoIt == fifo.rbegin()) {
+        fifo.pop_back();
+        fifoIt = fifo.rbegin();
+        continue;
+      }
+    }
+
+    ++fifoIt;
+  }
+
+  return removed;
+}
+
 /* Remove expired entries, until the cache has at most
    upTo entries in it.
    If the cache has more than one shard, we will try hard
@@ -451,28 +492,16 @@ size_t DNSDistPacketCache::purgeExpired(size_t upTo, const time_t now)
   size_t removed = 0;
 
   ++d_cleanupCount;
+
   for (auto& shard : d_shards) {
     if (shard.d_entriesCount <= maxPerShard) {
       continue;
     }
     auto data = shard.d_data.write_lock();
-    auto& map = data->d_map;
-
     size_t toRemove = shard.d_entriesCount - maxPerShard;
 
-    for (auto it = map.begin(); toRemove > 0 && it != map.end();) {
-      const CacheValue& value = it->second;
-
-      if (!value.isGhost() && value.validity <= now) {
-        it = map.erase(it);
-        --toRemove;
-        --shard.d_entriesCount;
-        ++removed;
-      }
-      else {
-        ++it;
-      }
-    }
+    removed += removeViaFIFO(shard, *data, FIFOToExpungeFrom::MainFIFO, toRemove, now, true);
+    removed += removeViaFIFO(shard, *data, FIFOToExpungeFrom::SmallFIFO, toRemove, now, true);
   }
 
   return removed;
@@ -494,18 +523,10 @@ size_t DNSDistPacketCache::expunge(size_t upTo)
       continue;
     }
     auto data = shard.d_data.write_lock();
-    auto& map = data->d_map;
 
     size_t toRemove = shard.d_entriesCount - maxPerShard;
-    size_t removedFromThisShard = 0;
-    for (auto currentIt = map.begin(); removedFromThisShard < toRemove && currentIt != map.end();) {
-      if (!currentIt->second.isGhost()) {
-        ++removedFromThisShard;
-      }
-      currentIt = map.erase(currentIt);
-    }
-    shard.d_entriesCount -= removedFromThisShard;
-    removed += removedFromThisShard;
+    removed += removeViaFIFO(shard, *data, FIFOToExpungeFrom::SmallFIFO, toRemove, 0, false);
+    removed += removeViaFIFO(shard, *data, FIFOToExpungeFrom::MainFIFO, toRemove, 0, false);
   }
 
   return removed;
@@ -518,17 +539,29 @@ size_t DNSDistPacketCache::expungeByName(const DNSName& name, uint16_t qtype, bo
   for (auto& shard : d_shards) {
     auto data = shard.d_data.write_lock();
     auto& map = data->d_map;
+    std::set<KeyType> removedFromShard;
 
     for (auto it = map.begin(); it != map.end();) {
       const CacheValue& value = it->second;
 
       if (!value.isGhost() && (value.qname == name || (suffixMatch && value.qname.isPartOf(name))) && (qtype == QType::ANY || qtype == value.qtype)) {
+        removedFromShard.insert(it->first);
         it = map.erase(it);
         --shard.d_entriesCount;
         ++removed;
       }
       else {
         ++it;
+      }
+    }
+    auto& smallFIFO = data->d_smallFIFO;
+    for (auto smallIt = smallFIFO.begin(); !removedFromShard.empty() && smallIt != smallFIFO.end();) {
+      if (removedFromShard.count(*smallIt) == 1) {
+        removedFromShard.erase(*smallIt);
+        smallIt = smallFIFO.erase(smallIt);
+      }
+      else {
+        ++smallIt;
       }
     }
   }

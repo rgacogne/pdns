@@ -95,6 +95,8 @@ public:
   static bool getClientSubnet(const PacketBuffer& packet, size_t qnameWireLength, boost::optional<Netmask>& subnet);
 
 private:
+  using FIFOType = boost::circular_buffer<KeyType>;
+
   template <class Type>
   struct MovableAtomic
   {
@@ -123,6 +125,11 @@ private:
 
   struct CacheValue
   {
+    CacheValue() = default;
+    CacheValue(const CacheValue&) = delete;
+    CacheValue(CacheValue&&) = default;
+    CacheValue& operator=(const CacheValue&) = delete;
+    CacheValue& operator=(CacheValue&&) = default;
     bool isGhost() const;
     time_t getTTD() const { return validity; }
     boost::optional<Netmask> subnet;
@@ -137,6 +144,8 @@ private:
     bool receivedOverUDP{false};
     bool dnssecOK{false};
   };
+
+  using MapType = std::unordered_map<KeyType, CacheValue>;
 
   class CacheShard
   {
@@ -155,10 +164,10 @@ private:
 
     struct ShardData
     {
-      std::unordered_map<KeyType, CacheValue> d_map;
-      boost::circular_buffer<KeyType> d_ghostFIFO;
-      boost::circular_buffer<KeyType> d_mainFIFO;
-      boost::circular_buffer<KeyType> d_smallFIFO;
+      MapType d_map;
+      FIFOType d_ghostFIFO;
+      FIFOType d_mainFIFO;
+      FIFOType d_smallFIFO;
     };
 
     void evict(ShardData& data);
@@ -169,10 +178,16 @@ private:
     std::atomic<uint64_t> d_entriesCount{0};
   };
 
+  enum class FIFOToExpungeFrom : uint8_t {
+    SmallFIFO,
+    MainFIFO
+  };
+
   bool cachedValueMatches(const CacheValue& cachedValue, uint16_t queryFlags, const DNSName& qname, uint16_t qtype, uint16_t qclass, bool receivedOverUDP, bool dnssecOK, const boost::optional<Netmask>& subnet) const;
   uint32_t getShardIndex(KeyType key) const;
   void insertLocked(CacheShard& shard, CacheShard::ShardData& data, KeyType key, CacheValue&& newValue);
   void handleHit(const CacheValue& value);
+  size_t removeViaFIFO(CacheShard& shard, CacheShard::ShardData& data, FIFOToExpungeFrom from, size_t& toRemove, const time_t now, bool onlyExpired);
 
   std::vector<CacheShard> d_shards;
   std::unordered_set<uint16_t> d_optionsToSkip{EDNSOptionCode::COOKIE};
