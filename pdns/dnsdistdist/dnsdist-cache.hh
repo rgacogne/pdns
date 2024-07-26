@@ -184,7 +184,8 @@ private:
     std::atomic<uint64_t> d_entriesCount{0};
   };
 
-  enum class FIFOToExpungeFrom : uint8_t {
+  enum class FIFOToExpungeFrom : uint8_t
+  {
     SmallFIFO,
     MainFIFO
   };
