@@ -2250,7 +2250,6 @@ static void maintThread()
 
     counter++;
 
-#if 0
     if (counter >= dnsdist::configuration::getCurrentRuntimeConfiguration().d_cacheCleaningDelay) {
       /* keep track, for each cache, of whether we should keep
        expired entries */
@@ -2292,7 +2291,6 @@ static void maintThread()
       }
       counter = 0;
     }
-#endif
   }
 }
 
