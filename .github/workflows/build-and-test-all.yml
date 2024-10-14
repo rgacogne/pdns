@@ -256,6 +256,8 @@ jobs:
           key: dnsdist-${{ matrix.features }}-${{ matrix.sanitizers }}-${{ matrix.builder}}-ccache-${{ steps.get-stamp.outputs.stamp }}
           restore-keys: dnsdist-${{ matrix.features }}-${{ matrix.sanitizers }}-${{ matrix.builder}}-ccache-
       - run: inv install-lld-linker-if-needed
+      - run: inv ci-install-meson
+        if: ${{ matrix.builder == 'meson' }}
         working-directory: ./pdns/dnsdistdist/
       - run: inv ci-install-rust ${{ env.REPO_HOME }}
         working-directory: ./pdns/dnsdistdist/
