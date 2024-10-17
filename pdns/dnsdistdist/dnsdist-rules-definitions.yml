@@ -1,12 +1,81 @@
 ---
-- TestMaxQPSIPRule:
-  - name: qps
-    type: unsigned int
-  - name: burst
-    type: unsigned int
-    default: qps
-    default-is-field: true
-  - name: ipv4-truncation
-    type: unsigned int
-    default: 32
-    alias: ipv4truncation
+Carbon:
+  section: "metrics"
+  parameters:
+    - name: "address"
+      type: "String"
+      description: "Indicates the IP address where the statistics should be sent"
+    - name: "name"
+      type: "String"
+      default: ""
+      description: "An optional string specifying the hostname that should be used. If left empty, the system hostname is used"
+    - name: "interval"
+      type: u32
+      default: 30
+      description: "An optional unsigned integer indicating the interval in seconds between exports"
+    - name: "namespace"
+      type: "String"
+      default: ""
+      description: "An optional string specifying the namespace name that should be used"
+    - name: "instance"
+      type: "String"
+      default: ""
+      description: "An optional string specifying the instance name that should be used"
+
+Protobuf-Logger:
+  section: "metrics"
+  parameters:
+    - name: "address"
+      type: "String"
+      description: "An IP:PORT combination where the logger is listening"
+    - name: "timeout"
+      type: u16
+      default: 2
+      description: "TCP connect timeout in seconds"
+    - name: "max-queued-entries"
+      type: u64
+      default: 100
+      description: "Queue this many messages before dropping new ones (e.g. when the remote listener closes the connection)"
+    - name: "reconnect-wait-time"
+      type: u8
+      default: 1
+      description: "Time in seconds between reconnection attempts"
+
+MaxQPSIPRule:
+  section: "selectors"
+  version-changed:
+    version: "1.8.0"
+    description: "shards parameter added"
+  description: "Matches traffic for a subnet specified by v4Mask or v6Mask exceeding qps queries per second up to burst allowed. This rule keeps track of QPS by netmask or source IP. This state is cleaned up regularly if cleanupDelay is greater than zero, removing existing netmasks or IP addresses that have not been seen in the last expiration seconds."
+  parameters:
+    - name: qps
+      type: u32
+      description: "The number of queries per second allowed, above this number traffic is matched"
+    - name: ipv4-mask
+      type: u8
+      default: 32
+      description: The IPv4 netmask to match on"
+    - name: ipv6-mask
+      type: u8
+      default: 64
+      description: The IPv6 netmask to match on"
+    - name: burst
+      type: u32
+      description: "The number of burstable queries per second allowed. If unset or set to 0, it will be equal to the value of ``qps``"
+      default: 0
+    - name: expiration
+      type: u32
+      description: "How long to keep netmask or IP addresses after they have last been seen, in seconds"
+      default: 300
+    - name: cleanup-delay
+      type: u32
+      description: "The number of seconds between two cleanups"
+      default: 60
+    - name: scan-fraction
+      type: u32
+      description: "The maximum fraction of the store to scan for expired entries, for example 5 would scan at most 20% of it"
+      default: 10
+    - name: shards
+      type: u32
+      description: "How many shards to use, to decrease lock contention between threads. Default is 10 and is a safe default unless a very high number of threads are used to process incoming queries"
+      default: 10
