@@ -1,6 +1,7 @@
 ---
 Carbon:
   section: "metrics"
+  type: "list"
   parameters:
     - name: "address"
       type: "String"
@@ -24,6 +25,7 @@ Carbon:
 
 Protobuf-Logger:
   section: "metrics"
+  type: "list"
   parameters:
     - name: "address"
       type: "String"
@@ -109,11 +111,9 @@ edns-client-subnet:
 
 acl:
   section: "global"
-  parameters:
-    - name: "allowed-addresses"
-      type: "Vec<String>"
-      default: "127.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 192.168.0.0/16, 172.16.0.0/12, ::1/128, fc00::/7, fe80::/10"
-      description: "CIDR netmasks of the clients allowed to send DNS queries"
+  type: "Vec<String>"
+  default: "127.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 192.168.0.0/16, 172.16.0.0/12, ::1/128, fc00::/7, fe80::/10"
+  description: "CIDR netmasks of the clients allowed to send DNS queries"
 
 ring-buffer:
   section: "global"
@@ -138,6 +138,131 @@ ring-buffer:
       type: "bool"
       default: true
       description: "Whether to record responses in the ring buffers"
+
+tls-configuration:
+  parameters:
+    - name: "provider"
+      type: "String"
+      default: "OpenSSL"
+    - name: "certificate"
+      type: "String"
+    - name: "key"
+      type: "String"
+      default: ""
+    - name: "password"
+      type: "String"
+      default: ""
+
+outgoing-tls-configuration:
+  parameters:
+    - name: "provider"
+      type: "String"
+      default: "OpenSSL"
+    - name: "subject-name"
+      type: "String"
+      default: ""
+    - name: "validate-certificate"
+      type: "bool"
+      default: true
+
+outgoing-doh-configuration:
+  parameters:
+    - name: "path"
+      type: "String"
+      default: "/dns-query"
+    - name: "add-x-forwarded-for-headers"
+      type: "bool"
+      default: false
+
+binds:
+  section: "global"
+  type: list
+  parameters:
+    - name: "listen-address"
+      type: "String"
+      description: "Address and port to listen to"
+    - name: "reuseport"
+      type: "bool"
+      default: false
+    - name: "protocol"
+      type: "String"
+      default: "Do53"
+    - name: "threads"
+      type: "u32"
+      default: "1"
+    - name: "tls"
+      type: "TLSConfiguration"
+    - name: "doh"
+      type: "DoHConfiguration"
+
+backends:
+  section: "global"
+  type: "list"
+  parameters:
+    - name: "address"
+      type: "String"
+    - name: "protocol"
+      type: "String"
+    - name: "tls"
+      type: "OutgoingTLSConfiguration"
+    - name: "doh"
+      type: "OutgoingDoHConfiguration"
+    - name: "max-in-flight"
+      type: "u16"
+      default: "1"
+    - name: "use-client-subnet"
+      type: "bool"
+      default: false
+    - name: "use-proxy-protocol"
+      type: "bool"
+      default: false
+
+tcp:
+  section: "tuning"
+  parameters:
+    - name: "worker-threads"
+      type: "u32"
+      default: 10
+    - name: "receive-timeout"
+      type: "u32"
+      default: 2
+    - name: "send-timeout"
+      type: "u32"
+      default: 2
+
+doh:
+  section: "tuning"
+  parameters:
+    - name: "outgoing-worker-threads"
+      type: "u32"
+      default: 10
+
+packet-caches:
+  section: "global"
+  type: "list"
+  parameters:
+    - name: "name"
+      type: "String"
+    - name: "size"
+      type: "u64"
+    - name: "min-ttl"
+      type: "u32"
+      default: 0
+    - name: "shards"
+      type: "u32"
+
+
+pools:
+  section: "global"
+  type: "list"
+  parameters:
+    - name: "name"
+      type: "String"
+    - name: "packet-cache"
+      type: "String"
+    - name: "policy"
+      type: "String"
+
 
 
 MaxQPSIPRule:

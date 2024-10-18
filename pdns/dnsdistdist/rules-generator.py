@@ -41,9 +41,10 @@ def get_rust_default_definition(rust_type, parameter):
     return f'''        #[serde(default = "crate::{type_upper}::<{default_value}>::value", skip_serializing_if = "crate::{type_upper}::<{default_value}>::is_equal")]\n'''
 
 def get_rust_struct_from_definition(name, keys):
+    obj_name = get_rust_object_name(name)
     str = f'''    #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
     #[serde(deny_unknown_fields)]
-    struct {name}Configuration {{
+    struct {obj_name}Configuration {{
         #[serde(default, skip_serializing_if = "crate::is_default")]
         name: String,\n'''
     if 'parameters' in keys:
@@ -70,6 +71,15 @@ def gather_sections(definitions):
             sections[section_name] = True
     return sections
 
+def get_rust_obj_for_section(section_name, def_name, def_keys):
+    if 'type' in def_keys and def_keys['type'] == 'list':
+        print(f'Section {section_name} is a list')
+        name = get_rust_object_name(def_name)
+        return f'Vec<{name}Configuration>'
+    print(f'Section {section_name} is NOT a list')
+    name = get_rust_object_name(def_name)
+    return f'{name}Configuration'
+
 def main():
     if len(sys.argv) != 2:
         print(f'Usage: {sys.argv[0]} <path/to/definitions/file>')
@@ -82,31 +92,34 @@ def main():
     for section in sections:
 
         for definition_name, keys in definitions.items():
+            if not 'section' in keys:
+                continue
             if keys['section'] == section:
                 if section == 'global':
-                    global_objects[definition_name] = True
+                    global_objects[definition_name] = get_rust_obj_for_section(section, definition_name, keys)
                 print(get_rust_struct_from_definition(definition_name, keys))
 
 
         if section != 'global':
-            global_objects[section] = True
+            global_objects[section] = get_rust_object_name(section) + 'Configuration'
+
             print(f'''    #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
     #[serde(deny_unknown_fields)]
     struct {section.capitalize()}Configuration {{''')
             for definition_name, keys in definitions.items():
-                if keys['section'] == section:
+                if 'section' in keys and keys['section'] == section:
                     field_name = get_rust_field_name(definition_name)
                     name = get_rust_object_name(definition_name)
-                    print(f'        {field_name}: {name}Configuration,')
+                    obj_type = f'{name}Configuration' if not 'type' in keys or keys['type'] != 'list' else f'Vec<{name}Configuration>'
+                    print(f'        {field_name}: {obj_type},')
 
             print('    }\n')
 
     print('''    #[derive(Default)]
     struct GlobalConfiguration {''')
-    for obj in global_objects:
+    for obj, name in global_objects.items():
         field_name = get_rust_field_name(obj)
-        name = get_rust_object_name(obj)
-        print(f'        {field_name}: {name}Configuration,')
+        print(f'        {field_name}: {name},')
 
     print('    }')
 
