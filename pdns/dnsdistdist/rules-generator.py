@@ -14,6 +14,23 @@ def is_value_rust_default(rust_type, value):
         return value == ''
     return False
 
+def get_rust_field_name(name):
+    return name.replace('-', '_').lower()
+
+def get_rust_object_name(name):
+    object_name = ''
+    capitalize = True
+    for char in name:
+        if char == '-':
+            capitalize = True
+            continue
+        if capitalize:
+            char = char.upper()
+            capitalize = False
+        object_name += char
+
+    return object_name
+
 def get_rust_default_definition(rust_type, parameter):
     if not 'default' in parameter:
         return ''
@@ -31,7 +48,7 @@ def get_rust_struct_from_definition(name, keys):
         name: String,\n'''
     if 'parameters' in keys:
         for parameter in keys['parameters']:
-            parameter_name = parameter['name'].replace('-', '_')
+            parameter_name = get_rust_field_name(parameter['name'])
             rust_type = parameter['type']
             default_str = get_rust_default_definition(rust_type, parameter)
             str += default_str
@@ -49,7 +66,8 @@ def gather_sections(definitions):
     for key in definitions:
         entry = definitions[key]
         if 'section' in entry:
-            sections[entry['section']] = True
+            section_name = entry['section']
+            sections[section_name] = True
     return sections
 
 def main():
@@ -59,21 +77,36 @@ def main():
 
     definitions = get_definitions_from_file(sys.argv[1])
     sections = gather_sections(definitions)
+    global_objects = {}
+
     for section in sections:
-        print(f'''    #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
-        #[serde(deny_unknown_fields)]
-        struct {section}Configuration {{\n''')
 
         for definition_name, keys in definitions.items():
             if keys['section'] == section:
+                if section == 'global':
+                    global_objects[definition_name] = True
                 print(get_rust_struct_from_definition(definition_name, keys))
 
-        print('        }')
+
+        if section != 'global':
+            global_objects[section] = True
+            print(f'''    #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
+    #[serde(deny_unknown_fields)]
+    struct {section.capitalize()}Configuration {{''')
+            for definition_name, keys in definitions.items():
+                if keys['section'] == section:
+                    field_name = get_rust_field_name(definition_name)
+                    name = get_rust_object_name(definition_name)
+                    print(f'        {field_name}: {name}Configuration,')
+
+            print('    }\n')
 
     print('''    #[derive(Default)]
     struct GlobalConfiguration {''')
-    for section in sections:
-        print(f'        {section}: {section.capitalize()}Configuration,')
+    for obj in global_objects:
+        field_name = get_rust_field_name(obj)
+        name = get_rust_object_name(obj)
+        print(f'        {field_name}: {name}Configuration,')
 
     print('    }')
 
