@@ -188,7 +188,7 @@ private:
   uint32_t getShardIndex(KeyType key) const;
   void insertLocked(CacheShard& shard, CacheShard::ShardData& data, KeyType key, CacheValue&& newValue);
   void handleHit(const CacheValue& value);
-  size_t removeViaFIFO(CacheShard& shard, CacheShard::ShardData& data, FIFOToExpungeFrom from, size_t& toRemove, const time_t now, bool onlyExpired);
+  static size_t removeViaFIFO(CacheShard& shard, CacheShard::ShardData& data, FIFOToExpungeFrom from, size_t& toRemove, const time_t now, bool onlyExpired);
 
   std::vector<CacheShard> d_shards;
   std::unordered_set<uint16_t> d_optionsToSkip{EDNSOptionCode::COOKIE};
