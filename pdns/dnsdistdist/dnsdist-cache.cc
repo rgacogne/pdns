@@ -101,7 +101,7 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
 {
   bool evicted = false;
   auto now = time(nullptr);
-  while (!evicted && data.d_smallFIFO.size() > 0) {
+  while (!evicted && !data.d_smallFIFO.empty()) {
     auto key = data.d_smallFIFO.back();
     data.d_smallFIFO.pop_back();
     const auto entryIt = data.d_map.find(key);
@@ -143,7 +143,7 @@ void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
 {
   bool evicted = false;
   auto now = time(nullptr);
-  while (!evicted && data.d_mainFIFO.size() > 0) {
+  while (!evicted && !data.d_mainFIFO.empty()) {
     auto key = data.d_mainFIFO.back();
     data.d_mainFIFO.pop_back();
     const auto entryIt = data.d_map.find(key);
@@ -158,7 +158,7 @@ void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
       // to the front of the FIFO after decreasing
       // the frequency counter so it might be removed
       // eventually if it stops being usefull
-      entryIt->second.freq.inner.store(freq - 1);
+      entryIt->second.freq.inner.store(static_cast<int8_t>(freq - 1U));
       data.d_mainFIFO.push_front(key);
     }
     else {
@@ -183,16 +183,17 @@ void DNSDistPacketCache::CacheShard::evict(CacheShard::ShardData& data)
 void DNSDistPacketCache::CacheShard::setSize(size_t maxSize)
 {
   auto data = d_data.write_lock();
-  const auto mainFIFOSize = std::round(maxSize * (1.0 - s_smallSizeRatio));
-  const auto ghostFIFOSize = std::round(maxSize * (1.0 - s_smallSizeRatio) / 2);
-  const auto smallFIFOSize = std::round(maxSize * s_smallSizeRatio);
+  const auto maxSizeDouble = static_cast<double>(maxSize);
+  const auto mainFIFOSize = std::round(maxSizeDouble * (1.0 - s_smallSizeRatio));
+  const auto ghostFIFOSize = std::round(maxSizeDouble * (1.0 - s_smallSizeRatio) / 2);
+  const auto smallFIFOSize = std::round(maxSizeDouble * s_smallSizeRatio);
   if (smallFIFOSize < 1) {
     throw std::runtime_error("Trying to create a too small packet cache, please consider increasing the size or reducing the number of shards");
   }
-  data->d_map.reserve(maxSize * (1.0 + s_ghostSizeRatio));
-  data->d_mainFIFO.set_capacity(mainFIFOSize);
-  data->d_smallFIFO.set_capacity(smallFIFOSize);
-  data->d_ghostFIFO.set_capacity(ghostFIFOSize);
+  data->d_map.reserve(static_cast<size_t>(maxSizeDouble * (1.0 + s_ghostSizeRatio)));
+  data->d_mainFIFO.set_capacity(static_cast<size_t>(mainFIFOSize));
+  data->d_smallFIFO.set_capacity(static_cast<size_t>(smallFIFOSize));
+  data->d_ghostFIFO.set_capacity(static_cast<size_t>(ghostFIFOSize));
 }
 
 void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& data, uint32_t key, CacheValue&& newValue)
@@ -324,13 +325,13 @@ void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& su
   }
 }
 
-void DNSDistPacketCache::handleHit(const CacheValue& entry)
+void DNSDistPacketCache::handleHit(const CacheValue& value)
 {
   ++d_hits;
 
-  auto freq = entry.freq.inner.load();
+  auto freq = value.freq.inner.load();
   while (freq < 3) {
-    if (entry.freq.inner.compare_exchange_weak(freq, freq + 1)) {
+    if (value.freq.inner.compare_exchange_weak(freq, static_cast<int8_t>(freq + 1U))) {
       break;
     }
   }
@@ -366,7 +367,7 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
       return false;
     }
 
-    auto& map = data->d_map;
+    const auto& map = data->d_map;
     auto mapIt = map.find(key);
     if (mapIt == map.end() || mapIt->second.isGhost()) {
       if (recordMiss) {
@@ -721,6 +722,7 @@ std::set<DNSName> DNSDistPacketCache::getDomainsContainingRecords(const ComboAdd
         }
 
         bool found = false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         bool valid = visitDNSPacket(std::string_view(reinterpret_cast<const char*>(value.value.data()), value.value.size()), [addr, &found](uint8_t /* section */, uint16_t qclass, uint16_t qtype, uint32_t /* ttl */, uint16_t rdatalength, const char* rdata) {
           if (qtype == QType::A && qclass == QClass::IN && addr.isIPv4() && rdatalength == 4 && rdata != nullptr) {
             ComboAddress parsed;
@@ -782,6 +784,7 @@ std::set<ComboAddress> DNSDistPacketCache::getRecordsForDomain(const DNSName& do
           continue;
         }
 
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         visitDNSPacket(std::string_view(reinterpret_cast<const char*>(value.value.data()), value.value.size()), [&addresses](uint8_t /* section */, uint16_t qclass, uint16_t qtype, uint32_t /* ttl */, uint16_t rdatalength, const char* rdata) {
           if (qtype == QType::A && qclass == QClass::IN && rdatalength == 4 && rdata != nullptr) {
             ComboAddress parsed;
