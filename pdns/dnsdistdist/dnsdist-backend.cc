@@ -213,7 +213,7 @@ bool DownstreamState::reconnect(bool initialAttempt)
 
 void DownstreamState::waitUntilConnected()
 {
-  if (d_stopped) {
+  if (isStopped()) {
     return;
   }
   if (connected) {
@@ -229,10 +229,10 @@ void DownstreamState::waitUntilConnected()
 
 void DownstreamState::stop()
 {
-  if (d_stopped) {
+  if (isStopped()) {
     return;
   }
-  d_stopped = true;
+  d_stopped.store(true);
 
   {
     std::lock_guard<std::mutex> tl(connectLock);

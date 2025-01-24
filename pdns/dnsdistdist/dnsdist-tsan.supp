@@ -11,9 +11,6 @@ race:DownstreamState::updateTCPLatency
 race:DownstreamState::setDown
 race:DownstreamState::setUp
 race:DownstreamState::setAuto
-# Same thing for whether a backend has been stopped,
-# eventual consistency is fine
-race:DownstreamState::stop
 race:DownstreamState::submitHealthCheckResult
 race:DownstreamState::healthCheckRequired
 race:carbonDumpThread

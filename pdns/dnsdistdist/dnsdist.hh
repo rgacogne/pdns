@@ -716,7 +716,7 @@ private:
 #endif
   std::atomic_flag threadStarted;
   uint8_t consecutiveSuccessfulChecks{0};
-  bool d_stopped{false};
+  std::atomic<bool> d_stopped{false};
 
 public:
   static bool parseSourceParameter(const std::string& source, Config& config);
@@ -810,7 +810,7 @@ public:
   void stop();
   bool isStopped() const
   {
-    return d_stopped;
+    return d_stopped.load();
   }
   const boost::uuids::uuid& getID() const
   {
