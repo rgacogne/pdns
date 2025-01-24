@@ -78,6 +78,7 @@ subdir('meson' / 'dot')                     # DNS over TLS
 subdir('meson' / 'doh2')                    # DNS over HTTP/2
 subdir('meson' / 'doq')                     # DNS over QUIC
 subdir('meson' / 'doh3')                    # DNS over HTTP/3
+subdir('meson' / 'yaml-configuration')      # YAML configuration
 
 common_sources = []
 
@@ -101,6 +102,12 @@ else
   dep_lmdb_safe = declare_dependency()
 endif
 
+if get_option('yaml').allowed()
+  subdir('ext' / 'dnsdist-rust-lib')
+else
+  dep_rust_lib = declare_dependency()
+endif
+
 common_sources += files(
   src_dir / 'bpf-filter.cc',
   src_dir / 'capabilities.cc',
@@ -114,6 +121,7 @@ common_sources += files(
   src_dir / 'dnsdist-cache.cc',
   src_dir / 'dnsdist-carbon.cc',
   src_dir / 'dnsdist-configuration.cc',
+  src_dir / 'dnsdist-configuration-yaml.cc',
   src_dir / 'dnsdist-console.cc',
   src_dir / 'dnsdist-crypto.cc',
   src_dir / 'dnsdist-discovery.cc',
@@ -235,6 +243,12 @@ conditional_sources = {
     ],
     'condition': dep_libquiche.found(),
    },
+   'yaml': {
+     'sources': [
+       src_dir / 'dnsdist-rust-lib/dnsdist-configuration-yaml-items-generated.cc',
+     ],
+     'condition': dep_rust_lib.found(),
+   }
 }
 
 foreach name, info: conditional_sources
@@ -344,6 +358,7 @@ deps = [
   dep_threads,
   dep_libbpf,
   dep_libxdp,
+  dep_rust_lib,
 ]
 
 libdnsdist_dnslabeltext_source = src_dir / 'dnslabeltext.rl'
