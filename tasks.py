@@ -825,7 +825,7 @@ def ci_dnsdist_configure_meson(features, additional_flags, additional_ld_flags, 
     env = " ".join([
         tools,
         f'CFLAGS="{cflags}"',
-        f"LDFLAGS='{additional_ld_flags}',
+        f'LDFLAGS="{additional_ld_flags}"',
         f'CXXFLAGS="{cxxflags}"',
         f"CC='{get_c_compiler()}'",
         f"CXX='{get_cxx_compiler()}'",
