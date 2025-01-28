@@ -103,9 +103,9 @@ else
 endif
 
 if get_option('yaml').allowed()
-  subdir('ext' / 'dnsdist-rust-lib')
+  subdir('dnsdist-rust-lib')
 else
-  dep_rust_lib = declare_dependency()
+  dep_dnsdist_rust_lib = declare_dependency()
 endif
 
 common_sources += files(
@@ -116,6 +116,8 @@ common_sources += files(
   src_dir / 'credentials.cc',
   src_dir / 'dns.cc',
   src_dir / 'dnscrypt.cc',
+  src_dir / 'dnsdist-actions.cc',
+  src_dir / 'dnsdist-actions-factory.cc',
   src_dir / 'dnsdist-async.cc',
   src_dir / 'dnsdist-backend.cc',
   src_dir / 'dnsdist-cache.cc',
@@ -149,6 +151,7 @@ common_sources += files(
   src_dir / 'dnsdist-lua-bindings-packetcache.cc',
   src_dir / 'dnsdist-lua-bindings-protobuf.cc',
   src_dir / 'dnsdist-lua-bindings-rings.cc',
+  src_dir / 'dnsdist-lua-configuration-items.cc',
   src_dir / 'dnsdist-lua.cc',
   src_dir / 'dnsdist-lua-ffi.cc',
   src_dir / 'dnsdist-lua-hooks.cc',
@@ -173,6 +176,7 @@ common_sources += files(
   src_dir / 'dnsdist-rules.cc',
   src_dir / 'dnsdist-secpoll.cc',
   src_dir / 'dnsdist-session-cache.cc',
+  src_dir / 'dnsdist-self-answers.cc',
   src_dir / 'dnsdist-snmp.cc',
   src_dir / 'dnsdist-svc.cc',
   src_dir / 'dnsdist-systemd.cc',
@@ -247,7 +251,7 @@ conditional_sources = {
      'sources': [
        src_dir / 'dnsdist-rust-lib/dnsdist-configuration-yaml-items-generated.cc',
      ],
-     'condition': dep_rust_lib.found(),
+     'condition': dep_dnsdist_rust_lib.found(),
    }
 }
 
@@ -358,7 +362,7 @@ deps = [
   dep_threads,
   dep_libbpf,
   dep_libxdp,
-  dep_rust_lib,
+  dep_dnsdist_rust_lib,
 ]
 
 libdnsdist_dnslabeltext_source = src_dir / 'dnslabeltext.rl'
