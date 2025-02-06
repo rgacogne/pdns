@@ -707,12 +707,13 @@ def ci_dnsdist_configure(c, features, builder, build_dir):
 
     if builder == 'meson':
         cmd = ci_dnsdist_configure_meson(features, additional_flags, additional_ld_flags, build_dir)
-        logfile = 'meson-logs/meson-log.txt'
+        logfile = f'{build_dir}/meson-logs/meson-log.txt'
     else:
         cmd = ci_dnsdist_configure_autotools(features, additional_flags, additional_ld_flags)
         logfile = 'config.log'
 
     res = c.run(cmd, warn=True)
+    c.run(f'cat {logfile}')
     if res.exited != 0:
         c.run(f'cat {logfile}')
         raise UnexpectedExit(res)
