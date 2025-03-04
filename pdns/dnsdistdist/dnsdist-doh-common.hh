@@ -81,7 +81,7 @@ private:
 
 struct DOHFrontend
 {
-  DOHFrontend():
+  DOHFrontend() :
     d_tlsContext(std::make_shared<TLSFrontend>(TLSFrontend::ALPN::DoH))
   {
   }
