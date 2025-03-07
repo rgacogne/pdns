@@ -2288,6 +2288,14 @@ Other functions
 
   :param string key: The format of the key can be found in ``/proc/sys/net/ipv4/tcp_fastopen_key``
 
+.. function:: setTCPConnectionsOverloadThreshold(threshold)
+
+  .. versionadded:: 2.0.0
+
+   Set a threshold as a percentage to the maximum number of incoming TCP connections per frontend or per client. When this threshold is reached, new incoming TCP connections are restricted: only query per connection is allowed (no out-of-order processing, no idle time allowed), the receive timeout is reduced to 500 milliseconds and the total duration of the TCP connection is limited to 5 seconds.
+
+  :param string key: The format of the key can be found in ``/proc/sys/net/ipv4/tcp_fastopen_key``
+
 .. function:: makeIPCipherKey(password) -> string
 
   .. versionadded:: 1.4.0

@@ -925,6 +925,7 @@ TcpTuningConfiguration
 - **outgoing_max_idle_connection_per_backend**: Unsigned integer ``(10)``
 - **max_connections_per_client**: Unsigned integer ``(0)``
 - **fast_open_key**: String ``("")``
+- **tcp_connections_overload_threshold**: Unsigned integer ``(90)`` - Set a threshold as a percentage to the maximum number of incoming TCP connections per frontend or per client. When this threshold is reached, new incoming TCP connections are restricted: only query per connection is allowed (no out-of-order processing, no idle time allowed), the receive timeout is reduced to 500 milliseconds and the total duration of the TCP connection is limited to 5 seconds
 
 
 .. _yaml-settings-TlsEngineConfiguration:

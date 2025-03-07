@@ -99,6 +99,11 @@ size_t IncomingTCPConnectionState::clearAllDownstreamConnections()
   return t_downstreamTCPConnectionsManager.clear();
 }
 
+bool IncomingTCPConnectionState::isNearTCPLimits() const
+{
+  return d_ci.d_nearTCPLimits;
+}
+
 std::shared_ptr<TCPConnectionToBackend> IncomingTCPConnectionState::getDownstreamConnection(std::shared_ptr<DownstreamState>& backend, const std::unique_ptr<std::vector<ProxyProtocolValue>>& tlvs, const struct timeval& now)
 {
   auto downstream = getOwnedDownstreamConnection(backend, tlvs);
@@ -232,6 +237,11 @@ bool IncomingTCPConnectionState::canAcceptNewQueries(const struct timeval& now)
     return false;
   }
 
+  if (isNearTCPLimits()) {
+    DEBUGLOG("not accepting new queries because we already near our TCP limits");
+    return false;
+  }
+
   // for DoH, this is already handled by the underlying library
   if (!d_ci.cs->dohFrontend && d_currentQueriesCount >= d_ci.cs->d_maxInFlightQueriesPerConn) {
     DEBUGLOG("not accepting new queries because we already have " << d_currentQueriesCount << " out of " << d_ci.cs->d_maxInFlightQueriesPerConn);
@@ -258,6 +268,84 @@ void IncomingTCPConnectionState::resetForNewQuery()
   d_currentPos = 0;
   d_querySize = 0;
   d_state = State::waitingForQuery;
+}
+
+boost::optional<timeval> IncomingTCPConnectionState::getClientReadTTD(timeval now) const
+{
+  const auto& runtimeConfiguration = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  if (!isNearTCPLimits() && runtimeConfiguration.d_maxTCPConnectionDuration == 0 && runtimeConfiguration.d_tcpRecvTimeout == 0) {
+      return boost::none;
+  }
+
+  size_t maxTCPConnectionDuration = runtimeConfiguration.d_maxTCPConnectionDuration;
+  uint16_t tcpRecvTimeout = runtimeConfiguration.d_tcpRecvTimeout;
+  uint32_t tcpRecvTimeoutUsec = 0U;
+  if (isNearTCPLimits()) {
+    constexpr size_t maxTCPConnectionDurationNearLimits = 1U;
+    constexpr uint32_t tcpRecvTimeoutUsecNearLimits = 500U * 1000U;
+    maxTCPConnectionDuration = runtimeConfiguration.d_maxTCPConnectionDuration != 0 ? std::min(runtimeConfiguration.d_maxTCPConnectionDuration, maxTCPConnectionDurationNearLimits) : maxTCPConnectionDurationNearLimits;
+    tcpRecvTimeout = 0;
+    tcpRecvTimeoutUsec = tcpRecvTimeoutUsecNearLimits;
+  }
+
+  if (maxTCPConnectionDuration > 0) {
+#warning should d_maxTCPConnectionDuration be a double, accounting for tv_usec as well?
+    auto elapsed = now.tv_sec - d_connectionStartTime.tv_sec;
+    if (elapsed < 0 || (static_cast<size_t>(elapsed) >= maxTCPConnectionDuration)) {
+      return now;
+    }
+    auto remaining = maxTCPConnectionDuration - elapsed;
+    if (!isNearTCPLimits() && (runtimeConfiguration.d_tcpRecvTimeout == 0 || remaining <= static_cast<size_t>(runtimeConfiguration.d_tcpRecvTimeout))) {
+      now.tv_sec += remaining;
+      return now;
+    }
+  }
+
+  now.tv_sec += tcpRecvTimeout;
+  now.tv_usec += tcpRecvTimeoutUsec;
+  normalizeTV(now);
+  return now;
+}
+
+boost::optional<timeval> IncomingTCPConnectionState::getClientWriteTTD(const timeval& now) const
+{
+  const auto& runtimeConfiguration = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  if (runtimeConfiguration.d_maxTCPConnectionDuration == 0 && runtimeConfiguration.d_tcpSendTimeout == 0) {
+    return boost::none;
+  }
+
+  timeval res(now);
+
+  if (runtimeConfiguration.d_maxTCPConnectionDuration > 0) {
+    auto elapsed = res.tv_sec - d_connectionStartTime.tv_sec;
+    if (elapsed < 0 || static_cast<size_t>(elapsed) >= runtimeConfiguration.d_maxTCPConnectionDuration) {
+      return res;
+    }
+    auto remaining = runtimeConfiguration.d_maxTCPConnectionDuration - elapsed;
+    if (runtimeConfiguration.d_tcpSendTimeout == 0 || remaining <= static_cast<size_t>(runtimeConfiguration.d_tcpSendTimeout)) {
+      res.tv_sec += remaining;
+      return res;
+    }
+  }
+
+  res.tv_sec += runtimeConfiguration.d_tcpSendTimeout;
+  return res;
+}
+
+bool IncomingTCPConnectionState::maxConnectionDurationReached(unsigned int maxConnectionDuration, const timeval& now)
+{
+  if (maxConnectionDuration) {
+    time_t curtime = now.tv_sec;
+    unsigned int elapsed = 0;
+    if (curtime > d_connectionStartTime.tv_sec) { // To prevent issues when time goes backward
+      elapsed = curtime - d_connectionStartTime.tv_sec;
+      }
+    if (elapsed >= maxConnectionDuration) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 std::shared_ptr<TCPConnectionToBackend> IncomingTCPConnectionState::getOwnedDownstreamConnection(const std::shared_ptr<DownstreamState>& backend, const std::unique_ptr<std::vector<ProxyProtocolValue>>& tlvs)
@@ -1608,11 +1696,24 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
       return;
     }
 
-    if (!dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote)) {
+    auto [allowed, nearLimits] = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote);
+    if (!allowed) {
       vinfolog("Dropping TCP connection from %s because we have too many from this client already", remote.toStringWithPort());
       return;
     }
     tcpClientCountIncremented = true;
+
+    const auto tcpConnectionsOverloadThreshold = dnsdist::configuration::getImmutableConfiguration().d_tcpConnectionsOverloadThreshold;
+    if (clientState.d_tcpConcurrentConnectionsLimit > 0 && tcpConnectionsOverloadThreshold != 0) {
+      auto current = (100 * concurrentConnections) / clientState.d_tcpConcurrentConnectionsLimit;
+      if (current >= tcpConnectionsOverloadThreshold) {
+        nearLimits = true;
+      }
+    }
+    connInfo.d_nearTCPLimits = nearLimits;
+    if (nearLimits) {
+      cerr<<"setting near limits"<<endl;
+    }
 
     vinfolog("Got TCP connection from %s", remote.toStringWithPort());
 

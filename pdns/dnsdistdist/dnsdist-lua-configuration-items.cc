@@ -154,6 +154,7 @@ static const std::map<std::string, UnsignedIntegerImmutableConfigurationItems> s
 static const std::map<std::string, DoubleImmutableConfigurationItems> s_doubleImmutableConfigItems{
   {"setConsistentHashingBalancingFactor", {[](dnsdist::configuration::ImmutableConfiguration& config, double newValue) { config.d_consistentHashBalancingFactor = newValue; }, 1.0}},
   {"setWeightedBalancingFactor", {[](dnsdist::configuration::ImmutableConfiguration& config, double newValue) { config.d_weightedBalancingFactor = newValue; }, 1.0}},
+  {"setTCPConnectionsOverloadThreshold", {[](dnsdist::configuration::ImmutableConfiguration& config, double newValue) { config.d_tcpConnectionsOverloadThreshold = newValue; }, 0.0}},
 };
 // clang-format on
 
