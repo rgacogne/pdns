@@ -1515,6 +1515,13 @@ tcp_tuning:
       default: ""
       lua-name: "setTCPFastOpenKey"
       runtime-configurable: false
+    - name: "tcp_connections_overload_threshold"
+      type: "u8"
+      default: "90"
+      lua-name: "setTCPConnectionsOverloadThreshold"
+      internal-field-name: "d_tcpConnectionsOverloadThreshold"
+      runtime-configurable: false
+      description: "Set a threshold as a percentage to the maximum number of incoming TCP connections per frontend or per client. When this threshold is reached, new incoming TCP connections are restricted: only query per connection is allowed (no out-of-order processing, no idle time allowed), the receive timeout is reduced to 500 milliseconds and the total duration of the TCP connection is limited to 5 seconds"
 
 udp_tuning:
   category: "tuning.udp"
