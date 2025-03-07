@@ -90,6 +90,7 @@ struct ImmutableConfiguration
   uint32_t d_hashPerturbation{0};
   uint16_t d_maxUDPOutstanding{std::numeric_limits<uint16_t>::max()};
   uint8_t d_udpTimeout{2};
+  uint8_t d_tcpConnectionsOverloadThreshold{90};
   bool d_randomizeUDPSocketsToBackend{false};
   bool d_randomizeIDsToBackend{false};
   bool d_ringsRecordQueries{true};

@@ -1883,6 +1883,8 @@ mod dnsdistsettings {
         max_connections_per_client: u32,
         #[serde(default, skip_serializing_if = "crate::is_default")]
         fast_open_key: String,
+        #[serde(default = "crate::U8::<90>::value", skip_serializing_if = "crate::U8::<90>::is_equal")]
+        tcp_connections_overload_threshold: u8,
     }
 
     #[derive(Deserialize, Serialize, Debug, PartialEq)]

@@ -22,6 +22,7 @@
 #pragma once
 
 #include <map>
+#include <utility>
 #include "iputils.hh"
 #include "lock.hh"
 #include "dnsdist-configuration.hh"
@@ -31,19 +32,32 @@ namespace dnsdist
 class IncomingConcurrentTCPConnectionsManager
 {
 public:
-  static bool accountNewTCPConnection(const ComboAddress& from)
+  static std::pair<bool, bool> accountNewTCPConnection(const ComboAddress& from)
   {
-    const auto maxConnsPerClient = dnsdist::configuration::getImmutableConfiguration().d_maxTCPConnectionsPerClient;
+    const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
+    const auto maxConnsPerClient = immutable.d_maxTCPConnectionsPerClient;
     if (maxConnsPerClient == 0) {
-      return true;
+      return {true, false};
     }
-    auto db = s_tcpClientsConcurrentConnectionsCount.lock();
-    auto& count = (*db)[from];
-    if (count >= maxConnsPerClient) {
-      return false;
+    size_t value = 0;
+    {
+      auto db = s_tcpClientsConcurrentConnectionsCount.lock();
+      auto& count = (*db)[from];
+      if (count >= maxConnsPerClient) {
+        return {false, true};
+      }
+      ++count;
+      value = count;
     }
-    ++count;
-    return true;
+    if (immutable.d_tcpConnectionsOverloadThreshold != 0) {
+      auto current = (100 * value) / maxConnsPerClient;
+      cerr<<"current: "<<current<<", threshold: "<<immutable.d_tcpConnectionsOverloadThreshold<<endl;
+      if (current >= immutable.d_tcpConnectionsOverloadThreshold) {
+        return {true, true};
+      }
+    }
+
+    return {true, false};
   }
 
   static void accountClosedTCPConnection(const ComboAddress& from)
