@@ -1026,6 +1026,7 @@ public:
     dnsdist::MacAddress mac{};
     int res = dnsdist::MacAddressesCache::get(dnsquestion->ids.origRemote, mac.data(), mac.size());
     if (res != 0) {
+      cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<dnsquestion->ids.origRemote.toString()<<" dnsdist::MacAddressesCache::get() returned "<<res<<endl;
       return Action::None;
     }
 
@@ -1034,16 +1035,19 @@ public:
     generateEDNSOption(d_code, reinterpret_cast<const char*>(mac.data()), optRData);
 
     if (dnsquestion->getHeader()->arcount > 0) {
+      cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<dnsquestion->ids.origRemote.toString()<<" editing existing OPT rr"<<endl;
       bool ednsAdded = false;
       bool optionAdded = false;
       PacketBuffer newContent;
       newContent.reserve(dnsquestion->getData().size());
 
       if (!slowRewriteEDNSOptionInQueryWithRecords(dnsquestion->getData(), newContent, ednsAdded, d_code, optionAdded, true, optRData)) {
+        cerr<<"slowRewriteEDNSOptionInQueryWithRecords failed"<<endl;
         return Action::None;
       }
 
       if (newContent.size() > dnsquestion->getMaximumSize()) {
+        cerr<<"new EDNS record is too large"<<endl;
         return Action::None;
       }
 
@@ -1057,12 +1061,16 @@ public:
 
     auto& data = dnsquestion->getMutableData();
     if (generateOptRR(optRData, data, dnsquestion->getMaximumSize(), g_EdnsUDPPayloadSize, 0, false)) {
+      cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<dnsquestion->ids.origRemote.toString()<<" adding OPT rr"<<endl;
       dnsdist::PacketMangling::editDNSHeaderFromPacket(dnsquestion->getMutableData(), [](dnsheader& header) {
         header.arcount = htons(1);
         return true;
       });
       // make sure that any EDNS sent by the backend is removed before forwarding the response to the client
       dnsquestion->ids.ednsAdded = true;
+    }
+    else {
+      cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<dnsquestion->ids.origRemote.toString()<<" generateOptRR failed"<<endl;
     }
 
     return Action::None;

@@ -29,6 +29,7 @@ LockGuarded<boost::circular_buffer<MacAddressesCache::Entry>> MacAddressesCache:
 
 int MacAddressesCache::get(const ComboAddress& ca, unsigned char* dest, size_t destLen)
 {
+  cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<ca.toString()<<endl;
   if (dest == nullptr || destLen < sizeof(Entry::mac)) {
     return EINVAL;
   }
@@ -42,8 +43,10 @@ int MacAddressesCache::get(const ComboAddress& ca, unsigned char* dest, size_t d
       if (entry.ttd >= now && compare(entry.ca, ca) == true) {
         if (!entry.found) {
           // negative entry
+          cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<ca.toString()<<" negative cache entry"<<endl;
           return ENOENT;
         }
+        cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<ca.toString()<<" positive cache entry"<<endl;
         memcpy(dest, entry.mac.data(), entry.mac.size());
         return 0;
       }
@@ -51,6 +54,7 @@ int MacAddressesCache::get(const ComboAddress& ca, unsigned char* dest, size_t d
   }
 
   auto res = getMACAddress(ca, reinterpret_cast<char*>(dest), destLen);
+  cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<ca.toString()<<" getMACAddress() returned "<<res<<endl;
   {
     auto cache = s_cache.lock();
     if (cache->capacity() == 0) {

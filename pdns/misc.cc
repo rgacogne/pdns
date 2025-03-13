@@ -1071,6 +1071,7 @@ bool setCloseOnExec(int sock)
 
 int getMACAddress(const ComboAddress& ca, char* dest, size_t destLen)
 {
+  cerr<<"in "<<__PRETTY_FUNCTION__<<" for "<<ca.toString()<<endl;
   struct {
     struct nlmsghdr headermsg;
     struct ndmsg neighbormsg;
@@ -1080,7 +1081,9 @@ int getMACAddress(const ComboAddress& ca, char* dest, size_t destLen)
 
   auto sock = FDWrapper(socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE));
   if (sock.getHandle() == -1) {
-    return errno;
+    auto error = errno;
+    cerr<<"Error opening a netlink socket "<<error<<endl;
+    return error;
   }
 
   memset(&request, 0, sizeof(request));
@@ -1170,11 +1173,13 @@ int getMACAddress(const ComboAddress& ca, char* dest, size_t destLen)
   }
   while (done == false);
 
+  cerr<<"out of "<<__PRETTY_FUNCTION__<<" with "<<foundMAC<<endl;
   return foundMAC ? 0 : ENOENT;
 }
 #else
 int getMACAddress(const ComboAddress& /* ca */, char* /* dest */, size_t /* len */)
 {
+  cerr<<"in "<<__PRETTY_FUNCTION__<<" but support is not enabled"<<endl;
   return ENOENT;
 }
 #endif /* __linux__ */
