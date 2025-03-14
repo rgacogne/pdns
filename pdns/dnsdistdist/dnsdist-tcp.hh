@@ -73,7 +73,6 @@ struct ConnectionInfo
   ComboAddress remote;
   ClientState* cs{nullptr};
   int fd{-1};
-  bool d_nearTCPLimits{false};
 };
 
 class InternalQuery

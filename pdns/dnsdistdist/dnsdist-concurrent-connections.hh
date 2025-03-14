@@ -32,32 +32,46 @@ namespace dnsdist
 class IncomingConcurrentTCPConnectionsManager
 {
 public:
-  static std::pair<bool, bool> accountNewTCPConnection(const ComboAddress& from)
+  static bool accountNewTCPConnection(const ComboAddress& from)
   {
     const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
     const auto maxConnsPerClient = immutable.d_maxTCPConnectionsPerClient;
     if (maxConnsPerClient == 0) {
-      return {true, false};
+      return true;
     }
-    size_t value = 0;
+
     {
       auto db = s_tcpClientsConcurrentConnectionsCount.lock();
       auto& count = (*db)[from];
       if (count >= maxConnsPerClient) {
-        return {false, true};
+        return false;
       }
       ++count;
-      value = count;
-    }
-    if (immutable.d_tcpConnectionsOverloadThreshold != 0) {
-      auto current = (100 * value) / maxConnsPerClient;
-      cerr<<"current: "<<current<<", threshold: "<<immutable.d_tcpConnectionsOverloadThreshold<<endl;
-      if (current >= immutable.d_tcpConnectionsOverloadThreshold) {
-        return {true, true};
-      }
     }
 
-    return {true, false};
+    return true;
+  }
+
+  static bool isClientOverThreshold(const ComboAddress& from)
+  {
+    const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
+    const auto maxConnsPerClient = immutable.d_maxTCPConnectionsPerClient;
+    if (immutable.d_tcpConnectionsOverloadThreshold == 0) {
+      return false;
+    }
+
+    size_t count = 0;
+    {
+      auto db = s_tcpClientsConcurrentConnectionsCount.lock();
+      auto it = db->find(from);
+      if (it == db->end()) {
+        return false;
+      }
+      count = it->second;
+    }
+
+    auto current = (100 * count) / maxConnsPerClient;
+    return current >= immutable.d_tcpConnectionsOverloadThreshold;
   }
 
   static void accountClosedTCPConnection(const ComboAddress& from)
