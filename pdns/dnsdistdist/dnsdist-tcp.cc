@@ -99,9 +99,37 @@ size_t IncomingTCPConnectionState::clearAllDownstreamConnections()
   return t_downstreamTCPConnectionsManager.clear();
 }
 
+struct RecentClientActivity
+{
+  uint64_t tcpConnections{0};
+  uint64_t tlsNewSessions{0}; /* without resumption */
+  uint64_t tlsResumedSessions{0};
+};
+
+// looks A LOT like s_tcpClientsConcurrentConnectionsCount
+LockGuarded<std::map<ComboAddress, size_t, ComboAddress::addressOnlyLessThan>> s_tcpClientsConcurrentConnectionsCount;
+
 bool IncomingTCPConnectionState::isNearTCPLimits() const
 {
-  return d_ci.d_nearTCPLimits;
+  const auto tcpConnectionsOverloadThreshold = dnsdist::configuration::getImmutableConfiguration().d_tcpConnectionsOverloadThreshold;
+  if (tcpConnectionsOverloadThreshold == 0) {
+    return false;
+  }
+
+  const auto& clientState = d_ci.cs;
+  if (clientState->d_tcpConcurrentConnectionsLimit) {
+    auto concurrentConnections = clientState->tcpCurrentConnections.load();
+    auto current = (100 * concurrentConnections) / clientState->d_tcpConcurrentConnectionsLimit;
+    if (current >= tcpConnectionsOverloadThreshold) {
+      return true;
+    }
+  }
+
+  if (dnsdist::IncomingConcurrentTCPConnectionsManager::isClientOverThreshold(d_ci.remote)) {
+    return true;
+  }
+
+  return false;
 }
 
 std::shared_ptr<TCPConnectionToBackend> IncomingTCPConnectionState::getDownstreamConnection(std::shared_ptr<DownstreamState>& backend, const std::unique_ptr<std::vector<ProxyProtocolValue>>& tlvs, const struct timeval& now)
@@ -1696,24 +1724,11 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
       return;
     }
 
-    auto [allowed, nearLimits] = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote);
-    if (!allowed) {
+    if (!dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote)) {
       vinfolog("Dropping TCP connection from %s because we have too many from this client already", remote.toStringWithPort());
       return;
     }
     tcpClientCountIncremented = true;
-
-    const auto tcpConnectionsOverloadThreshold = dnsdist::configuration::getImmutableConfiguration().d_tcpConnectionsOverloadThreshold;
-    if (clientState.d_tcpConcurrentConnectionsLimit > 0 && tcpConnectionsOverloadThreshold != 0) {
-      auto current = (100 * concurrentConnections) / clientState.d_tcpConcurrentConnectionsLimit;
-      if (current >= tcpConnectionsOverloadThreshold) {
-        nearLimits = true;
-      }
-    }
-    connInfo.d_nearTCPLimits = nearLimits;
-    if (nearLimits) {
-      cerr<<"setting near limits"<<endl;
-    }
 
     vinfolog("Got TCP connection from %s", remote.toStringWithPort());
 

@@ -1392,7 +1392,7 @@ static void on_accept(h2o_socket_t *listener, const char *err)
     return;
   }
 
-  auto [allowed, nearLimits] = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote);
+  auto allowed = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote);
   if (!allowed) {
     vinfolog("Dropping DoH connection from %s because we have too many from this client already", remote.toStringWithPort());
     h2o_socket_close(sock);
