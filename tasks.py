@@ -178,7 +178,7 @@ def install_clang(c):
     """
     install clang and llvm
     """
-    c.sudo(f'apt-get -y --no-install-recommends install clang-{clang_version} llvm-{clang_version}')
+    c.sudo(f'apt-get -y --no-install-recommends install clang-{clang_version} llvm-{clang_version} libclang-rt-{clang_version}-dev llvm-{clang_version}-dev')
 
 @task
 def install_clang_tidy_tools(c):

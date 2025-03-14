@@ -24,7 +24,7 @@ permissions: # least privileges, see https://docs.github.com/en/actions/using-wo
 
 env:
   COMPILER: clang
-  CLANG_VERSION: '13'
+  CLANG_VERSION: '19'
   # github.workspace variable points to the Runner home folder. Container home folder defined below.
   REPO_HOME: '/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}'
   BUILDER_VERSION: '0.0.0-git1'
@@ -95,6 +95,8 @@ jobs:
         run: |
           python3 -m venv ${REPO_HOME}/.venv
           . ${REPO_HOME}/.venv/bin/activate && pip install -r ${REPO_HOME}/meson/requirements.txt
+        working-directory: .
+      - run: ${{ env.INV_CMD }} install-clang
         working-directory: .
       - run: ${{ env.INV_CMD }} install-auth-build-deps
         working-directory: .
@@ -183,6 +185,8 @@ jobs:
           python3 -m venv ${REPO_HOME}/.venv
           . ${REPO_HOME}/.venv/bin/activate && pip install -r ${REPO_HOME}/meson/requirements.txt
         working-directory: .
+      - run: ${{ env.INV_CMD }} install-clang
+        working-directory: .
       - run: ${{ env.INV_CMD }} install-rec-build-deps
         working-directory: ./pdns/recursordist/
       - run: ${{ env.INV_CMD }} ci-install-rust ${{ env.REPO_HOME }}
@@ -266,6 +270,8 @@ jobs:
         run: |
           python3 -m venv ${REPO_HOME}/.venv
           . ${REPO_HOME}/.venv/bin/activate && pip install -r ${REPO_HOME}/meson/requirements.txt
+        working-directory: .
+      - run: ${{ env.INV_CMD }} install-clang
         working-directory: .
       - run: ${{ env.INV_CMD }} install-lld-linker-if-needed
         working-directory: ./pdns/dnsdistdist/
