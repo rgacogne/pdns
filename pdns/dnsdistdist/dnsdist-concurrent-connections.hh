@@ -21,75 +21,25 @@
  */
 #pragma once
 
-#include <map>
-#include <utility>
 #include "iputils.hh"
-#include "lock.hh"
-#include "dnsdist-configuration.hh"
 
 namespace dnsdist
 {
 class IncomingConcurrentTCPConnectionsManager
 {
 public:
-  static bool accountNewTCPConnection(const ComboAddress& from)
+  struct ClientActivity
   {
-    const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
-    const auto maxConnsPerClient = immutable.d_maxTCPConnectionsPerClient;
-    if (maxConnsPerClient == 0) {
-      return true;
-    }
+    uint64_t tcpConnections{0};
+    uint64_t tlsNewSessions{0}; /* without resumption */
+    uint64_t tlsResumedSessions{0};
+    time_t time{0};
+  };
 
-    {
-      auto db = s_tcpClientsConcurrentConnectionsCount.lock();
-      auto& count = (*db)[from];
-      if (count >= maxConnsPerClient) {
-        return false;
-      }
-      ++count;
-    }
-
-    return true;
-  }
-
-  static bool isClientOverThreshold(const ComboAddress& from)
-  {
-    const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
-    const auto maxConnsPerClient = immutable.d_maxTCPConnectionsPerClient;
-    if (immutable.d_tcpConnectionsOverloadThreshold == 0) {
-      return false;
-    }
-
-    size_t count = 0;
-    {
-      auto db = s_tcpClientsConcurrentConnectionsCount.lock();
-      auto it = db->find(from);
-      if (it == db->end()) {
-        return false;
-      }
-      count = it->second;
-    }
-
-    auto current = (100 * count) / maxConnsPerClient;
-    return current >= immutable.d_tcpConnectionsOverloadThreshold;
-  }
-
-  static void accountClosedTCPConnection(const ComboAddress& from)
-  {
-    const auto maxConnsPerClient = dnsdist::configuration::getImmutableConfiguration().d_maxTCPConnectionsPerClient;
-    if (maxConnsPerClient == 0) {
-      return;
-    }
-    auto db = s_tcpClientsConcurrentConnectionsCount.lock();
-    auto& count = db->at(from);
-    count--;
-    if (count == 0) {
-      db->erase(from);
-    }
-  }
-
-private:
-  static LockGuarded<std::map<ComboAddress, size_t, ComboAddress::addressOnlyLessThan>> s_tcpClientsConcurrentConnectionsCount;
+  static bool accountNewTCPConnection(const ComboAddress& from);
+  static bool isClientOverThreshold(const ComboAddress& from);
+  static void accountClosedTCPConnection(const ComboAddress& from);
+  static void banClientFor(const ComboAddress& from, time_t now, uint32_t seconds);
+  static void cleanup(time_t now);
 };
-
 }

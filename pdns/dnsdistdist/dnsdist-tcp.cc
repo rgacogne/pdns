@@ -63,8 +63,6 @@
 
 std::atomic<uint64_t> g_tcpStatesDumpRequested{0};
 
-LockGuarded<std::map<ComboAddress, size_t, ComboAddress::addressOnlyLessThan>> dnsdist::IncomingConcurrentTCPConnectionsManager::s_tcpClientsConcurrentConnectionsCount;
-
 IncomingTCPConnectionState::~IncomingTCPConnectionState()
 {
   dnsdist::IncomingConcurrentTCPConnectionsManager::accountClosedTCPConnection(d_ci.remote);
@@ -124,16 +122,6 @@ static std::pair<std::shared_ptr<TCPConnectionToBackend>, bool> getOwnedDownstre
 
   return {nullptr, tlvsMismatch};
 }
-
-struct RecentClientActivity
-{
-  uint64_t tcpConnections{0};
-  uint64_t tlsNewSessions{0}; /* without resumption */
-  uint64_t tlsResumedSessions{0};
-};
-
-// looks A LOT like s_tcpClientsConcurrentConnectionsCount
-LockGuarded<std::map<ComboAddress, size_t, ComboAddress::addressOnlyLessThan>> s_tcpClientsConcurrentConnectionsCount;
 
 bool IncomingTCPConnectionState::isNearTCPLimits() const
 {
