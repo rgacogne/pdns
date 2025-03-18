@@ -50,7 +50,7 @@ struct ClientEntry
 
 static LockGuarded<std::unordered_map<ComboAddress, std::unique_ptr<ClientEntry>, ComboAddress::addressOnlyHash, ComboAddress::addressOnlyEqual>> s_tcpClientsConnectionMetrics;
 static constexpr size_t NB_BUCKETS = 5;
-static constexpr size_t MAX_TCP_CONNECTIONS_PER_MINUTE = 10;
+static constexpr size_t MAX_TCP_CONNECTIONS_PER_MINUTE = 1000;
 
 static bool checkTCPConnectionsRate(const boost::circular_buffer<ClientActivity>& activity, time_t now)
 {
@@ -90,7 +90,7 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
     entry.d_lastSeen = now;
     {
       auto& activity = entry.d_activity;
-      if (activity.empty() || activity.front().bucketEndTime > now) {
+      if (activity.empty() || activity.front().bucketEndTime < now) {
         activity.push_front(ClientActivity{1, 0, 0, now + 60});
       }
       ++activity.front().tcpConnections;
@@ -98,14 +98,17 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
     }
   };
 
-  auto updatedLockedAndEntryPresent = [now, maxConnsPerClient, threshold, &updateActivity](ClientEntry& entry) {
+  auto updatedLockedAndEntryPresent = [now, from, maxConnsPerClient, threshold, &updateActivity](ClientEntry& entry) {
     if (entry.d_bannedUntil != 0 && entry.d_bannedUntil < now) {
+      cerr<<"dropping connection from "<<from.toString()<<": banned"<<endl;
       return NewConnectionResult::Denied;
     }
     if (entry.d_concurrentConnections >= maxConnsPerClient) {
+      cerr<<"dropping connection from "<<from.toString()<<": too many conns"<<endl;
       return NewConnectionResult::Denied;
     }
     if (!checkTCPConnectionsRate(entry.d_activity, now)) {
+      //cerr<<"dropping connection from "<<from.toString()<<": rate"<<endl;
       return NewConnectionResult::Denied;
     }
     updateActivity(entry);
@@ -114,6 +117,7 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
     if (threshold == 0 || current < threshold) {
       return NewConnectionResult::Allowed;
     }
+    cerr<<"restricting connection from "<<from.toString()<<": too many conns"<<endl;
     return NewConnectionResult::Restricted;
   };
 

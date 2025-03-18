@@ -1149,6 +1149,7 @@ bool IncomingTCPConnectionState::readIncomingQuery(const timeval& now, IOState& 
   if (!d_lastIOBlocked && (d_state == State::waitingForQuery || d_state == State::readingQuerySize)) {
     DEBUGLOG("reading query size");
     d_buffer.resize(sizeof(uint16_t));
+    d_readIOCounter++;
     iostate = d_handler.tryRead(d_buffer, d_currentPos, sizeof(uint16_t));
     if (d_currentPos > 0) {
       /* if we got at least one byte, we can't go around sending responses */
@@ -1157,6 +1158,7 @@ bool IncomingTCPConnectionState::readIncomingQuery(const timeval& now, IOState& 
 
     if (iostate == IOState::Done) {
       DEBUGLOG("query size received");
+//      cerr<<"got query size, IO counter is now "<<d_readIOCounter<<endl;
       d_state = State::readingQuery;
       d_querySizeReadTime = now;
       if (d_queriesCount == 0) {
@@ -1179,11 +1181,13 @@ bool IncomingTCPConnectionState::readIncomingQuery(const timeval& now, IOState& 
 
   if (!d_lastIOBlocked && d_state == State::readingQuery) {
     DEBUGLOG("reading query");
+    d_readIOCounter++;
     iostate = d_handler.tryRead(d_buffer, d_currentPos, d_querySize);
     if (iostate == IOState::Done) {
       iostate = handleIncomingQueryReceived(now);
     }
     else {
+//      cerr<<"IO blocked, IO counter is now "<<d_readIOCounter<<endl;
       d_lastIOBlocked = true;
     }
   }
@@ -1207,6 +1211,12 @@ void IncomingTCPConnectionState::handleIO()
       vinfolog("Terminating TCP connection from %s because it reached the maximum TCP connection duration", d_ci.remote.toStringWithPort());
       // will be handled by the ioGuard
       // handleNewIOState(state, IOState::Done, fd, handleIOCallback);
+      return;
+    }
+
+    if (d_readIOCounter >= 100) {
+      dnsdist::IncomingConcurrentTCPConnectionsManager::banClientFor(d_ci.remote, time(nullptr), 60);
+      //cerr<<"terminating TCP connection: too many read IOs"<<endl;
       return;
     }
 

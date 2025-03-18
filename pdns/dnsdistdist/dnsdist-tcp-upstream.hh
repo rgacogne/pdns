@@ -153,6 +153,7 @@ public:
   size_t d_currentQueriesCount{0};
   std::thread::id d_creatorThreadID;
   uint16_t d_querySize{0};
+  uint16_t d_readIOCounter{0};
   State d_state{State::starting};
   bool d_isXFR{false};
   bool d_proxyProtocolPayloadHasTLV{false};
