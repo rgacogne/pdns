@@ -125,6 +125,10 @@ static std::pair<std::shared_ptr<TCPConnectionToBackend>, bool> getOwnedDownstre
 
 bool IncomingTCPConnectionState::isNearTCPLimits() const
 {
+  if (d_ci.d_restricted) {
+    return true;
+  }
+
   const auto tcpConnectionsOverloadThreshold = dnsdist::configuration::getImmutableConfiguration().d_tcpConnectionsOverloadThreshold;
   if (tcpConnectionsOverloadThreshold == 0) {
     return false;
@@ -286,6 +290,7 @@ bool IncomingTCPConnectionState::canAcceptNewQueries(const struct timeval& now)
   }
 
   if (isNearTCPLimits()) {
+    d_ci.d_restricted = true;
     DEBUGLOG("not accepting new queries because we already near our TCP limits");
     return false;
   }
@@ -1746,11 +1751,15 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
       return;
     }
 
-    if (!dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote)) {
+    auto connectionResult = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote);
+    if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Denied) {
       vinfolog("Dropping TCP connection from %s because we have too many from this client already", remote.toStringWithPort());
       return;
     }
     tcpClientCountIncremented = true;
+    if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Restricted) {
+      connInfo.d_restricted = true;
+    }
 
     vinfolog("Got TCP connection from %s", remote.toStringWithPort());
 

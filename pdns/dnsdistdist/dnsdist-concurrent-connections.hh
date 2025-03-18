@@ -28,15 +28,12 @@ namespace dnsdist
 class IncomingConcurrentTCPConnectionsManager
 {
 public:
-  struct ClientActivity
-  {
-    uint64_t tcpConnections{0};
-    uint64_t tlsNewSessions{0}; /* without resumption */
-    uint64_t tlsResumedSessions{0};
-    time_t time{0};
+  enum class NewConnectionResult : uint8_t {
+    Allowed = 0,
+    Denied = 1,
+    Restricted = 2,
   };
-
-  static bool accountNewTCPConnection(const ComboAddress& from);
+  static NewConnectionResult accountNewTCPConnection(const ComboAddress& from);
   static bool isClientOverThreshold(const ComboAddress& from);
   static void accountClosedTCPConnection(const ComboAddress& from);
   static void banClientFor(const ComboAddress& from, time_t now, uint32_t seconds);

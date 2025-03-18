@@ -31,54 +31,90 @@
 
 namespace dnsdist
 {
+
+struct ClientActivity
+{
+  uint64_t tcpConnections{0};
+  uint64_t tlsNewSessions{0}; /* without resumption */
+  uint64_t tlsResumedSessions{0};
+  time_t bucketEndTime{0};
+};
+
 struct ClientEntry
 {
-  LockGuarded<boost::circular_buffer<IncomingConcurrentTCPConnectionsManager::ClientActivity>> d_activity;
+  boost::circular_buffer<ClientActivity> d_activity;
   uint64_t d_concurrentConnections{0};
   time_t d_bannedUntil{0};
   time_t d_lastSeen{0};
 };
 
 static LockGuarded<std::unordered_map<ComboAddress, std::unique_ptr<ClientEntry>, ComboAddress::addressOnlyHash, ComboAddress::addressOnlyEqual>> s_tcpClientsConnectionMetrics;
-static constexpr size_t NB_BUCKETS = 30;
+static constexpr size_t NB_BUCKETS = 5;
+static constexpr size_t MAX_TCP_CONNECTIONS_PER_MINUTE = 10;
 
-void IncomingConcurrentTCPConnectionsManager::cleanup(time_t now)
+static bool checkTCPConnectionsRate(const boost::circular_buffer<ClientActivity>& activity, time_t now)
+{
+  uint64_t bucketsConsidered = 0;
+  uint64_t connectionsSeen = 0;
+  time_t cutOff = now - (NB_BUCKETS * 60);
+  for (const auto& entry : activity) {
+    if (entry.bucketEndTime < cutOff) {
+      continue;
+    }
+    ++bucketsConsidered;
+    connectionsSeen += entry.tcpConnections;
+  }
+  if (bucketsConsidered == 0) {
+    return true;
+  }
+  auto rate = connectionsSeen / bucketsConsidered;
+  return rate <= MAX_TCP_CONNECTIONS_PER_MINUTE;
+}
+
+void IncomingConcurrentTCPConnectionsManager::cleanup(time_t /* now */)
 {
   #warning TODO
 }
 
-bool IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(const ComboAddress& from)
+IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(const ComboAddress& from)
 {
   const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
   const auto maxConnsPerClient = immutable.d_maxTCPConnectionsPerClient;
+  const auto threshold = immutable.d_tcpConnectionsOverloadThreshold;
   if (maxConnsPerClient == 0) {
-    return true;
+    return NewConnectionResult::Allowed;
   }
 
   auto now = time(nullptr);
   auto updateActivity = [now](ClientEntry& entry) {
     entry.d_lastSeen = now;
     {
-      auto activity = entry.d_activity.lock();
-      if (activity->empty() || activity->front().time != now) {
-        activity->push_front(ClientActivity{1, 0, 0, now});
+      auto& activity = entry.d_activity;
+      if (activity.empty() || activity.front().bucketEndTime > now) {
+        activity.push_front(ClientActivity{1, 0, 0, now + 60});
       }
-      ++activity->front().tcpConnections;
+      ++activity.front().tcpConnections;
       return;
     }
   };
 
-  auto updatedLockedAndEntryPresent = [from, now, maxConnsPerClient, &updateActivity](ClientEntry& entry) {
+  auto updatedLockedAndEntryPresent = [now, maxConnsPerClient, threshold, &updateActivity](ClientEntry& entry) {
     if (entry.d_bannedUntil != 0 && entry.d_bannedUntil < now) {
-      return false;
+      return NewConnectionResult::Denied;
     }
     if (entry.d_concurrentConnections >= maxConnsPerClient) {
-      return false;
+      return NewConnectionResult::Denied;
+    }
+    if (!checkTCPConnectionsRate(entry.d_activity, now)) {
+      return NewConnectionResult::Denied;
     }
     updateActivity(entry);
     ++entry.d_concurrentConnections;
-    cerr<<"updating existing entry for "<<from.toString()<<" new count is now "<<entry.d_concurrentConnections<<endl;
-    return true;
+    auto current = (100 * entry.d_concurrentConnections) / maxConnsPerClient;
+    if (threshold == 0 || current < threshold) {
+      return NewConnectionResult::Allowed;
+    }
+    return NewConnectionResult::Restricted;
   };
 
   {
@@ -86,12 +122,11 @@ bool IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(const Comb
     const auto& entry = db->find(from);
     if (entry == db->end()) {
       auto newEntry = std::make_unique<ClientEntry>();
-      newEntry->d_activity.lock()->set_capacity(NB_BUCKETS);
+      newEntry->d_activity.set_capacity(NB_BUCKETS);
       newEntry->d_concurrentConnections = 1;
       newEntry->d_lastSeen = now;
       db->emplace(from, std::move(newEntry));
-      cerr<<"no existing entry for "<<from.toString()<<" we now have "<<db->size()<<" entries"<<endl;
-      return true;
+      return NewConnectionResult::Allowed;
     }
     return updatedLockedAndEntryPresent(*entry->second);
   }
