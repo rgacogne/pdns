@@ -316,7 +316,7 @@ testrunner_SOURCES = \
 	dnsdist-backend.cc dnsdist-backend.hh \
 	dnsdist-backoff.hh \
 	dnsdist-cache.cc dnsdist-cache.hh \
-	dnsdist-concurrent-connections.hh \
+	dnsdist-concurrent-connections.cc dnsdist-concurrent-connections.hh \
 	dnsdist-configuration.cc dnsdist-configuration.hh \
 	dnsdist-crypto.cc dnsdist-crypto.hh \
 	dnsdist-dnsparser.cc dnsdist-dnsparser.hh \
