@@ -22,7 +22,11 @@
 
 #include "dnsdist-concurrent-connections.hh"
 
-#include <unordered_map>
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index/hashed_index.hpp>
+#include <boost/multi_index/key_extractors.hpp>
+
 #include <utility>
 
 #include "circular_buffer.hh"
@@ -31,6 +35,10 @@
 
 namespace dnsdist
 {
+
+static constexpr size_t NB_SHARDS = 10;
+static constexpr size_t NB_BUCKETS = 5;
+static constexpr size_t MAX_TCP_CONNECTIONS_PER_MINUTE = 1000;
 
 struct ClientActivity
 {
@@ -42,15 +50,35 @@ struct ClientActivity
 
 struct ClientEntry
 {
-  boost::circular_buffer<ClientActivity> d_activity;
-  uint64_t d_concurrentConnections{0};
-  time_t d_bannedUntil{0};
+  mutable boost::circular_buffer<ClientActivity> d_activity;
+  ComboAddress d_addr;
+  mutable uint64_t d_concurrentConnections{0};
+  mutable time_t d_bannedUntil{0};
   time_t d_lastSeen{0};
 };
 
-static LockGuarded<std::unordered_map<ComboAddress, std::unique_ptr<ClientEntry>, ComboAddress::addressOnlyHash, ComboAddress::addressOnlyEqual>> s_tcpClientsConnectionMetrics;
-static constexpr size_t NB_BUCKETS = 5;
-static constexpr size_t MAX_TCP_CONNECTIONS_PER_MINUTE = 1000;
+struct TimeTag
+{
+};
+struct AddressTag
+{
+};
+
+using map_t = boost::multi_index_container<
+  ClientEntry,
+  boost::multi_index::indexed_by<
+    boost::multi_index::hashed_unique<boost::multi_index::tag<AddressTag>,
+                                      boost::multi_index::member<ClientEntry, ComboAddress, &ClientEntry::d_addr>, ComboAddress::addressOnlyHash, ComboAddress::addressOnlyEqual>,
+    boost::multi_index::ordered_non_unique<boost::multi_index::tag<TimeTag>,
+                                           boost::multi_index::member<ClientEntry, time_t, &ClientEntry::d_lastSeen>>>>;
+
+static std::vector<LockGuarded<map_t>> s_tcpClientsConnectionMetrics{10};
+
+static size_t getShardID(const ComboAddress& from)
+{
+  auto hash = ComboAddress::addressOnlyHash()(from);
+  return hash % NB_SHARDS;
+}
 
 static bool checkTCPConnectionsRate(const boost::circular_buffer<ClientActivity>& activity, time_t now)
 {
@@ -68,12 +96,29 @@ static bool checkTCPConnectionsRate(const boost::circular_buffer<ClientActivity>
     return true;
   }
   auto rate = connectionsSeen / bucketsConsidered;
+  if (rate > MAX_TCP_CONNECTIONS_PER_MINUTE) {
+    cerr<<"rate is "<<rate<<": "<<connectionsSeen<<" over "<<bucketsConsidered<<" buckets"<<endl;
+  }
   return rate <= MAX_TCP_CONNECTIONS_PER_MINUTE;
 }
 
-void IncomingConcurrentTCPConnectionsManager::cleanup(time_t /* now */)
+void IncomingConcurrentTCPConnectionsManager::cleanup(time_t now)
 {
-  #warning TODO
+  time_t cutOff = now - (NB_BUCKETS * 60);
+  for (auto& shard : s_tcpClientsConnectionMetrics) {
+    auto db = shard.lock();
+    auto& index = db->get<TimeTag>();
+    for (auto entry = index.begin(); entry != index.end();) {
+      if (entry->d_lastSeen >= cutOff) {
+        /* this index is ordered on timestamps,
+           so the first valid entry we see means we are done */
+        break;
+      }
+
+      cerr<<"removing expired entry for "<<entry->d_addr.toString()<<endl;
+      entry = index.erase(entry);
+    }
+  }
 }
 
 IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(const ComboAddress& from)
@@ -87,6 +132,7 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
 
   auto now = time(nullptr);
   auto updateActivity = [now](ClientEntry& entry) {
+    ++entry.d_concurrentConnections;
     entry.d_lastSeen = now;
     {
       auto& activity = entry.d_activity;
@@ -94,11 +140,10 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
         activity.push_front(ClientActivity{1, 0, 0, now + 60});
       }
       ++activity.front().tcpConnections;
-      return;
     }
   };
 
-  auto updatedLockedAndEntryPresent = [now, from, maxConnsPerClient, threshold, &updateActivity](ClientEntry& entry) {
+  auto checkConnectionAllowed = [now, from, maxConnsPerClient, threshold](const ClientEntry& entry) {
     if (entry.d_bannedUntil != 0 && entry.d_bannedUntil < now) {
       cerr<<"dropping connection from "<<from.toString()<<": banned"<<endl;
       return NewConnectionResult::Denied;
@@ -108,11 +153,10 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
       return NewConnectionResult::Denied;
     }
     if (!checkTCPConnectionsRate(entry.d_activity, now)) {
-      //cerr<<"dropping connection from "<<from.toString()<<": rate"<<endl;
+      cerr<<"dropping connection from "<<from.toString()<<": rate"<<endl;
       return NewConnectionResult::Denied;
     }
-    updateActivity(entry);
-    ++entry.d_concurrentConnections;
+
     auto current = (100 * entry.d_concurrentConnections) / maxConnsPerClient;
     if (threshold == 0 || current < threshold) {
       return NewConnectionResult::Allowed;
@@ -122,17 +166,24 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
   };
 
   {
-    auto db = s_tcpClientsConnectionMetrics.lock();
+    auto shardID = getShardID(from);
+    auto db = s_tcpClientsConnectionMetrics.at(shardID).lock();
     const auto& entry = db->find(from);
     if (entry == db->end()) {
-      auto newEntry = std::make_unique<ClientEntry>();
-      newEntry->d_activity.set_capacity(NB_BUCKETS);
-      newEntry->d_concurrentConnections = 1;
-      newEntry->d_lastSeen = now;
-      db->emplace(from, std::move(newEntry));
+      ClientEntry newEntry;
+      newEntry.d_activity.set_capacity(NB_BUCKETS);
+      newEntry.d_addr = from;
+      newEntry.d_concurrentConnections = 1;
+      newEntry.d_lastSeen = now;
+      db->insert(std::move(newEntry));
+      cerr<<"inserting new entry for "<<from.toString()<<endl;
       return NewConnectionResult::Allowed;
     }
-    return updatedLockedAndEntryPresent(*entry->second);
+    auto result = checkConnectionAllowed(*entry);
+    if (result != NewConnectionResult::Denied) {
+      db->modify(entry, updateActivity);
+    }
+    return result;
   }
 }
 
@@ -145,13 +196,14 @@ bool IncomingConcurrentTCPConnectionsManager::isClientOverThreshold(const ComboA
   }
 
   size_t count = 0;
+  auto shardID = getShardID(from);
   {
-    auto db = s_tcpClientsConnectionMetrics.lock();
+    auto db = s_tcpClientsConnectionMetrics.at(shardID).lock();
     auto it = db->find(from);
     if (it == db->end()) {
       return false;
     }
-    count = it->second->d_concurrentConnections;
+    count = it->d_concurrentConnections;
   }
 
   auto current = (100 * count) / maxConnsPerClient;
@@ -160,11 +212,17 @@ bool IncomingConcurrentTCPConnectionsManager::isClientOverThreshold(const ComboA
 
 void IncomingConcurrentTCPConnectionsManager::banClientFor(const ComboAddress& from, time_t now, uint32_t seconds)
 {
+  auto shardID = getShardID(from);
   {
-    auto db = s_tcpClientsConnectionMetrics.lock();
-    auto& entry = (*db)[from];
-    entry->d_lastSeen = now;
-    entry->d_bannedUntil = now + seconds;
+    auto db = s_tcpClientsConnectionMetrics.at(shardID).lock();
+    auto it = db->find(from);
+    if (it == db->end()) {
+      return;
+    }
+    db->modify(it, [now, seconds](ClientEntry& entry) {
+      entry.d_lastSeen = now;
+      entry.d_bannedUntil = now + seconds;
+    });
   }
 }
 
@@ -174,9 +232,14 @@ void IncomingConcurrentTCPConnectionsManager::accountClosedTCPConnection(const C
   if (maxConnsPerClient == 0) {
     return;
   }
+  auto shardID = getShardID(from);
   {
-    auto db = s_tcpClientsConnectionMetrics.lock();
-    auto& count = db->at(from)->d_concurrentConnections;
+    auto db = s_tcpClientsConnectionMetrics.at(shardID).lock();
+    auto it = db->find(from);
+    if (it == db->end()) {
+      return;
+    }
+    auto& count = it->d_concurrentConnections;
     count--;
   }
 }

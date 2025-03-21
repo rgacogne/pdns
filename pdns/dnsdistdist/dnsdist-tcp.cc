@@ -321,6 +321,7 @@ void IncomingTCPConnectionState::resetForNewQuery()
   d_currentPos = 0;
   d_querySize = 0;
   d_state = State::waitingForQuery;
+  d_readIOCounter = 0;
 }
 
 boost::optional<timeval> IncomingTCPConnectionState::getClientReadTTD(timeval now) const
@@ -1685,6 +1686,7 @@ static void tcpClientThread(pdns::channel::Receiver<ConnectionInfo>&& queryRecei
 
       try {
         t_downstreamTCPConnectionsManager.cleanupClosedConnections(now);
+        dnsdist::IncomingConcurrentTCPConnectionsManager::cleanup(time(nullptr));
 
         if (now.tv_sec > lastTimeoutScan) {
           lastTimeoutScan = now.tv_sec;
