@@ -328,7 +328,7 @@ boost::optional<timeval> IncomingTCPConnectionState::getClientReadTTD(timeval no
 {
   const auto& runtimeConfiguration = dnsdist::configuration::getCurrentRuntimeConfiguration();
   if (!isNearTCPLimits() && runtimeConfiguration.d_maxTCPConnectionDuration == 0 && runtimeConfiguration.d_tcpRecvTimeout == 0) {
-      return boost::none;
+    return boost::none;
   }
 
   size_t maxTCPConnectionDuration = runtimeConfiguration.d_maxTCPConnectionDuration;
@@ -393,7 +393,7 @@ bool IncomingTCPConnectionState::maxConnectionDurationReached(unsigned int maxCo
     unsigned int elapsed = 0;
     if (curtime > d_connectionStartTime.tv_sec) { // To prevent issues when time goes backward
       elapsed = curtime - d_connectionStartTime.tv_sec;
-      }
+    }
     if (elapsed >= maxConnectionDuration) {
       return true;
     }
@@ -1159,7 +1159,6 @@ bool IncomingTCPConnectionState::readIncomingQuery(const timeval& now, IOState& 
 
     if (iostate == IOState::Done) {
       DEBUGLOG("query size received");
-//      cerr<<"got query size, IO counter is now "<<d_readIOCounter<<endl;
       d_state = State::readingQuery;
       d_querySizeReadTime = now;
       if (d_queriesCount == 0) {
@@ -1188,7 +1187,6 @@ bool IncomingTCPConnectionState::readIncomingQuery(const timeval& now, IOState& 
       iostate = handleIncomingQueryReceived(now);
     }
     else {
-//      cerr<<"IO blocked, IO counter is now "<<d_readIOCounter<<endl;
       d_lastIOBlocked = true;
     }
   }

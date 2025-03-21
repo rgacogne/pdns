@@ -96,9 +96,6 @@ static bool checkTCPConnectionsRate(const boost::circular_buffer<ClientActivity>
     return true;
   }
   auto rate = connectionsSeen / bucketsConsidered;
-  if (rate > MAX_TCP_CONNECTIONS_PER_MINUTE) {
-    cerr<<"rate is "<<rate<<": "<<connectionsSeen<<" over "<<bucketsConsidered<<" buckets"<<endl;
-  }
   return rate <= MAX_TCP_CONNECTIONS_PER_MINUTE;
 }
 
@@ -115,7 +112,6 @@ void IncomingConcurrentTCPConnectionsManager::cleanup(time_t now)
         break;
       }
 
-      cerr<<"removing expired entry for "<<entry->d_addr.toString()<<endl;
       entry = index.erase(entry);
     }
   }
@@ -145,15 +141,12 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
 
   auto checkConnectionAllowed = [now, from, maxConnsPerClient, threshold](const ClientEntry& entry) {
     if (entry.d_bannedUntil != 0 && entry.d_bannedUntil < now) {
-      cerr<<"dropping connection from "<<from.toString()<<": banned"<<endl;
       return NewConnectionResult::Denied;
     }
     if (entry.d_concurrentConnections >= maxConnsPerClient) {
-      cerr<<"dropping connection from "<<from.toString()<<": too many conns"<<endl;
       return NewConnectionResult::Denied;
     }
     if (!checkTCPConnectionsRate(entry.d_activity, now)) {
-      cerr<<"dropping connection from "<<from.toString()<<": rate"<<endl;
       return NewConnectionResult::Denied;
     }
 
@@ -161,7 +154,6 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
     if (threshold == 0 || current < threshold) {
       return NewConnectionResult::Allowed;
     }
-    cerr<<"restricting connection from "<<from.toString()<<": too many conns"<<endl;
     return NewConnectionResult::Restricted;
   };
 
@@ -176,7 +168,6 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
       newEntry.d_concurrentConnections = 1;
       newEntry.d_lastSeen = now;
       db->insert(std::move(newEntry));
-      cerr<<"inserting new entry for "<<from.toString()<<endl;
       return NewConnectionResult::Allowed;
     }
     auto result = checkConnectionAllowed(*entry);
@@ -243,6 +234,5 @@ void IncomingConcurrentTCPConnectionsManager::accountClosedTCPConnection(const C
     count--;
   }
 }
-
 
 }

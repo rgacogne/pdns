@@ -28,7 +28,8 @@ namespace dnsdist
 class IncomingConcurrentTCPConnectionsManager
 {
 public:
-  enum class NewConnectionResult : uint8_t {
+  enum class NewConnectionResult : uint8_t
+  {
     Allowed = 0,
     Denied = 1,
     Restricted = 2,
