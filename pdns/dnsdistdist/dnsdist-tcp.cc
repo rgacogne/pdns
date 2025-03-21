@@ -72,7 +72,7 @@ IncomingTCPConnectionState::~IncomingTCPConnectionState()
     gettimeofday(&now, nullptr);
 
     auto diff = now - d_connectionStartTime;
-    d_ci.cs->updateTCPMetrics(d_queriesCount, diff.tv_sec * 1000 + diff.tv_usec / 1000);
+    d_ci.cs->updateTCPMetrics(d_queriesCount, diff.tv_sec * 1000 + diff.tv_usec / 1000, d_readIOCounter);
   }
 
   // would have been done when the object is destroyed anyway,

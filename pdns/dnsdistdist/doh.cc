@@ -327,7 +327,7 @@ static void on_socketclose(void *data)
       auto diff = now - conn->d_connectionStartTime;
 
       conn->d_acceptCtx->decrementConcurrentConnections();
-      conn->d_acceptCtx->d_cs->updateTCPMetrics(conn->d_nbQueries, diff.tv_sec * 1000 + diff.tv_usec / 1000);
+      conn->d_acceptCtx->d_cs->updateTCPMetrics(conn->d_nbQueries, diff.tv_sec * 1000 + diff.tv_usec / 1000, 0);
     }
 
     dnsdist::IncomingConcurrentTCPConnectionsManager::accountClosedTCPConnection(conn->d_remote);
