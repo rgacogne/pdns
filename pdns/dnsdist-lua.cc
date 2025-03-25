@@ -642,7 +642,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                          auto ret = std::make_shared<DownstreamState>(std::move(config), std::move(tlsCtx), !(client || configCheck));
 #ifdef HAVE_XSK
                          LuaArray<std::shared_ptr<XskSocket>> luaXskSockets;
-                         if (getOptionalValue<LuaArray<std::shared_ptr<XskSocket>>>(vars, "xskSockets", luaXskSockets) > 0 && !luaXskSockets.empty()) {
+                         if (!client && !configCheck && getOptionalValue<LuaArray<std::shared_ptr<XskSocket>>>(vars, "xskSockets", luaXskSockets) > 0 && !luaXskSockets.empty()) {
                            if (g_configurationDone) {
                              throw std::runtime_error("Adding a server with xsk at runtime is not supported");
                            }
@@ -667,6 +667,12 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                          }
                          else if (!(client || configCheck)) {
                            infolog("Added downstream server %s", ret->d_config.remote.toStringWithPort());
+                         }
+                         else {
+                           /* consume these in client or configuration check mode, to prevent warnings */
+                           std::string mac;
+                           getOptionalValue<std::string>(vars, "MACAddr", mac);
+                           getOptionalValue<LuaArray<std::shared_ptr<XskSocket>>>(vars, "xskSockets", luaXskSockets);
                          }
 #else /* HAVE_XSK */
       if (!(client || configCheck)) {
