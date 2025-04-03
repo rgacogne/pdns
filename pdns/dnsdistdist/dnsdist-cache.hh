@@ -176,9 +176,14 @@ private:
       FIFOType d_smallFIFO;
     };
 
+    enum class EvictionType : uint8_t
+    {
+      NeedRoomInMap,
+      NeedRoomInFIFO,
+    };
     void evict(ShardData& data);
-    void evictMain(ShardData& data);
-    void evictSmall(ShardData& data);
+    void evictMain(ShardData& data, EvictionType evictionType);
+    void evictSmall(ShardData& data, EvictionType evictionType);
 
     SharedLockGuarded<ShardData> d_data;
     std::atomic<uint64_t> d_entriesCount{0};

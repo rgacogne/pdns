@@ -49,10 +49,8 @@ DNSDistPacketCache::DNSDistPacketCache(CacheSettings settings) :
 
   d_shards.resize(d_settings.d_shardCount);
 
-  /* we reserve maxEntries + 1 to avoid rehashing from occurring
-     when we get to maxEntries, as it means a load factor of 1 */
   for (auto& shard : d_shards) {
-    shard.setSize((d_settings.d_maxEntries / d_settings.d_shardCount) + 1);
+    shard.setSize(d_settings.d_maxEntries / d_settings.d_shardCount);
   }
 }
 
@@ -97,17 +95,20 @@ bool DNSDistPacketCache::cachedValueMatches(const CacheValue& cachedValue, uint1
   return true;
 }
 
-void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
+void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data, EvictionType evictionType)
 {
   bool evicted = false;
   auto now = time(nullptr);
   while (!evicted && !data.d_smallFIFO.empty()) {
     auto key = data.d_smallFIFO.back();
     data.d_smallFIFO.pop_back();
-    const auto entryIt = data.d_map.find(key);
+    auto entryIt = data.d_map.find(key);
     if (entryIt == data.d_map.end()) {
       // entry has been (manually?) removed from the cache already,
       // move on
+      if (evictionType == EvictionType::NeedRoomInFIFO) {
+        return;
+      }
       continue;
     }
     if (entryIt->second.validity <= now) {
@@ -118,7 +119,7 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
     else if (entryIt->second.freq.inner.load() > 0) {
       // at least one hit, move it to main
       if (data.d_mainFIFO.full()) {
-        evictMain(data);
+        evictMain(data, EvictionType::NeedRoomInFIFO);
       }
       entryIt->second.freq.inner.store(0);
       data.d_mainFIFO.push_front(key);
@@ -130,26 +131,35 @@ void DNSDistPacketCache::CacheShard::evictSmall(CacheShard::ShardData& data)
       if (data.d_ghostFIFO.full()) {
         auto ghostKey = data.d_ghostFIFO.back();
         data.d_ghostFIFO.pop_back();
-        data.d_map.erase(ghostKey);
+        auto ghostIt = data.d_map.find(ghostKey);
+        // the check might seem silly but we do not
+        // remove an entry from the ghost FIFO when
+        // we insert it again into main
+        if (ghostIt != data.d_map.end() && ghostIt->second.isGhost()) {
+          data.d_map.erase(ghostIt);
+        }
       }
-      data.d_ghostFIFO.push_back(key);
+      data.d_ghostFIFO.push_front(key);
       --d_entriesCount;
       evicted = true;
     }
   }
 }
 
-void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
+void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data, EvictionType evictionType)
 {
   bool evicted = false;
   auto now = time(nullptr);
   while (!evicted && !data.d_mainFIFO.empty()) {
     auto key = data.d_mainFIFO.back();
     data.d_mainFIFO.pop_back();
-    const auto entryIt = data.d_map.find(key);
+    auto entryIt = data.d_map.find(key);
     if (entryIt == data.d_map.end()) {
       // entry has been (manually?) removed from the cache already,
       // move on
+      if (evictionType == EvictionType::NeedRoomInFIFO) {
+        return;
+      }
       continue;
     }
     auto freq = entryIt->second.freq.inner.load();
@@ -173,10 +183,10 @@ void DNSDistPacketCache::CacheShard::evictMain(CacheShard::ShardData& data)
 void DNSDistPacketCache::CacheShard::evict(CacheShard::ShardData& data)
 {
   if (data.d_smallFIFO.full()) {
-    evictSmall(data);
+    evictSmall(data, EvictionType::NeedRoomInMap);
   }
   else {
-    evictMain(data);
+    evictMain(data, EvictionType::NeedRoomInMap);
   }
 }
 
@@ -184,13 +194,15 @@ void DNSDistPacketCache::CacheShard::setSize(size_t maxSize)
 {
   auto data = d_data.write_lock();
   const auto maxSizeDouble = static_cast<double>(maxSize);
-  const auto mainFIFOSize = std::round(maxSizeDouble * (1.0 - s_smallSizeRatio));
-  const auto ghostFIFOSize = std::round(maxSizeDouble * (1.0 - s_smallSizeRatio) / 2);
-  const auto smallFIFOSize = std::round(maxSizeDouble * s_smallSizeRatio);
+  const auto mainFIFOSize = std::trunc(maxSizeDouble * (1.0 - s_smallSizeRatio));
+  const auto ghostFIFOSize = std::trunc(maxSizeDouble * (1.0 - s_smallSizeRatio) / 2);
+  const auto smallFIFOSize = std::trunc(maxSizeDouble * s_smallSizeRatio);
   if (smallFIFOSize < 1) {
     throw std::runtime_error("Trying to create a too small packet cache, please consider increasing the size or reducing the number of shards");
   }
-  data->d_map.reserve(static_cast<size_t>(maxSizeDouble * (1.0 + s_ghostSizeRatio)));
+  /* we reserve maxEntries + 1 to avoid rehashing from occurring
+     when we get to maxEntries, as it means a load factor of 1 */
+  data->d_map.reserve(static_cast<size_t>(maxSizeDouble * (1.0 + s_ghostSizeRatio)) + 1);
   data->d_mainFIFO.set_capacity(static_cast<size_t>(mainFIFOSize));
   data->d_smallFIFO.set_capacity(static_cast<size_t>(smallFIFOSize));
   data->d_ghostFIFO.set_capacity(static_cast<size_t>(ghostFIFOSize));
@@ -205,24 +217,23 @@ void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& 
   auto [mapIt, result] = data.d_map.try_emplace(key, std::move(newValue));
 
   if (result) {
-    ++shard.d_entriesCount;
     if (data.d_smallFIFO.full()) {
-      shard.evictSmall(data);
+      shard.evictSmall(data, CacheShard::EvictionType::NeedRoomInFIFO);
     }
     data.d_smallFIFO.push_front(key);
-
+    ++shard.d_entriesCount;
     return;
   }
 
   CacheValue& value = mapIt->second;
   /* was the existing entry a ghost ? */
   if (value.isGhost()) {
-    ++shard.d_entriesCount;
     value = std::move(newValue);
     if (data.d_mainFIFO.full()) {
-      shard.evictMain(data);
+      shard.evictMain(data, CacheShard::EvictionType::NeedRoomInFIFO);
     }
     data.d_mainFIFO.push_front(key);
+    ++shard.d_entriesCount;
     return;
   }
 
