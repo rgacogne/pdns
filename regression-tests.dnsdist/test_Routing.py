@@ -505,7 +505,7 @@ class TestFirstAvailableQPSPacketCacheHits(DNSDistTest):
     s1:setUp()
     s2 = newServer{address="127.0.0.1:%s", order=1, qps=10}
     s2:setUp()
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     """
 

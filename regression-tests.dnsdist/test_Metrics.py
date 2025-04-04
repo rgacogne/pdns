@@ -22,7 +22,7 @@ class RuleMetricsTest(object):
     addAction('rcode-refused.metrics.tests.powerdns.com', RCodeAction(DNSRCode.REFUSED))
     addAction('rcode-servfail.metrics.tests.powerdns.com', RCodeAction(DNSRCode.SERVFAIL))
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
     addAction('cache.metrics.tests.powerdns.com', PoolAction('cache'))
     """

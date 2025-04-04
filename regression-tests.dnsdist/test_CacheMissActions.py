@@ -14,7 +14,7 @@ class TestCacheMissSelfAnswered(DNSDistTest):
     controlSocket("127.0.0.1:%d")
     newServer{address="127.0.0.1:%d"}
 
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     -- this does not really make sense on its own, but we might want
     -- to refuse queries for a domain under attack if the anwer is not cached
@@ -85,7 +85,7 @@ class TestCacheMissGoToADifferentPool(DNSDistTest):
     newServer{address="127.0.0.1:%d", pool="slow", name="slow"}
     newServer{address="127.0.0.1:%d", pool="initial", name="initial"}
 
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool("initial"):setCache(pc)
     getPool("slow"):setCache(pc)
 

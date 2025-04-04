@@ -53,11 +53,9 @@ public:
     bool d_parseECS{false};
     bool d_keepStaleData{false};
   };
-
   DNSDistPacketCache(CacheSettings settings);
 
   using KeyType = uint32_t;
-
   void insert(KeyType key, const boost::optional<Netmask>& subnet, uint16_t queryFlags, bool dnssecOK, const DNSName& qname, uint16_t qtype, uint16_t qclass, const PacketBuffer& response, bool receivedOverUDP, uint8_t rcode, boost::optional<uint32_t> tempFailureTTL);
   bool get(DNSQuestion& dnsQuestion, uint16_t queryId, KeyType* keyOut, boost::optional<Netmask>& subnet, bool dnssecOK, bool receivedOverUDP, uint32_t allowExpired = 0, bool skipAging = false, bool truncatedOK = true, bool recordMiss = true);
   size_t purgeExpired(size_t upTo, const time_t now);
@@ -155,10 +153,10 @@ private:
 
   class CacheShard
   {
+  public:
     static constexpr double s_ghostSizeRatio = 0.5;
     static constexpr double s_smallSizeRatio = 0.1;
 
-  public:
     CacheShard()
     {
     }

@@ -46,6 +46,10 @@ DNSDistPacketCache::DNSDistPacketCache(CacheSettings settings) :
   if (d_settings.d_shardCount == 0) {
     d_settings.d_shardCount = 1;
   }
+  else if (d_settings.d_shardCount > 1 && (d_settings.d_maxEntries / d_settings.d_shardCount) <= 10) {
+    warnlog("The number of entries in the packet cache is too low compared to the number of shards, reducing the number of shards to 1");
+    d_settings.d_shardCount = 1;
+  }
 
   d_shards.resize(d_settings.d_shardCount);
 
@@ -210,7 +214,7 @@ void DNSDistPacketCache::CacheShard::setSize(size_t maxSize)
 
 void DNSDistPacketCache::insertLocked(CacheShard& shard, CacheShard::ShardData& data, uint32_t key, CacheValue&& newValue)
 {
-  while (data.d_map.size() >= (d_settings.d_maxEntries / d_settings.d_shardCount)) {
+  while (shard.d_entriesCount >= (d_settings.d_maxEntries / d_settings.d_shardCount)) {
     shard.evict(data);
   }
 

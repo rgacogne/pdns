@@ -553,7 +553,7 @@ class TestProtobufCacheHit(DNSDistProtobufTest):
     _config_template = """
     newServer{address="127.0.0.1:%s"}
     rl = newRemoteLogger('127.0.0.1:%d')
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
 
     addResponseAction(AllRule(), RemoteLogResponseAction(rl, nil, false, {serverID='dnsdist-server-1'}))

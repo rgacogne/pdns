@@ -10,7 +10,7 @@ from dnsdisttests import DNSDistTest, pickAvailablePort
 class TestCaching(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     addAction(SuffixMatchNodeRule("nocache.cache.tests.powerdns.com."), SetSkipCacheAction())
     addResponseAction(SuffixMatchNodeRule("nocache-response.cache.tests.powerdns.com."), SetSkipCacheResponseAction())
@@ -710,7 +710,7 @@ class TestCaching(DNSDistTest):
 class TestCachingHashingOptions(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, cookieHashing=true, skipOptions={8}})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, cookieHashing=true, skipOptions={8}})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
@@ -751,7 +751,7 @@ class TestCachingHashingOptions(DNSDistTest):
 class TestCachingHashingCookies(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, cookieHashing=true})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, cookieHashing=true})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
@@ -943,7 +943,7 @@ class TestTempFailureCacheTTLAction(DNSDistTest):
 
     _extraStartupSleep = 1
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     addAction("servfail.cache.tests.powerdns.com.", SetTempFailureCacheTTLAction(1))
     newServer{address="127.0.0.1:%d"}
@@ -988,7 +988,7 @@ class TestTempFailureCacheTTLAction(DNSDistTest):
 class TestCachingWithExistingEDNS(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
@@ -1115,7 +1115,7 @@ class TestCachingNoStale(DNSDistTest):
     _consoleKeyB64 = base64.b64encode(_consoleKey).decode('ascii')
     _config_params = ['_consoleKeyB64', '_consolePort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     setKey("%s")
     controlSocket("127.0.0.1:%d")
@@ -1166,7 +1166,7 @@ class TestCachingStale(DNSDistTest):
     _staleCacheTTL = 60
     _config_params = ['_staleCacheTTL', '_consoleKeyB64', '_consolePort', '_testServerPort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, temporaryFailureTTL=0, staleTTL=%d})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, temporaryFailureTTL=0, staleTTL=%d})
     getPool(""):setCache(pc)
     getPool("tcp-only"):setCache(pc)
     setStaleCacheEntriesTTL(600)
@@ -1278,7 +1278,7 @@ class TestCachingStaleExpunged(DNSDistTest):
     _staleCacheTTL = 60
     _config_params = ['_staleCacheTTL', '_consoleKeyB64', '_consolePort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, temporaryFailureTTL=0, staleTTL=%d})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, temporaryFailureTTL=0, staleTTL=%d})
     getPool(""):setCache(pc)
     setStaleCacheEntriesTTL(600)
     -- try to remove all expired entries
@@ -1352,7 +1352,7 @@ class TestCachingStaleExpungePrevented(DNSDistTest):
     _consoleKeyB64 = base64.b64encode(_consoleKey).decode('ascii')
     _config_params = ['_consoleKeyB64', '_consolePort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, temporaryFailureTTL=0, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=false, keepStaleData=true})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, temporaryFailureTTL=0, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=false, keepStaleData=true})
     getPool(""):setCache(pc)
     setStaleCacheEntriesTTL(600)
     -- try to remove all expired entries
@@ -1425,7 +1425,7 @@ class TestCacheManagement(DNSDistTest):
     _consoleKeyB64 = base64.b64encode(_consoleKey).decode('ascii')
     _config_params = ['_consoleKeyB64', '_consolePort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     setKey("%s")
     controlSocket("127.0.0.1:%d")
@@ -2206,7 +2206,7 @@ class TestCachingNegativeTTL(DNSDistTest):
 class TestCachingDontAge(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=0, temporaryFailureTTL=60, staleTTL=60, dontAge=true})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=0, temporaryFailureTTL=60, staleTTL=60, dontAge=true})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
@@ -2266,7 +2266,7 @@ class TestCachingECSWithoutPoolECS(DNSDistTest):
     _consoleKeyB64 = base64.b64encode(_consoleKey).decode('ascii')
     _config_params = ['_consoleKeyB64', '_consolePort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     setKey("%s")
     controlSocket("127.0.0.1:%d")
@@ -2320,7 +2320,7 @@ class TestCachingECSWithPoolECS(DNSDistTest):
     _consoleKeyB64 = base64.b64encode(_consoleKey).decode('ascii')
     _config_params = ['_consoleKeyB64', '_consolePort', '_testServerPort']
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, numberOfShards=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, numberOfShards=1})
     getPool(""):setCache(pc)
     getPool(""):setECS(true)
     setKey("%s")
@@ -2372,7 +2372,7 @@ class TestCachingECSWithPoolECS(DNSDistTest):
 class TestCachingCollisionNoECSParsing(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
@@ -2414,7 +2414,7 @@ class TestCachingCollisionNoECSParsing(DNSDistTest):
 class TestCachingCollisionWithECSParsing(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, temporaryFailureTTL=60, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=true})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, temporaryFailureTTL=60, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=true})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
@@ -2469,7 +2469,7 @@ class TestCachingScopeZero(DNSDistTest):
     _dohBaseURL = ("https://%s:%d/" % (_serverName, _dohServerPort))
     _config_template = """
     -- Be careful to enable ECS parsing in the packet cache, otherwise scope zero is disabled
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, temporaryFailureTTL=60, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=true})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, temporaryFailureTTL=60, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=true})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d", useClientSubnet=true}
     -- to simulate a second client coming from a different IP address,
@@ -2693,7 +2693,7 @@ class TestCachingScopeZeroButNoSubnetcheck(DNSDistTest):
 
     _config_template = """
     -- We disable ECS parsing in the packet cache, meaning scope zero is disabled
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, temporaryFailureTTL=60, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=false})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, temporaryFailureTTL=60, staleTTL=60, dontAge=false, numberOfShards=1, deferrableInsertLock=true, maxNegativeTTL=3600, parseECS=false})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d", useClientSubnet=true}
     -- to simulate a second client coming from a different IP address,
@@ -2757,7 +2757,7 @@ class TestCachingScopeZeroButNoSubnetcheck(DNSDistTest):
 class TestCachingAlteredHeader(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool(""):setCache(pc)
     addAction("cache-set-rd.tests.powerdns.com.", SetNoRecurseAction())
     newServer{address="127.0.0.1:%d"}
@@ -2824,7 +2824,7 @@ class TestCachingAlteredHeader(DNSDistTest):
 class TestCachingBackendSettingRD(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
@@ -2902,7 +2902,7 @@ class TestAPICache(DNSDistTest):
     newServer{address="127.0.0.1:%s"}
     webserver("127.0.0.1:%s")
     setWebserverConfig({password="%s", apiKey="%s"})
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool(""):setCache(pc)
     getPool("pool-with-cache"):setCache(pc)
     getPool("pool-without-cache")
@@ -3027,7 +3027,7 @@ class TestAPICache(DNSDistTest):
 class TestCachingOfVeryLargeAnswers(DNSDistTest):
 
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1, maximumEntrySize=8192})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1, maximumEntrySize=8192})
     getPool(""):setCache(pc)
     newServer{address="127.0.0.1:%d"}
     """
