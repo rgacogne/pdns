@@ -9,7 +9,7 @@ class TestCacheInsertedResponses(DNSDistTest):
     capTTLMax = 3600
     capTTLMin = 60
     _config_template = """
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     addCacheInsertedResponseAction(SuffixMatchNodeRule("cacheinsertedresponses.tests.powerdns.com."), LimitTTLResponseAction(%d, %d))
     newServer{address="127.0.0.1:%s"}
@@ -98,4 +98,3 @@ class TestCacheInsertedResponses(DNSDistTest):
         self.assertEqual(receivedResponse, responseOnMiss)
         self.assertGreater(receivedResponse.answer[0].ttl, initialTTL)
         self.assertLessEqual(receivedResponse.answer[0].ttl, self.capTTLMin)
-

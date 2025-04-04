@@ -279,7 +279,7 @@ class TestOutgoingDOHOpenSSL(DNSDistTest, OutgoingDOHTests):
     webserver("127.0.0.1:%s")
     setWebserverConfig({password="%s", apiKey="%s"})
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
     smn = newSuffixMatchNode()
     smn:add('cached.outgoing-doh.test.powerdns.com.')
@@ -323,7 +323,7 @@ class TestOutgoingDOHGnuTLS(DNSDistTest, OutgoingDOHTests):
     webserver("127.0.0.1:%s")
     setWebserverConfig({password="%s", apiKey="%s"})
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
     smn = newSuffixMatchNode()
     smn:add('cached.outgoing-doh.test.powerdns.com.')
@@ -383,7 +383,7 @@ pools:
     packet_cache: "pc"
 packet_caches:
   - name: "pc"
-    size: 100
+    size: 1000
 query_rules:
   - name: "suffix to pool"
     selector:
@@ -469,7 +469,7 @@ class TestOutgoingDOHOpenSSLWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTest
     webserver("127.0.0.1:%s")
     setWebserverConfig({password="%s", apiKey="%s"})
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
     smn = newSuffixMatchNode()
     smn:add('cached.outgoing-doh.test.powerdns.com.')
@@ -500,7 +500,7 @@ class TestOutgoingDOHGnuTLSWrongCertNameButNoCheck(DNSDistTest, OutgoingDOHTests
     webserver("127.0.0.1:%s")
     setWebserverConfig({password="%s", apiKey="%s"})
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
     smn = newSuffixMatchNode()
     smn:add('cached.outgoing-doh.test.powerdns.com.')
@@ -526,7 +526,7 @@ class TestOutgoingDOHBrokenResponsesOpenSSL(DNSDistTest, OutgoingDOHBrokenRespon
     webserver("127.0.0.1:%s")
     setWebserverConfig({password="%s", apiKey="%s"})
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
     smn = newSuffixMatchNode()
     smn:add('cached.outgoing-doh.test.powerdns.com.')

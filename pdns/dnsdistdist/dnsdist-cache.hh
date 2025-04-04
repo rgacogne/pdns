@@ -36,9 +36,26 @@ struct DNSQuestion;
 class DNSDistPacketCache : boost::noncopyable
 {
 public:
+  struct CacheSettings
+  {
+    std::unordered_set<uint16_t> d_optionsToSkip{EDNSOptionCode::COOKIE};
+    size_t d_maxEntries{0};
+    size_t d_maximumEntrySize{4096};
+    uint32_t d_maxTTL{86400};
+    uint32_t d_minTTL{0};
+    uint32_t d_tempFailureTTL{60};
+    uint32_t d_maxNegativeTTL{3600};
+    uint32_t d_staleTTL{60};
+    uint32_t d_shardCount{1};
+    bool d_dontAge{false};
+    bool d_deferrableInsertLock{true};
+    bool d_parseECS{false};
+    bool d_keepStaleData{false};
+  };
+
   using KeyType = uint32_t;
 
-  DNSDistPacketCache(size_t maxEntries, uint32_t maxTTL = 86400, uint32_t minTTL = 0, uint32_t tempFailureTTL = 60, uint32_t maxNegativeTTL = 3600, uint32_t staleTTL = 60, bool dontAge = false, uint32_t shards = 1, bool deferrableInsertLock = true, bool parseECS = false);
+  DNSDistPacketCache(const CacheSettings& settings);
 
   void insert(KeyType key, const boost::optional<Netmask>& subnet, uint16_t queryFlags, bool dnssecOK, const DNSName& qname, uint16_t qtype, uint16_t qclass, const PacketBuffer& response, bool receivedOverUDP, uint8_t rcode, boost::optional<uint32_t> tempFailureTTL);
   bool get(DNSQuestion& dnsQuestion, uint16_t queryId, KeyType* keyOut, boost::optional<Netmask>& subnet, bool dnssecOK, bool receivedOverUDP, uint32_t allowExpired = 0, bool skipAging = false, bool truncatedOK = true, bool recordMiss = true);
@@ -54,7 +71,7 @@ public:
   uint64_t getDeferredInserts() const { return d_deferredInserts.load(); }
   uint64_t getLookupCollisions() const { return d_lookupCollisions.load(); }
   uint64_t getInsertCollisions() const { return d_insertCollisions.load(); }
-  uint64_t getMaxEntries() const { return d_maxEntries; }
+  uint64_t getMaxEntries() const { return d_settings.d_maxEntries; }
   uint64_t getTTLTooShorts() const { return d_ttlTooShorts.load(); }
   uint64_t getCleanupCount() const { return d_cleanupCount.load(); }
   uint64_t getEntriesCount();
@@ -68,26 +85,14 @@ public:
   /* get the list of IP addresses contained in A or AAAA for a given domains (qname) */
   std::set<ComboAddress> getRecordsForDomain(const DNSName& domain);
 
-  void setSkippedOptions(const std::unordered_set<uint16_t>& optionsToSkip);
-
-  bool isECSParsingEnabled() const { return d_parseECS; }
+  bool isECSParsingEnabled() const { return d_settings.d_parseECS; }
 
   bool keepStaleData() const
   {
-    return d_keepStaleData;
-  }
-  void setKeepStaleData(bool keep)
-  {
-    d_keepStaleData = keep;
+    return d_settings.d_keepStaleData;
   }
 
-  void setECSParsingEnabled(bool enabled)
-  {
-    d_parseECS = enabled;
-  }
-
-  void setMaximumEntrySize(size_t maxSize);
-  size_t getMaximumEntrySize() const { return d_maximumEntrySize; }
+  size_t getMaximumEntrySize() const { return d_settings.d_maximumEntrySize; }
 
   KeyType getKey(const DNSName::string_t& qname, size_t qnameWireLength, const PacketBuffer& packet, bool receivedOverUDP);
 
@@ -149,10 +154,10 @@ private:
 
   class CacheShard
   {
+  public:
     static constexpr double s_ghostSizeRatio = 0.5;
     static constexpr double s_smallSizeRatio = 0.1;
 
-  public:
     CacheShard()
     {
     }
@@ -196,7 +201,6 @@ private:
   static size_t removeViaFIFO(CacheShard& shard, CacheShard::ShardData& data, FIFOToExpungeFrom from, size_t& toRemove, const time_t now, bool onlyExpired);
 
   std::vector<CacheShard> d_shards;
-  std::unordered_set<uint16_t> d_optionsToSkip{EDNSOptionCode::COOKIE};
 
   pdns::stat_t d_deferredLookups{0};
   pdns::stat_t d_deferredInserts{0};
@@ -207,16 +211,5 @@ private:
   pdns::stat_t d_ttlTooShorts{0};
   pdns::stat_t d_cleanupCount{0};
 
-  const size_t d_maxEntries;
-  size_t d_maximumEntrySize{4096};
-  const uint32_t d_shardCount;
-  const uint32_t d_maxTTL;
-  const uint32_t d_tempFailureTTL;
-  const uint32_t d_maxNegativeTTL;
-  const uint32_t d_minTTL;
-  const uint32_t d_staleTTL;
-  const bool d_dontAge;
-  const bool d_deferrableInsertLock;
-  bool d_parseECS;
-  bool d_keepStaleData{false};
+  CacheSettings d_settings;
 };

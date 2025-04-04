@@ -19,7 +19,7 @@ class TestPrometheus(DNSDistTest):
     newServer{address="127.0.0.1:%s"}
     webserver("127.0.0.1:%s")
     setWebserverConfig({password="%s", apiKey="%s"})
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
 
     -- test custom metrics as well

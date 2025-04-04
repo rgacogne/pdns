@@ -7,7 +7,7 @@ class TestBasics(DNSDistTest):
 
     _config_template = """
     newServer{address="127.0.0.1:%s"}
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
 
     local ffi = require("ffi")

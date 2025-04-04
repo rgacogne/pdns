@@ -412,7 +412,7 @@ class TestAsyncFFI(DNSDistTest, AsyncTests):
     local filteringTagValue = 'pass'
     local asyncID = 0
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
 
     local asyncObjectsMap = {}
@@ -543,7 +543,7 @@ class TestAsyncLua(DNSDistTest, AsyncTests):
     local filteringTagValue = 'pass'
     local asyncID = 0
 
-    pc = newPacketCache(100)
+    pc = newPacketCache(1000)
     getPool('cache'):setCache(pc)
 
     function gotAsyncResponse(endpointID, message, from)

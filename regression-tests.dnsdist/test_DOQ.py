@@ -132,7 +132,7 @@ class TestDOQWithCache(QUICWithCacheTests, DNSDistTest):
 
     addDOQLocal("127.0.0.1:%d", "%s", "%s")
 
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     """
     _config_params = ['_testServerPort', '_doqServerPort','_serverCert', '_serverKey']

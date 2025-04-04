@@ -388,7 +388,7 @@ class TestDOTWithCache(DNSDistTest):
 
     addTLSLocal("127.0.0.1:%s", "%s", "%s")
 
-    pc = newPacketCache(100, {maxTTL=86400, minTTL=1})
+    pc = newPacketCache(1000, {maxTTL=86400, minTTL=1})
     getPool(""):setCache(pc)
     """
     _config_params = ['_testServerPort', '_tlsServerPort', '_serverCert', '_serverKey']
