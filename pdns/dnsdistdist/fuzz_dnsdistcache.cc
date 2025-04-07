@@ -33,14 +33,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 
   /* dnsdist's version */
   // By default, cookies are not hashed
-  DNSDistPacketCache::CacheSettings skipCookieSettings {
+  DNSDistPacketCache::CacheSettings skipCookieSettings{
     .d_maxEntries = 10000,
     .d_parseECS = true,
   };
   DNSDistPacketCache pcSkipCookies(skipCookieSettings);
 
   // Do not skip cookies
-  DNSDistPacketCache::CacheSettings parseCookieSettings {
+  DNSDistPacketCache::CacheSettings parseCookieSettings{
     .d_optionsToSkip = {},
     .d_maxEntries = 10000,
     .d_parseECS = true,
