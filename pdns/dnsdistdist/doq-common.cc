@@ -312,9 +312,7 @@ bool recvAsync(Socket& socket, PacketBuffer& buffer, ComboAddress& clientAddr, C
        This is indicated by setting the family to 0 which is acted upon
        in sendUDPResponse() and DelayedPacket::().
     */
-    const ComboAddress bogusV4("0.0.0.0:0");
-    const ComboAddress bogusV6("[::]:0");
-    if ((localAddr.sin4.sin_family == AF_INET && localAddr == bogusV4) || (localAddr.sin4.sin_family == AF_INET6 && localAddr == bogusV6)) {
+    if (localAddr.isUnspecified()) {
       localAddr.sin4.sin_family = 0;
     }
   }

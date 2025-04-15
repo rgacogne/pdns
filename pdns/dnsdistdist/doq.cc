@@ -683,7 +683,9 @@ static void handleSocketReadable(DOQFrontend& frontend, ClientState& clientState
       return;
     }
     if (localAddr.sin4.sin_family == 0) {
-      localAddr = clientState.local;
+      if (!clientState.local.isUnspecified()) {
+        localAddr = clientState.local;
+      }
     }
     else {
       /* we don't get the port, only the address */
