@@ -710,16 +710,14 @@ class TestSpoofingLuaSpoofMulti(DNSDistTest):
 
     _config_template = """
     function spoof1multirule(dq)
-        if(dq.qtype==1) -- A
-        then
-                dq:spoof({ newCA("192.0.2.1"), newCA("192.0.2.2") })
-                return DNSAction.HeaderModify
-        elseif(dq.qtype == 28) -- AAAA
-        then
-				dq:spoof({ newCA("2001:DB8::1"), newCA("2001:DB8::2") })
-                return DNSAction.HeaderModify
+        if dq.qtype == DNSQType.A then
+            dq:spoof({ newCA("192.0.2.1"), newCA("192.0.2.2") })
+            return DNSAction.HeaderModify
+        elseif dq.qtype == DNSQType.AAAA then
+            dq:spoof({ newCA("2001:DB8::1"), newCA("2001:DB8::2") })
+            return DNSAction.HeaderModify
         else
-                return DNSAction.None, ""
+            return DNSAction.None, ""
         end
     end
 
@@ -858,6 +856,185 @@ class TestSpoofingLuaSpoofMulti(DNSDistTest):
             # sorry, we can't set the TTL from the Lua API right now
             #self.assertEqual(receivedResponse.answer[0].ttl, 3600)
 
+class TestSpoofingResponseLuaSpoofMulti(DNSDistTest):
+
+    _config_template = """
+    function spoof1multirule(dr)
+        if dr.qtype == DNSQType.A then
+            dr:spoof({ newCA("192.0.2.1"), newCA("192.0.2.2") })
+            return DNSResponseAction.HeaderModify
+        elseif dr.qtype == DNSQType.AAAA then
+            dr:spoof({ newCA("2001:DB8::1"), newCA("2001:DB8::2") })
+            return DNSResponseAction.HeaderModify
+        end
+        return DNSResponseAction.None, ""
+    end
+
+    function spoofrawmultirule(dr)
+        if dr.qtype == DNSQType.A then
+            dr:spoof({ "\\192\\000\\002\\001", "\\192\\000\\002\\002" })
+            return DNSResponseAction.HeaderModify
+        elseif dr.qtype == DNSQType.TXT then
+            dr:spoof({ "\\003aaa\\004bbbb", "\\011ccccccccccc" })
+            return DNSResponseAction.HeaderModify
+        elseif dr.qtype == DNSQType.SRV then
+            dr.dh:setAA(true)
+            dr:spoof({ "\\000\\000\\000\\000\\255\\255\\004srv1\\008powerdns\\003com\\000","\\000\\000\\000\\000\\255\\255\\004srv2\\008powerdns\\003com\\000" })
+            return DNSResponseAction.HeaderModify
+        end
+        return DNSAResponsection.None, ""
+    end
+
+    addResponseAction("luaspoof1multi-response.spoofing.tests.powerdns.com.", LuaResponseAction(spoof1multirule))
+    addResponseAction("lua-raw-multi-response.spoofing.tests.powerdns.com.", LuaResponseAction(spoofrawmultirule))
+    newServer{address="127.0.0.1:%s"}
+    """
+
+    def testLuaSpoofMultiA(self):
+        """
+        Spoofing: Spoofing multiple A via Lua dr:spoof
+        """
+        name = 'luaspoof1multi-response.spoofing.tests.powerdns.com.'
+        query = dns.message.make_query(name, 'A', 'IN')
+        # dnsdist set RA = RD for spoofed responses
+        query.flags &= ~dns.flags.RD
+        backendResponse = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.A,
+                                    '192.0.2.3')
+        backendResponse.answer.append(rrset)
+        expectedResponse = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.A,
+                                    '192.0.2.1', '192.0.2.2')
+        expectedResponse.answer.append(rrset)
+
+        for method in ("sendUDPQuery", "sendTCPQuery"):
+            sender = getattr(self, method)
+            (receivedQuery, receivedResponse) = sender(query, response=backendResponse)
+            self.assertTrue(receivedQuery)
+            receivedQuery.id = query.id
+            self.assertEqual(receivedQuery, query)
+            self.assertTrue(receivedResponse)
+            self.assertEqual(expectedResponse, receivedResponse)
+
+    def testLuaSpoofMultiAAAA(self):
+        """
+        Spoofing: Spoofing multiple AAAA via Lua dr:spoof
+        """
+        name = 'luaspoof1multi-response.spoofing.tests.powerdns.com.'
+        query = dns.message.make_query(name, 'AAAA', 'IN')
+        # dnsdist set RA = RD for spoofed responses
+        query.flags &= ~dns.flags.RD
+        backendResponse = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.AAAA,
+                                    '2001:DB8::3')
+        backendResponse.answer.append(rrset)
+        expectedResponse = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.AAAA,
+                                    '2001:DB8::1', '2001:DB8::2')
+        expectedResponse.answer.append(rrset)
+
+        for method in ("sendUDPQuery", "sendTCPQuery"):
+            sender = getattr(self, method)
+            (receivedQuery, receivedResponse) = sender(query, response=backendResponse)
+            self.assertTrue(receivedQuery)
+            receivedQuery.id = query.id
+            self.assertEqual(receivedQuery, query)
+            self.assertTrue(receivedResponse)
+            self.assertEqual(expectedResponse, receivedResponse)
+
+    def testLuaSpoofMultiRawAction(self):
+        """
+        Spoofing: Spoof responses from raw bytes via Lua dr:spoof
+        """
+        name = 'lua-raw-multi-response.spoofing.tests.powerdns.com.'
+
+        # A
+        query = dns.message.make_query(name, 'A', 'IN')
+        query.flags &= ~dns.flags.RD
+        backendResponse = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.A,
+                                    '192.0.2.3', '192.0.2.4', '192.0.2.5')
+        backendResponse.answer.append(rrset)
+        expectedResponse = dns.message.make_response(query)
+        expectedResponse.flags &= ~dns.flags.AA
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.A,
+                                    '192.0.2.1', '192.0.2.2')
+        expectedResponse.answer.append(rrset)
+
+        for method in ("sendUDPQuery", "sendTCPQuery"):
+            sender = getattr(self, method)
+            (receivedQuery, receivedResponse) = sender(query, response=backendResponse)
+            self.assertTrue(receivedQuery)
+            receivedQuery.id = query.id
+            self.assertEqual(receivedQuery, query)
+            self.assertTrue(receivedResponse)
+            self.assertEqual(expectedResponse, receivedResponse)
+
+        # TXT
+        query = dns.message.make_query(name, 'TXT', 'IN')
+        query.flags &= ~dns.flags.RD
+        backendResponse = dns.message.make_response(query)
+        expectedResponse = dns.message.make_response(query)
+        expectedResponse.flags &= ~dns.flags.AA
+        rrset = dns.rrset.from_text(name,
+                                    60,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.TXT,
+                                    '"aaa" "bbbb"', '"ccccccccccc"')
+        expectedResponse.answer.append(rrset)
+
+        for method in ("sendUDPQuery", "sendTCPQuery"):
+            sender = getattr(self, method)
+            (receivedQuery, receivedResponse) = sender(query, response=backendResponse)
+            self.assertTrue(receivedQuery)
+            receivedQuery.id = query.id
+            self.assertEqual(receivedQuery, query)
+            self.assertTrue(receivedResponse)
+            self.assertEqual(expectedResponse, receivedResponse)
+
+        # SRV
+        query = dns.message.make_query(name, 'SRV', 'IN')
+        query.flags &= ~dns.flags.RD
+        backendResponse = dns.message.make_response(query)
+        expectedResponse = dns.message.make_response(query)
+        # this one should have the AA flag set
+        expectedResponse.flags |= dns.flags.AA
+        rrset = dns.rrset.from_text(name,
+                                    3600,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.SRV,
+                                    '0 0 65535 srv1.powerdns.com.', '0 0 65535 srv2.powerdns.com.')
+        expectedResponse.answer.append(rrset)
+
+        for method in ("sendUDPQuery", "sendTCPQuery"):
+            sender = getattr(self, method)
+            (receivedQuery, receivedResponse) = sender(query, response=backendResponse)
+            self.assertTrue(receivedQuery)
+            receivedQuery.id = query.id
+            self.assertEqual(receivedQuery, query)
+            self.assertTrue(receivedResponse)
+            self.checkMessageNoEDNS(expectedResponse, receivedResponse)
+            # sorry, we can't set the TTL from the Lua API right now
+            #self.assertEqual(receivedResponse.answer[0].ttl, 3600)
+
 class TestSpoofingLuaFFISpoofMulti(DNSDistTest):
 
     _config_template = """
@@ -900,7 +1077,6 @@ class TestSpoofingLuaFFISpoofMulti(DNSDistTest):
     addAction("lua-raw-multi.ffi-spoofing.tests.powerdns.com.", LuaFFIAction(spoofrawmultirule))
     newServer{address="127.0.0.1:%s"}
     """
-    _verboseMode = True
 
     def testLuaSpoofMultiRawAction(self):
         """
@@ -1040,7 +1216,6 @@ class TestSpoofingLuaSpoofPacket(DNSDistTest):
     addAction("lua-raw-packet.ffi-spoofing.tests.powerdns.com.", LuaFFIAction(spoofpacketffi))
     newServer{address="127.0.0.1:%s"}
     """
-    _verboseMode = True
 
     def testLuaSpoofPacket(self):
         """

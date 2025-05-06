@@ -665,5 +665,29 @@ void setupLuaBindingsDNSQuestion([[maybe_unused]] LuaContext& luaCtx)
   luaCtx.registerFunction<bool (DNSResponse::*)()>("getStaleCacheHit", [](DNSResponse& dnsResponse) {
     return dnsResponse.ids.staleCacheHit;
   });
+
+  luaCtx.registerFunction<void (DNSResponse::*)(const boost::variant<LuaArray<ComboAddress>, LuaArray<std::string>>&, boost::optional<uint16_t>)>("spoof", [](DNSResponse& dnsResponse, const boost::variant<LuaArray<ComboAddress>, LuaArray<std::string>>& response, boost::optional<uint16_t> typeForAny) {
+    dnsdist::ResponseConfig responseConfig;
+    if (response.type() == typeid(LuaArray<ComboAddress>)) {
+      std::vector<ComboAddress> data;
+      auto responses = boost::get<LuaArray<ComboAddress>>(response);
+      data.reserve(responses.size());
+      for (const auto& resp : responses) {
+        data.push_back(resp.second);
+      }
+      dnsdist::self_answers::generateAnswerFromIPAddresses(dnsResponse, data, responseConfig);
+      return;
+    }
+    if (response.type() == typeid(LuaArray<std::string>)) {
+      std::vector<std::string> data;
+      auto responses = boost::get<LuaArray<std::string>>(response);
+      data.reserve(responses.size());
+      for (const auto& resp : responses) {
+        data.push_back(resp.second);
+      }
+      dnsdist::self_answers::generateAnswerFromRDataEntries(dnsResponse, data, typeForAny ? *typeForAny : std::optional<uint16_t>(), responseConfig);
+      return;
+    }
+  });
 #endif /* DISABLE_NON_FFI_DQ_BINDINGS */
 }
