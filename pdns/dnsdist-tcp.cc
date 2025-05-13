@@ -1088,8 +1088,28 @@ bool IncomingTCPConnectionState::readIncomingQuery(const timeval& now, IOState& 
   return false;
 }
 
+class HandlingIOGuard
+{
+public:
+  HandlingIOGuard(bool& handlingIO): d_handlingIO(handlingIO)
+  {
+  }
+  ~HandlingIOGuard()
+  {
+    d_handlingIO = false;
+  }
+private:
+  bool& d_handlingIO;
+};
+
 void IncomingTCPConnectionState::handleIO()
 {
+  if (d_handlingIO) {
+    return;
+  }
+  d_handlingIO = true;
+  HandlingIOGuard reentryGuard(d_handlingIO);
+
   // why do we loop? Because the TLS layer does buffering, and thus can have data ready to read
   // even though the underlying socket is not ready, so we need to actually ask for the data first
   IOState iostate = IOState::Done;
