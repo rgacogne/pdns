@@ -1094,6 +1094,10 @@ public:
   HandlingIOGuard(bool& handlingIO): d_handlingIO(handlingIO)
   {
   }
+  HandlingIOGuard(const HandlingIOGuard&) = delete;
+  HandlingIOGuard(HandlingIOGuard&&) = delete;
+  HandlingIOGuard& operator=(const HandlingIOGuard& rhs) = delete;
+  HandlingIOGuard& operator=(HandlingIOGuard&&) = delete;
   ~HandlingIOGuard()
   {
     d_handlingIO = false;
