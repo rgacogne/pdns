@@ -1,0 +1,38 @@
+name: Test Developer Certificate of Origin
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test Developer Certificate of Origin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Determine branch name
+        run: |
+          BRANCH="${GITHUB_BASE_REF#refs/heads/}"
+          echo "Building for ${BRANCH}"
+          echo "BRANCH=${BRANCH}" >> ${GITHUB_ENV}
+      - name: Test DCO for every commit
+        run: |
+          RET=0
+          for commit in $(git rev-list HEAD ^origin/${BRANCH}); do
+            echo "=== Checking commit '${commit}'"
+            body="$(git show -s --format=%b ${commit})"
+            sob="$(git show -s --format='Signed-off-by: %aN <%aE>' ${commit})"
+            if echo "${body}" | grep -qF "${sob}"; then
+              eho "Signed-off-by match author"
+            else
+              echo "Signed-off-by is missing or doesn't match author (should be '${sob}')"
+              RET=1
+            fi
+          done
+          exit ${RET}
