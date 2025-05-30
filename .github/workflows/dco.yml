@@ -1,6 +1,7 @@
 name: Test Developer Certificate of Origin
 
 on:
+  push:
   pull_request:
 
 permissions:
