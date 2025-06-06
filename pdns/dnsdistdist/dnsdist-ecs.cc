@@ -395,8 +395,20 @@ int getEDNSOptionsStart(const PacketBuffer& packet, const size_t qnameWireLength
     return ENOENT;
   }
 
-  if (ntohs(dnsHeader->qdcount) != 1 || ntohs(dnsHeader->ancount) != 0 || ntohs(dnsHeader->arcount) != 1 || ntohs(dnsHeader->nscount) != 0) {
+  if (ntohs(dnsHeader->arcount) == 0) {
     return ENOENT;
+  }
+
+  if (ntohs(dnsHeader->qdcount) != 1 || ntohs(dnsHeader->ancount) != 0 || ntohs(dnsHeader->arcount) != 1 || ntohs(dnsHeader->nscount) != 0) {
+    uint16_t optStart = 0;
+    size_t optLen = 0;
+    bool last = false;
+    int res = locateEDNSOptRR(packet, &optStart, &optLen, &last);
+    if (res == 0) {
+      *optRDPosition = optStart + /* root */ 1 + DNS_TYPE_SIZE + DNS_CLASS_SIZE + DNS_TTL_SIZE;
+      *remaining = packet.size() - *optRDPosition;
+    }
+    return res;
   }
 
   size_t pos = sizeof(dnsheader) + qnameWireLength;
