@@ -167,7 +167,7 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
         depRef = 'lib:' + pkg.name
         depRelations['pkg:' + appInfos.name].append(depRef)
 
-        sub_components = lib_sbom_data['metadata']['components']
+        sub_components = lib_sbom_data['components']
         for component in sub_components:
             pkg = StaticLibDep(component['name'], component['version'], None, component['purl'], component['externalReferences'], component['author'], component['licenses']['expression'], component['hashes']['content'])
 
