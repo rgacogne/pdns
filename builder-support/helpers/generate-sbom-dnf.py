@@ -169,7 +169,7 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
 
         sub_components = lib_sbom_data['components']
         for component in sub_components:
-            pkg = StaticLibDep(component['name'], component['version'], None, component['purl'], component['externalReferences'], component['author'], component['licenses'][0]['expression'], component['hashes'][0]['content'] if 'hashes' in component else None)
+            pkg = StaticLibDep(component['name'], component['version'], None, component['purl'], component['externalReferences'], component.get('author') or None, component['licenses'][0]['expression'], component['hashes'][0]['content'] if 'hashes' in component else None)
 
             addDependencyToSBOM(sbom, pkg)
             depRef = 'lib:' + pkg.name
@@ -180,7 +180,7 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
 def addAdditionalLibraryToSBOM(depFile, sbom, appInfos, depRelations):
     with open(depFile, encoding="utf-8") as depDataFile:
         depData = json.load(depDataFile)
-        pkg = StaticLibDep(os.path.splitext(os.path.basename(depFile))[0], depData['version'], None, None, [], None, depData['license'] if 'license' in depData else None, None)
+        pkg = StaticLibDep(os.path.splitext(os.path.basename(depFile))[0], depData['version'], None, None, [], None, depData.get('license' or None, None)
         pkg.supplier = 'PowerDNS.COM BV'
         if 'publisher' in depData:
             pkg.publisher = depData['publisher']
