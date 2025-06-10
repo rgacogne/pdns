@@ -161,7 +161,7 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
         component = lib_sbom_data['metadata']['component']
         main_component_name = component['name']
         print(component)
-        pkg = StaticLibDep(main_component_name, component['version'], component['description'], component['purl'], component['externalReferences'], component['author'], component['licenses'][0]['expression'], component['hashes']['content'] if 'hashes' in component else None)
+        pkg = StaticLibDep(main_component_name, component['version'], component['description'], component['purl'], component['externalReferences'], component['author'], component['licenses'][0]['expression'], component['hashes'][0]['content'] if 'hashes' in component else None)
 
         addDependencyToSBOM(sbom, pkg)
         depRef = 'lib:' + pkg.name
@@ -169,7 +169,7 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
 
         sub_components = lib_sbom_data['components']
         for component in sub_components:
-            pkg = StaticLibDep(component['name'], component['version'], None, component['purl'], component['externalReferences'], component['author'], component['licenses'][0]['expression'], component['hashes']['content'] if 'hashes' in component else None)
+            pkg = StaticLibDep(component['name'], component['version'], None, component['purl'], component['externalReferences'], component['author'], component['licenses'][0]['expression'], component['hashes'][0]['content'] if 'hashes' in component else None)
 
             addDependencyToSBOM(sbom, pkg)
             depRef = 'lib:' + pkg.name
