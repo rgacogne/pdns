@@ -180,7 +180,7 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
 def addAdditionalLibraryToSBOM(depFile, sbom, appInfos, depRelations):
     with open(depFile, encoding="utf-8") as depDataFile:
         depData = json.load(depDataFile)
-        pkg = StaticLibDep(os.path.splitext(os.path.basename(depFile))[0], depData['version'], None, None, [], None, depData.get('license' or None, None)
+        pkg = StaticLibDep(os.path.splitext(os.path.basename(depFile))[0], depData['version'], None, None, [], None, depData.get('license') or None, None)
         pkg.supplier = 'PowerDNS.COM BV'
         if 'publisher' in depData:
             pkg.publisher = depData['publisher']
