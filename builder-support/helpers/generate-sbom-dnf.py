@@ -173,6 +173,8 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
 
             addDependencyToSBOM(sbom, pkg)
             depRef = 'lib:' + pkg.name
+            if not 'lib:' + main_component_name in depRelations:
+                depRelations['lib:' + main_component_name] = []
             depRelations['lib:' + main_component_name].append(depRef)
 
 def addAdditionalLibraryToSBOM(depFile, sbom, appInfos, depRelations):
