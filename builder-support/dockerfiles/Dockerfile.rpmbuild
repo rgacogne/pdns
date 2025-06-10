@@ -64,8 +64,7 @@ RUN touch /var/lib/rpm/* && if grep -q 'release 8' /etc/redhat-release; then \
     else \
       builder/helpers/build-specs.sh builder-support/specs/dnsdist.spec; \
     fi
-RUN cd /root/rpmbuild/SOURCES/ && \
-  find . && \
+RUN cd /sdist/dnsdist-rust-lib && \
   /bin/cargo-cyclonedx cyclonedx -f json --spec-version 1.5 && \
   cp dnsdist-rust.cdx.json /dist/
 @ENDIF

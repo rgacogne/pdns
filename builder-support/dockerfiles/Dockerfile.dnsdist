@@ -16,3 +16,5 @@ RUN cd /dnsdist/pdns/dnsdistdist && \
     meson setup /tmp/dnsdist-meson-dist-build && \
     meson dist -C /tmp/dnsdist-meson-dist-build --no-tests
 RUN cp /tmp/dnsdist-meson-dist-build/meson-dist/dnsdist-${BUILDER_VERSION}.tar.xz /sdist/
+RUN cd /dnsdist/pdns/dnsdistdist && \
+    cp -R dnsdist-rust-lib/rust /sdist/dnsdist-rust-lib
