@@ -11,7 +11,6 @@ RUN cd /pdns/builder-support/helpers/ && \
 @ENDIF
 
 @IF [ -n "$M_dnsdist$M_all" ]
-COPY --from=package-builder /sboms /sboms
 RUN cd /pdns/builder-support/helpers/; \
     python3 generate-sbom-dnf.py /dist/dnsdist-${BUILDER_VERSION}-${BUILDER_TARGET}.cyclonedx.json dnsdist rust.json /dist/quiche.cdx.json /dist/dnsdist-rust.cdx.json
 @ENDIF
