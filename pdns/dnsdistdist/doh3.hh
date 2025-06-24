@@ -61,8 +61,14 @@ struct DOH3Frontend
   void reloadCertificates();
 
   std::unique_ptr<DOH3ServerConfig> d_server_config;
+  PacketBuffer d_buffer;
   ComboAddress d_local;
 
+  dnsdist::doq::QuicheParams d_quicheParams;
+  pdns::stat_t d_doh3UnsupportedVersionErrors{0}; // Unsupported protocol version errors
+  pdns::stat_t d_doh3InvalidTokensReceived{0}; // Discarded received tokens
+  pdns::stat_t d_validResponses{0}; // Valid responses sent
+  pdns::stat_t d_errorResponses{0}; // Empty responses (no backend, drops, invalid queries, etc.)
 #ifdef __linux__
   // On Linux this gives us 128k pending queries (default is 8192 queries),
   // which should be enough to deal with huge spikes
@@ -70,12 +76,7 @@ struct DOH3Frontend
 #else
   uint32_t d_internalPipeBufferSize{0};
 #endif
-
-  dnsdist::doq::QuicheParams d_quicheParams;
-  pdns::stat_t d_doh3UnsupportedVersionErrors{0}; // Unsupported protocol version errors
-  pdns::stat_t d_doh3InvalidTokensReceived{0}; // Discarded received tokens
-  pdns::stat_t d_validResponses{0}; // Valid responses sent
-  pdns::stat_t d_errorResponses{0}; // Empty responses (no backend, drops, invalid queries, etc.)
+  Socket d_socket{-1};
 };
 
 struct DOH3Unit

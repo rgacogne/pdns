@@ -52,9 +52,14 @@ struct DOQFrontend
   void reloadCertificates();
 
   std::unique_ptr<DOQServerConfig> d_server_config;
+  PacketBuffer d_buffer;
   dnsdist::doq::QuicheParams d_quicheParams;
   ComboAddress d_local;
 
+  pdns::stat_t d_doqUnsupportedVersionErrors{0}; // Unsupported protocol version errors
+  pdns::stat_t d_doqInvalidTokensReceived{0}; // Discarded received tokens
+  pdns::stat_t d_validResponses{0}; // Valid responses sent
+  pdns::stat_t d_errorResponses{0}; // Empty responses (no backend, drops, invalid queries, etc.)
 #ifdef __linux__
   // On Linux this gives us 128k pending queries (default is 8192 queries),
   // which should be enough to deal with huge spikes
@@ -62,11 +67,7 @@ struct DOQFrontend
 #else
   uint32_t d_internalPipeBufferSize{0};
 #endif
-
-  pdns::stat_t d_doqUnsupportedVersionErrors{0}; // Unsupported protocol version errors
-  pdns::stat_t d_doqInvalidTokensReceived{0}; // Discarded received tokens
-  pdns::stat_t d_validResponses{0}; // Valid responses sent
-  pdns::stat_t d_errorResponses{0}; // Empty responses (no backend, drops, invalid queries, etc.)
+  Socket d_socket{-1};
 };
 
 struct DOQUnit

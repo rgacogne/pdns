@@ -111,7 +111,9 @@ struct DOQServerConfig
 /* these might seem useless, but they are needed because
    they need to be declared _after_ the definition of DOQServerConfig
    so that we can use a unique_ptr in DOQFrontend */
-DOQFrontend::DOQFrontend() = default;
+DOQFrontend::DOQFrontend(): d_buffer(4096)
+{
+}
 DOQFrontend::~DOQFrontend() = default;
 
 class DOQTCPCrossQuerySender final : public TCPQuerySender
@@ -781,6 +783,65 @@ static void handleSocketReadable(DOQFrontend& frontend, ClientState& clientState
   }
 }
 
+static void processExistingConnections(ClientState* clientState)
+{
+  auto& frontend = clientState->doqFrontend;
+  for (auto conn = frontend->d_server_config->d_connections.begin(); conn != frontend->d_server_config->d_connections.end();) {
+    quiche_conn_on_timeout(conn->second.d_conn.get());
+
+    flushEgress(frontend->d_socket, conn->second.d_conn, conn->second.d_peer, conn->second.d_localAddr, frontend->d_buffer, clientState->local.isUnspecified());
+
+    if (quiche_conn_is_closed(conn->second.d_conn.get())) {
+#ifdef DEBUGLOG_ENABLED
+      quiche_stats stats;
+      quiche_path_stats path_stats;
+
+      quiche_conn_stats(conn->second.d_conn.get(), &stats);
+      quiche_conn_path_stats(conn->second.d_conn.get(), 0, &path_stats);
+
+      DEBUGLOG("Connection (DoQ) closed, recv=" << stats.recv << " sent=" << stats.sent << " lost=" << stats.lost << " rtt=" << path_stats.rtt << "ns cwnd=" << path_stats.cwnd);
+#endif
+      conn = frontend->d_server_config->d_connections.erase(conn);
+    }
+    else {
+      flushStalledResponses(conn->second);
+      ++conn;
+    }
+  }
+}
+
+static void incomingSocketReadableCallback(int, FDMultiplexer::funcparam_t& param)
+{
+  try {
+    auto* clientState = boost::any_cast<ClientState*>(param);
+    auto& frontend = clientState->doqFrontend;
+    handleSocketReadable(*frontend, *clientState, frontend->d_socket, frontend->d_buffer);
+    processExistingConnections(clientState);
+  }
+  catch (const std::exception& exp) {
+    vinfolog("Caught exception during DoQ incoming packet processing: %s", exp.what());
+  }
+  catch (...) {
+    vinfolog("Unknown exception during DoQ incoming packet processing");
+  }
+}
+
+static void responseReceiverCallback(int, FDMultiplexer::funcparam_t& param)
+{
+  try {
+    auto* clientState = boost::any_cast<ClientState*>(param);
+    auto& frontend = clientState->doqFrontend;
+    flushResponses(frontend->d_server_config->d_responseReceiver);
+    processExistingConnections(clientState);
+  }
+  catch (const std::exception& exp) {
+    vinfolog("Caught exception during DoQ response packet processing: %s", exp.what());
+  }
+  catch (...) {
+    vinfolog("Unknown exception during DoQ response packet processing");
+  }
+}
+
 // this is the entrypoint from dnsdist.cc
 void doqThread(ClientState* clientState)
 {
@@ -792,57 +853,27 @@ void doqThread(ClientState* clientState)
 
     setThreadName("dnsdist/doq");
 
-    Socket sock(clientState->udpFD);
-    sock.setNonBlocking();
+    frontend->d_socket = Socket(clientState->udpFD);
+    frontend->d_socket.setNonBlocking();
 
     auto mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent());
 
     auto responseReceiverFD = frontend->d_server_config->d_responseReceiver.getDescriptor();
-    mplexer->addReadFD(sock.getHandle(), [](int, FDMultiplexer::funcparam_t&) {});
-    mplexer->addReadFD(responseReceiverFD, [](int, FDMultiplexer::funcparam_t&) {});
-    std::vector<int> readyFDs;
-    PacketBuffer buffer(4096);
+    mplexer->addReadFD(frontend->d_socket.getHandle(), incomingSocketReadableCallback, clientState);
+    mplexer->addReadFD(responseReceiverFD, responseReceiverCallback, clientState);
+
     while (true) {
-      readyFDs.clear();
-      mplexer->getAvailableFDs(readyFDs, 500);
+      timeval now{};
+      mplexer->run(&now, 500);
 
       try {
-        if (std::find(readyFDs.begin(), readyFDs.end(), sock.getHandle()) != readyFDs.end()) {
-          handleSocketReadable(*frontend, *clientState, sock, buffer);
-        }
-
-        if (std::find(readyFDs.begin(), readyFDs.end(), responseReceiverFD) != readyFDs.end()) {
-          flushResponses(frontend->d_server_config->d_responseReceiver);
-        }
-
-        for (auto conn = frontend->d_server_config->d_connections.begin(); conn != frontend->d_server_config->d_connections.end();) {
-          quiche_conn_on_timeout(conn->second.d_conn.get());
-
-          flushEgress(sock, conn->second.d_conn, conn->second.d_peer, conn->second.d_localAddr, buffer, clientState->local.isUnspecified());
-
-          if (quiche_conn_is_closed(conn->second.d_conn.get())) {
-#ifdef DEBUGLOG_ENABLED
-            quiche_stats stats;
-            quiche_path_stats path_stats;
-
-            quiche_conn_stats(conn->second.d_conn.get(), &stats);
-            quiche_conn_path_stats(conn->second.d_conn.get(), 0, &path_stats);
-
-            DEBUGLOG("Connection (DoQ) closed, recv=" << stats.recv << " sent=" << stats.sent << " lost=" << stats.lost << " rtt=" << path_stats.rtt << "ns cwnd=" << path_stats.cwnd);
-#endif
-            conn = frontend->d_server_config->d_connections.erase(conn);
-          }
-          else {
-            flushStalledResponses(conn->second);
-            ++conn;
-          }
-        }
+        processExistingConnections(clientState);
       }
       catch (const std::exception& exp) {
-        vinfolog("Caught exception in the main DoQ thread: %s", exp.what());
+        vinfolog("Caught exception while processing existing connections in the main DoQ thread: %s", exp.what());
       }
       catch (...) {
-        vinfolog("Unknown exception in the main DoQ thread");
+        vinfolog("Unknown exception while processing existing connections in the main DoQ thread");
       }
     }
   }
