@@ -45,6 +45,7 @@ class TestDOQ(QUICTests, DNSDistTest):
     _serverName = 'tls.tests.dnsdist.org'
     _caCert = 'ca.pem'
     _doqServerPort = pickAvailablePort()
+    _doqServerPort2 = pickAvailablePort()
     _config_template = """
     newServer{address="127.0.0.1:%d"}
 
@@ -53,9 +54,9 @@ class TestDOQ(QUICTests, DNSDistTest):
     addAction("spoof.doq.tests.powerdns.com.", SpoofAction("1.2.3.4"))
     addAction("no-backend.doq.tests.powerdns.com.", PoolAction('this-pool-has-no-backend'))
 
-    addDOQLocal("127.0.0.1:%d", "%s", "%s")
+    addDOQLocal("127.0.0.1:%d", "%s", "%s", {additionalAddresses={"127.0.0.1:%d"}})
     """
-    _config_params = ['_testServerPort', '_doqServerPort','_serverCert', '_serverKey']
+    _config_params = ['_testServerPort', '_doqServerPort','_serverCert', '_serverKey', '_doqServerPort2']
 
     def getQUICConnection(self):
         return self.getDOQConnection(self._doqServerPort, self._caCert)
@@ -63,12 +64,16 @@ class TestDOQ(QUICTests, DNSDistTest):
     def sendQUICQuery(self, query, response=None, useQueue=True, connection=None):
         return self.sendDOQQuery(self._doqServerPort, query, response=response, caFile=self._caCert, useQueue=useQueue, serverName=self._serverName, connection=connection)
 
+    def sendQUICQueryAdditionalAddress(self, query, response=None, useQueue=True, connection=None):
+        return self.sendDOQQuery(self._doqServerPort2, query, response=response, caFile=self._caCert, useQueue=useQueue, serverName=self._serverName, connection=connection)
+
 class TestDOQYaml(QUICTests, DNSDistTest):
     _serverKey = 'server.key'
     _serverCert = 'server.chain'
     _serverName = 'tls.tests.dnsdist.org'
     _caCert = 'ca.pem'
     _doqServerPort = pickAvailablePort()
+    _doqServerPort2 = pickAvailablePort()
     _config_template = ""
     _config_params = []
     _yaml_config_template = """---
@@ -77,6 +82,8 @@ backends:
     protocol: "Do53"
 binds:
   - listen_address: "127.0.0.1:%d"
+    additional_addresses:
+      - "127.0.0.1:%d"
     reuseport: true
     protocol: "DoQ"
     tls:
@@ -113,13 +120,16 @@ query_rules:
       type: "Pool"
       pool_name: "this-pool-has-no-backend"
     """
-    _yaml_config_params = ['_testServerPort', '_doqServerPort','_serverCert', '_serverKey']
+    _yaml_config_params = ['_testServerPort', '_doqServerPort', '_doqServerPort2', '_serverCert', '_serverKey']
 
     def getQUICConnection(self):
         return self.getDOQConnection(self._doqServerPort, self._caCert)
 
     def sendQUICQuery(self, query, response=None, useQueue=True, connection=None):
         return self.sendDOQQuery(self._doqServerPort, query, response=response, caFile=self._caCert, useQueue=useQueue, serverName=self._serverName, connection=connection)
+
+    def sendQUICQueryAdditionalAddress(self, query, response=None, useQueue=True, connection=None):
+        return self.sendDOQQuery(self._doqServerPort2, query, response=response, caFile=self._caCert, useQueue=useQueue, serverName=self._serverName, connection=connection)
 
 class TestDOQWithCache(QUICWithCacheTests, DNSDistTest):
     _serverKey = 'server.key'
@@ -175,7 +185,6 @@ class TestDOQXFR(QUICXFRTests, DNSDistTest):
     addDOQLocal("127.0.0.1:%d", "%s", "%s")
     """
     _config_params = ['_testServerPort', '_doqServerPort','_serverCert', '_serverKey']
-    _verboseMode = True
 
     def getQUICConnection(self):
         return self.getDOQConnection(self._doqServerPort, self._caCert)

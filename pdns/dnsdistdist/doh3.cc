@@ -52,8 +52,8 @@ using namespace dnsdist::doq;
 class H3Connection
 {
 public:
-  H3Connection(const ComboAddress& peer, const ComboAddress& localAddr, QuicheConfig config, QuicheConnection&& conn) :
-    d_peer(peer), d_localAddr(localAddr), d_conn(std::move(conn)), d_config(std::move(config))
+  H3Connection(const ComboAddress& peer, const ComboAddress& localAddr, QuicheConfig config, QuicheConnection&& conn, std::shared_ptr<dnsdist::doq::QUICAcceptContext> acceptContext, bool localUnspecified) :
+    d_peer(peer), d_localAddr(localAddr), d_conn(std::move(conn)), d_config(std::move(config)), d_acceptContext(std::move(acceptContext)), d_localUnspecified(localUnspecified)
   {
   }
   H3Connection(const H3Connection&) = delete;
@@ -80,6 +80,8 @@ public:
   std::unordered_map<uint64_t, PacketBuffer> d_streamBuffers;
   std::unordered_map<uint64_t, PacketBuffer> d_streamOutBuffers;
   std::shared_ptr<const std::string> d_sni{nullptr};
+  std::shared_ptr<dnsdist::doq::QUICAcceptContext> d_acceptContext;
+  bool d_localUnspecified;
 };
 
 static void sendBackDOH3Unit(DOH3UnitUniquePtr&& unit, const char* description);
@@ -115,7 +117,8 @@ struct DOH3ServerConfig
 /* these might seem useless, but they are needed because
    they need to be declared _after_ the definition of DOH3ServerConfig
    so that we can use a unique_ptr in DOH3Frontend */
-DOH3Frontend::DOH3Frontend(): d_buffer(4096)
+DOH3Frontend::DOH3Frontend() :
+  d_buffer(4096)
 {
 }
 DOH3Frontend::~DOH3Frontend() = default;
@@ -440,7 +443,7 @@ static void sendBackDOH3Unit(DOH3UnitUniquePtr&& unit, const char* description)
   }
 }
 
-static std::optional<std::reference_wrapper<H3Connection>> createConnection(DOH3ServerConfig& config, const PacketBuffer& serverSideID, const PacketBuffer& originalDestinationID, const ComboAddress& localAddr, const ComboAddress& peer)
+static std::optional<std::reference_wrapper<H3Connection>> createConnection(DOH3ServerConfig& config, const PacketBuffer& serverSideID, const PacketBuffer& originalDestinationID, const ComboAddress& localAddr, const ComboAddress& peer, std::shared_ptr<dnsdist::doq::QUICAcceptContext>& acceptContext, bool localUnspecified)
 {
   auto quicheConfig = std::atomic_load_explicit(&config.config, std::memory_order_acquire);
   auto quicheConn = QuicheConnection(quiche_accept(serverSideID.data(), serverSideID.size(),
@@ -458,7 +461,7 @@ static std::optional<std::reference_wrapper<H3Connection>> createConnection(DOH3
     quiche_conn_set_keylog_path(quicheConn.get(), config.df->d_quicheParams.d_keyLogFile.c_str());
   }
 
-  auto conn = H3Connection(peer, localAddr, std::move(quicheConfig), std::move(quicheConn));
+  auto conn = H3Connection(peer, localAddr, std::move(quicheConfig), std::move(quicheConn), acceptContext, localUnspecified);
   auto pair = config.d_connections.emplace(serverSideID, std::move(conn));
   return pair.first->second;
 }
@@ -874,28 +877,30 @@ static void processH3Events(ClientState& clientState, DOH3Frontend& frontend, H3
   }
 }
 
-static void handleSocketReadable(DOH3Frontend& frontend, ClientState& clientState, Socket& sock, PacketBuffer& buffer)
+static void handleSocketReadable(DOH3Frontend& frontend, ClientState& clientState, std::shared_ptr<dnsdist::doq::QUICAcceptContext>& acceptContext, PacketBuffer& buffer)
 {
   // destination connection ID, will have to be sent as original destination connection ID
   PacketBuffer serverConnID;
   // source connection ID, will have to be sent as destination connection ID
   PacketBuffer clientConnID;
   PacketBuffer tokenBuf;
+  Socket& sock = acceptContext->d_socket;
+  const ComboAddress& local = acceptContext->d_local;
   while (true) {
     ComboAddress client;
     ComboAddress localAddr;
-    client.sin4.sin_family = clientState.local.sin4.sin_family;
-    localAddr.sin4.sin_family = clientState.local.sin4.sin_family;
+    client.sin4.sin_family = local.sin4.sin_family;
+    localAddr.sin4.sin_family = local.sin4.sin_family;
     buffer.resize(4096);
     if (!dnsdist::doq::recvAsync(sock, buffer, client, localAddr)) {
       return;
     }
     if (localAddr.sin4.sin_family == 0) {
-      localAddr = clientState.local;
+      localAddr = local;
     }
     else {
       /* we don't get the port, only the address */
-      localAddr.sin4.sin_port = clientState.local.sin4.sin_port;
+      localAddr.sin4.sin_port = local.sin4.sin_port;
     }
 
     DEBUGLOG("Received DoH3 datagram of size " << buffer.size() << " from " << client.toStringWithPort());
@@ -934,14 +939,14 @@ static void handleSocketReadable(DOH3Frontend& frontend, ClientState& clientStat
       if (!quiche_version_is_supported(version)) {
         DEBUGLOG("Unsupported version");
         ++frontend.d_doh3UnsupportedVersionErrors;
-        handleVersionNegotiation(sock, clientConnID, serverConnID, client, localAddr, buffer, clientState.local.isUnspecified());
+        handleVersionNegotiation(sock, clientConnID, serverConnID, client, localAddr, buffer, local.isUnspecified());
         continue;
       }
 
       if (token_len == 0) {
         /* stateless retry */
         DEBUGLOG("No token received");
-        handleStatelessRetry(sock, clientConnID, serverConnID, client, localAddr, version, buffer, clientState.local.isUnspecified());
+        handleStatelessRetry(sock, clientConnID, serverConnID, client, localAddr, version, buffer, local.isUnspecified());
         continue;
       }
 
@@ -954,7 +959,7 @@ static void handleSocketReadable(DOH3Frontend& frontend, ClientState& clientStat
       }
 
       DEBUGLOG("Creating a new connection");
-      conn = createConnection(*frontend.d_server_config, serverConnID, *originalDestinationID, localAddr, client);
+      conn = createConnection(*frontend.d_server_config, serverConnID, *originalDestinationID, localAddr, client, acceptContext, local.isUnspecified());
       if (!conn) {
         continue;
       }
@@ -988,7 +993,7 @@ static void handleSocketReadable(DOH3Frontend& frontend, ClientState& clientStat
 
       processH3Events(clientState, frontend, conn->get(), client, serverConnID, buffer);
 
-      flushEgress(sock, conn->get().d_conn, client, localAddr, buffer, clientState.local.isUnspecified());
+      flushEgress(sock, conn->get().d_conn, client, localAddr, buffer, local.isUnspecified());
     }
     else {
       DEBUGLOG("Connection not established");
@@ -1002,7 +1007,7 @@ static void processExistingConnections(ClientState* clientState)
   for (auto conn = frontend->d_server_config->d_connections.begin(); conn != frontend->d_server_config->d_connections.end();) {
     quiche_conn_on_timeout(conn->second.d_conn.get());
 
-    flushEgress(frontend->d_socket, conn->second.d_conn, conn->second.d_peer, conn->second.d_localAddr, frontend->d_buffer, clientState->local.isUnspecified());
+    flushEgress(conn->second.d_acceptContext->d_socket, conn->second.d_conn, conn->second.d_peer, conn->second.d_localAddr, frontend->d_buffer, conn->second.d_localUnspecified);
 
     if (quiche_conn_is_closed(conn->second.d_conn.get())) {
 #ifdef DEBUGLOG_ENABLED
@@ -1026,9 +1031,10 @@ static void processExistingConnections(ClientState* clientState)
 static void incomingSocketReadableCallback(int, FDMultiplexer::funcparam_t& param)
 {
   try {
-    auto* clientState = boost::any_cast<ClientState*>(param);
+    auto acceptContext = boost::any_cast<std::shared_ptr<dnsdist::doq::QUICAcceptContext>>(param);
+    auto* clientState = acceptContext->d_clientState;
     auto& frontend = clientState->doh3Frontend;
-    handleSocketReadable(*frontend, *clientState, frontend->d_socket, frontend->d_buffer);
+    handleSocketReadable(*frontend, *clientState, acceptContext, frontend->d_buffer);
     processExistingConnections(clientState);
   }
   catch (const std::exception& exp) {
@@ -1059,6 +1065,7 @@ static void responseReceiverCallback(int, FDMultiplexer::funcparam_t& param)
 void doh3Thread(ClientState* clientState)
 {
   try {
+    std::vector<std::shared_ptr<dnsdist::doq::QUICAcceptContext>> acceptContexts;
     std::shared_ptr<DOH3Frontend>& frontend = clientState->doh3Frontend;
 
     frontend->d_server_config->clientState = clientState;
@@ -1066,13 +1073,21 @@ void doh3Thread(ClientState* clientState)
 
     setThreadName("dnsdist/doh3");
 
-    frontend->d_socket = Socket(clientState->udpFD);
-    frontend->d_socket.setNonBlocking();
+    Socket sock{clientState->udpFD};
+    sock.setNonBlocking();
 
+    acceptContexts.emplace_back(std::make_shared<dnsdist::doq::QUICAcceptContext>(dnsdist::doq::QUICAcceptContext{clientState, clientState->local, std::move(sock)}));
+    for (const auto& [addr, addSocket] : clientState->d_additionalAddresses) {
+      Socket additionalSocket{addSocket};
+      additionalSocket.setNonBlocking();
+      acceptContexts.emplace_back(std::make_shared<dnsdist::doq::QUICAcceptContext>(dnsdist::doq::QUICAcceptContext{clientState, addr, std::move(additionalSocket)}));
+    }
     auto mplexer = std::unique_ptr<FDMultiplexer>(FDMultiplexer::getMultiplexerSilent());
 
     auto responseReceiverFD = frontend->d_server_config->d_responseReceiver.getDescriptor();
-    mplexer->addReadFD(frontend->d_socket.getHandle(), incomingSocketReadableCallback, clientState);
+    for (auto& context : acceptContexts) {
+      mplexer->addReadFD(context->d_socket.getHandle(), incomingSocketReadableCallback, context);
+    }
     mplexer->addReadFD(responseReceiverFD, responseReceiverCallback, clientState);
 
     while (true) {

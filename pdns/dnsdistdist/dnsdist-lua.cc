@@ -2344,6 +2344,21 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
           }
         }
       }
+
+      LuaArray<std::string> addresses;
+      if (getOptionalValue<decltype(addresses)>(vars, "additionalAddresses", addresses) > 0) {
+        for (const auto& [_, add] : addresses) {
+          try {
+            ComboAddress address(add);
+            additionalAddresses.emplace_back(address, -1);
+          }
+          catch (const PDNSException& e) {
+            errlog("Unable to parse additional address %s for DOH3 bind: %s", add, e.reason);
+            return;
+          }
+        }
+      }
+
       parseTLSConfig(frontend->d_quicheParams.d_tlsConfig, "addDOH3Local", vars);
 
       bool ignoreTLSConfigurationErrors = false;
@@ -2420,6 +2435,21 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
           }
         }
       }
+
+      LuaArray<std::string> addresses;
+      if (getOptionalValue<decltype(addresses)>(vars, "additionalAddresses", addresses) > 0) {
+        for (const auto& [_, add] : addresses) {
+          try {
+            ComboAddress address(add);
+            additionalAddresses.emplace_back(address, -1);
+          }
+          catch (const PDNSException& e) {
+            errlog("Unable to parse additional address %s for DOQ bind: %s", add, e.reason);
+            return;
+          }
+        }
+      }
+
       parseTLSConfig(frontend->d_quicheParams.d_tlsConfig, "addDOQLocal", vars);
 
       bool ignoreTLSConfigurationErrors = false;

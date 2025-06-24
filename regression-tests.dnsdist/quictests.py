@@ -118,6 +118,29 @@ class QUICTests(object):
         except StreamResetError as e :
             self.assertEqual(e.error, 5);
 
+    def testQUICAdditionalAddresses(self):
+        """
+        QUIC: Additional addresses
+        """
+        name = 'additional-addresses.doq.tests.powerdns.com.'
+        query = dns.message.make_query(name, 'A', 'IN', use_edns=False)
+        query.id = 0
+        expectedQuery = dns.message.make_query(name, 'A', 'IN', use_edns=True, payload=4096)
+        expectedQuery.id = 0
+        response = dns.message.make_response(query)
+        rrset = dns.rrset.from_text(name,
+                                    3600,
+                                    dns.rdataclass.IN,
+                                    dns.rdatatype.A,
+                                    '127.0.0.1')
+        response.answer.append(rrset)
+        (receivedQuery, receivedResponse) = self.sendQUICQueryAdditionalAddress(query, response=response)
+        self.assertTrue(receivedQuery)
+        self.assertTrue(receivedResponse)
+        receivedQuery.id = expectedQuery.id
+        self.assertEqual(expectedQuery, receivedQuery)
+        self.assertEqual(receivedResponse, response)
+
 class QUICACLTests(object):
 
     def testDropped(self):

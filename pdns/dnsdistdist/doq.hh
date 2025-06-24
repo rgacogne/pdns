@@ -67,7 +67,6 @@ struct DOQFrontend
 #else
   uint32_t d_internalPipeBufferSize{0};
 #endif
-  Socket d_socket{-1};
 };
 
 struct DOQUnit

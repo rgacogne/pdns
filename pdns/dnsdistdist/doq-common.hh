@@ -61,6 +61,13 @@ struct QuicheParams
   std::string d_alpn;
 };
 
+struct QUICAcceptContext
+{
+  ClientState* d_clientState{nullptr};
+  ComboAddress d_local;
+  Socket d_socket;
+};
+
 /* from rfc9250 section-4.3 */
 enum class DOQ_Error_Codes : uint64_t
 {

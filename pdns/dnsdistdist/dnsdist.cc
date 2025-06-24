@@ -2720,7 +2720,7 @@ static void setUpLocalBind(ClientState& cstate)
   setupLocalSocket(cstate, cstate.local, descriptor, cstate.tcp, warn);
 
   for (auto& [addr, socket] : cstate.d_additionalAddresses) {
-    setupLocalSocket(cstate, addr, socket, true, false);
+    setupLocalSocket(cstate, addr, socket, cstate.tcp, false);
   }
 
   if (cstate.tlsFrontend != nullptr) {
