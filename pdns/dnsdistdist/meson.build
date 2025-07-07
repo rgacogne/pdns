@@ -112,6 +112,7 @@ subdir('dnsdist-rust-lib')
 
 common_sources += files(
   src_dir / 'bpf-filter.cc',
+  src_dir / 'bpf-utils.cc',
   src_dir / 'capabilities.cc',
   src_dir / 'channel.cc',
   src_dir / 'coverage.cc',
@@ -204,6 +205,7 @@ common_sources += files(
   src_dir / 'qtype.cc',
   src_dir / 'remote_logger.cc',
   src_dir / 'remote_logger_pool.cc',
+  src_dir / 'reuseport-policies.cc',
   src_dir / 'snmp-agent.cc',
   src_dir / 'statnode.cc',
   src_dir / 'svc-records.cc',
