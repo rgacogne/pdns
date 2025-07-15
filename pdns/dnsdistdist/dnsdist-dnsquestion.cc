@@ -56,6 +56,35 @@ bool DNSQuestion::editHeader(const std::function<bool(dnsheader&)>& editFunction
 }
 
 DNSQuestion::DNSQuestion(InternalQueryState& ids_, PacketBuffer& data_) :
-  data(data_), ids(ids_), ecsPrefixLength(ids.origRemote.sin4.sin_family == AF_INET ? dnsdist::configuration::getCurrentRuntimeConfiguration().d_ECSSourcePrefixV4 : dnsdist::configuration::getCurrentRuntimeConfiguration().d_ECSSourcePrefixV6), ecsOverride(dnsdist::configuration::getCurrentRuntimeConfiguration().d_ecsOverride)
+  data(data_), ids(ids_)
 {
+}
+
+uint16_t DNSQuestion::getECSPrefixLength() const
+{
+  if (d_ecsPrefixLength) {
+    return *d_ecsPrefixLength;
+  }
+
+  const auto& current = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  return ids.origRemote.sin4.sin_family == AF_INET ? current.d_ECSSourcePrefixV4 : current.d_ECSSourcePrefixV6;
+}
+
+void DNSQuestion::setECSPrefixLength(uint16_t ecsPrefixLength)
+{
+  d_ecsPrefixLength = ecsPrefixLength;
+}
+
+bool DNSQuestion::getECSOverride() const
+{
+  if (d_ecsOverride) {
+    return *d_ecsOverride;
+  }
+  const auto& current = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  return current.d_ecsOverride;
+}
+
+void DNSQuestion::setECSOverride(bool ecsOverride)
+{
+  d_ecsOverride = ecsOverride;
 }

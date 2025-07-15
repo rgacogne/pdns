@@ -103,9 +103,9 @@ void setupLuaBindingsDNSQuestion([[maybe_unused]] LuaContext& luaCtx)
   luaCtx.registerMember<bool(DNSQuestion::*)>(
     "useECS", [](const DNSQuestion& dnsQuestion) -> bool { return dnsQuestion.useECS; }, [](DNSQuestion& dnsQuestion, bool useECS) { dnsQuestion.useECS = useECS; });
   luaCtx.registerMember<bool(DNSQuestion::*)>(
-    "ecsOverride", [](const DNSQuestion& dnsQuestion) -> bool { return dnsQuestion.ecsOverride; }, [](DNSQuestion& dnsQuestion, bool ecsOverride) { dnsQuestion.ecsOverride = ecsOverride; });
+    "ecsOverride", [](const DNSQuestion& dnsQuestion) -> bool { return dnsQuestion.getECSOverride(); }, [](DNSQuestion& dnsQuestion, bool ecsOverride) { dnsQuestion.setECSOverride(ecsOverride); });
   luaCtx.registerMember<uint16_t(DNSQuestion::*)>(
-    "ecsPrefixLength", [](const DNSQuestion& dnsQuestion) -> uint16_t { return dnsQuestion.ecsPrefixLength; }, [](DNSQuestion& dnsQuestion, uint16_t newPrefixLength) { dnsQuestion.ecsPrefixLength = newPrefixLength; });
+    "ecsPrefixLength", [](const DNSQuestion& dnsQuestion) -> uint16_t { return dnsQuestion.getECSPrefixLength(); }, [](DNSQuestion& dnsQuestion, uint16_t newPrefixLength) { dnsQuestion.setECSPrefixLength(newPrefixLength); });
   luaCtx.registerMember<boost::optional<uint32_t>(DNSQuestion::*)>(
     "tempFailureTTL",
     [](const DNSQuestion& dnsQuestion) -> boost::optional<uint32_t> {

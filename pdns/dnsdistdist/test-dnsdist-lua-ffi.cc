@@ -241,7 +241,16 @@ BOOST_AUTO_TEST_CASE(test_Query)
   }
 
   {
+    // test V4
+    ids.origRemote = ComboAddress("192.0.2.1:4242");
+    ids.origDest = ComboAddress("192.0.2.255:53");
     BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_ecs_prefix_length(&lightDQ), dnsdist::configuration::getCurrentRuntimeConfiguration().d_ECSSourcePrefixV4);
+
+    // test V6 as well
+    ids.origRemote = ComboAddress("[2001:db8::1]:65535");
+    ids.origDest = ComboAddress("[2001:db8::2]:53");
+    BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_ecs_prefix_length(&lightDQ), dnsdist::configuration::getCurrentRuntimeConfiguration().d_ECSSourcePrefixV6);
+
     dnsdist_ffi_dnsquestion_set_ecs_prefix_length(&lightDQ, 65535);
     BOOST_CHECK_EQUAL(dnsdist_ffi_dnsquestion_get_ecs_prefix_length(&lightDQ), 65535U);
   }

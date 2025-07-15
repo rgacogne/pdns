@@ -169,8 +169,15 @@ struct DNSQuestion
     return ids.cs;
   }
 
+  uint16_t getECSPrefixLength() const;
+  void setECSPrefixLength(uint16_t ecsPrefixLength);
+  bool getECSOverride() const;
+  void setECSOverride(bool ecsOverride);
+
 protected:
   PacketBuffer& data;
+  std::optional<uint16_t> d_ecsPrefixLength;
+  std::optional<bool> d_ecsOverride;
 
 public:
   InternalQueryState& ids;
@@ -182,9 +189,7 @@ public:
   mutable std::unique_ptr<EDNSOptionViewMap> ednsOptions; /* this needs to be mutable because it is parsed just in time, when DNSQuestion is read-only */
   std::shared_ptr<IncomingTCPConnectionState> d_incomingTCPState{nullptr};
   std::unique_ptr<std::vector<ProxyProtocolValue>> proxyProtocolValues{nullptr};
-  uint16_t ecsPrefixLength;
   uint8_t ednsRCode{0};
-  bool ecsOverride;
   bool useECS{true};
   bool asynchronous{false};
   bool d_selfGeneratedHandledEDNS{false};

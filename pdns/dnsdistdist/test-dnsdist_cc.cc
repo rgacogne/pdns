@@ -576,7 +576,7 @@ BOOST_AUTO_TEST_CASE(replaceECSWithSameSizeAlreadyParsed)
   BOOST_CHECK(qclass == QClass::IN);
 
   DNSQuestion dnsQuestion(ids, packet);
-  dnsQuestion.ecsOverride = true;
+  dnsQuestion.setECSOverride(true);
 
   /* Parse the options before handling ECS, simulating a Lua rule asking for EDNS Options */
   BOOST_CHECK(parseEDNSOptions(dnsQuestion));

@@ -223,12 +223,12 @@ bool dnsdist_ffi_dnsquestion_get_use_ecs(const dnsdist_ffi_dnsquestion_t* dq)
 
 bool dnsdist_ffi_dnsquestion_get_ecs_override(const dnsdist_ffi_dnsquestion_t* dq)
 {
-  return dq->dq->ecsOverride;
+  return dq->dq->getECSOverride();
 }
 
 uint16_t dnsdist_ffi_dnsquestion_get_ecs_prefix_length(const dnsdist_ffi_dnsquestion_t* dq)
 {
-  return dq->dq->ecsPrefixLength;
+  return dq->dq->getECSPrefixLength();
 }
 
 bool dnsdist_ffi_dnsquestion_is_temp_failure_ttl_set(const dnsdist_ffi_dnsquestion_t* dq)
@@ -568,12 +568,12 @@ void dnsdist_ffi_dnsquestion_set_use_ecs(dnsdist_ffi_dnsquestion_t* dq, bool use
 
 void dnsdist_ffi_dnsquestion_set_ecs_override(dnsdist_ffi_dnsquestion_t* dq, bool ecsOverride)
 {
-  dq->dq->ecsOverride = ecsOverride;
+  dq->dq->setECSOverride(ecsOverride);
 }
 
 void dnsdist_ffi_dnsquestion_set_ecs_prefix_length(dnsdist_ffi_dnsquestion_t* dq, uint16_t ecsPrefixLength)
 {
-  dq->dq->ecsPrefixLength = ecsPrefixLength;
+  dq->dq->setECSPrefixLength(ecsPrefixLength);
 }
 
 void dnsdist_ffi_dnsquestion_set_temp_failure_ttl(dnsdist_ffi_dnsquestion_t* dq, uint32_t tempFailureTTL)
