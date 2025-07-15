@@ -217,9 +217,9 @@ DNSAction::Action TeeAction::operator()(DNSQuestion* dnsquestion, std::string* r
     bool ecsAdded = false;
 
     std::string newECSOption;
-    generateECSOption(dnsquestion->ecs ? dnsquestion->ecs->getNetwork() : dnsquestion->ids.origRemote, newECSOption, dnsquestion->ecs ? dnsquestion->ecs->getBits() : dnsquestion->ecsPrefixLength);
+    generateECSOption(dnsquestion->ecs ? dnsquestion->ecs->getNetwork() : dnsquestion->ids.origRemote, newECSOption, dnsquestion->ecs ? dnsquestion->ecs->getBits() : dnsquestion->getECSPrefixLength());
 
-    if (!handleEDNSClientSubnet(query, dnsquestion->getMaximumSize(), dnsquestion->ids.qname.wirelength(), ednsAdded, ecsAdded, dnsquestion->ecsOverride, newECSOption)) {
+    if (!handleEDNSClientSubnet(query, dnsquestion->getMaximumSize(), dnsquestion->ids.qname.wirelength(), ednsAdded, ecsAdded, dnsquestion->getECSOverride(), newECSOption)) {
       return DNSAction::Action::None;
     }
   }
@@ -1361,7 +1361,7 @@ public:
   DNSAction::Action operator()(DNSQuestion* dnsquestion, std::string* ruleresult) const override
   {
     (void)ruleresult;
-    dnsquestion->ecsPrefixLength = dnsquestion->ids.origRemote.sin4.sin_family == AF_INET ? d_v4PrefixLength : d_v6PrefixLength;
+    dnsquestion->setECSPrefixLength(dnsquestion->ids.origRemote.sin4.sin_family == AF_INET ? d_v4PrefixLength : d_v6PrefixLength);
     return Action::None;
   }
   [[nodiscard]] std::string toString() const override
@@ -1385,7 +1385,7 @@ public:
   DNSAction::Action operator()(DNSQuestion* dnsquestion, std::string* ruleresult) const override
   {
     (void)ruleresult;
-    dnsquestion->ecsOverride = d_ecsOverride;
+    dnsquestion->setECSOverride(d_ecsOverride);
     return Action::None;
   }
   [[nodiscard]] std::string toString() const override
