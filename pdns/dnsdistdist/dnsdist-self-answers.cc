@@ -64,9 +64,23 @@ bool generateAnswerFromCNAME(DNSQuestion& dnsQuestion, const DNSName& cname, con
 
   bool dnssecOK = false;
   bool hadEDNS = false;
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses && queryHasEDNS(dnsQuestion)) {
-    hadEDNS = true;
-    dnssecOK = ((dnsdist::getEDNSZ(dnsQuestion) & EDNS_HEADER_FLAG_DO) != 0);
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses) {
+    if (dnsQuestion.ids.dnssecOK) {
+      if (*dnsQuestion.ids.dnssecOK) {
+        hadEDNS = true;
+        dnssecOK = true;
+      }
+    }
+    else {
+      if (queryHasEDNS(dnsQuestion)) {
+        hadEDNS = true;
+        dnssecOK = ((dnsdist::getEDNSZ(dnsQuestion) & EDNS_HEADER_FLAG_DO) != 0);
+        dnsQuestion.ids.dnssecOK = dnssecOK;
+      }
+      else {
+        dnsQuestion.ids.dnssecOK = false;
+      }
+    }
   }
 
   auto& data = dnsQuestion.getMutableData();
