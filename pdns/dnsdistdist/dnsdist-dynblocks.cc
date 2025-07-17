@@ -208,7 +208,7 @@ static DNSAction::Action getActualAction(const DynBlock& block)
   if (block.action != DNSAction::Action::None) {
     return block.action;
   }
-  return dnsdist::configuration::getCurrentRuntimeConfiguration().d_dynBlockAction;
+  return dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_dynBlockAction;
 }
 
 namespace dnsdist::DynamicBlocks

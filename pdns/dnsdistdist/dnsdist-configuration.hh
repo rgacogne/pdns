@@ -178,7 +178,7 @@ struct RuntimeConfiguration
    while holding to this reference does not call getCurrentRuntimeConfiguration()
    itself. When in doubt, better call getCurrentRuntimeConfiguration() twice.
 */
-const RuntimeConfiguration& getCurrentRuntimeConfiguration();
+const RuntimeConfiguration& getCurrentRuntimeConfiguration(bool refresh = true);
 /* Get the runtime-immutable configuration */
 const ImmutableConfiguration& getImmutableConfiguration();
 /* Update the runtime-immutable part of the configuration. This function can only be called

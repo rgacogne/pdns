@@ -907,7 +907,7 @@ bool setNegativeAndAdditionalSOA(DNSQuestion& dnsQuestion, bool nxd, const DNSNa
   bool hadEDNS = false;
   bool dnssecOK = false;
 
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses) {
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses) {
     uint16_t payloadSize = 0;
     uint16_t zValue = 0;
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -986,7 +986,7 @@ bool setNegativeAndAdditionalSOA(DNSQuestion& dnsQuestion, bool nxd, const DNSNa
 
   if (hadEDNS) {
     /* now we need to add a new OPT record */
-    return addEDNS(packet, dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration().d_payloadSizeSelfGenAnswers, dnsQuestion.ednsRCode);
+    return addEDNS(packet, dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_payloadSizeSelfGenAnswers, dnsQuestion.ednsRCode);
   }
 
   return true;
@@ -1025,9 +1025,9 @@ bool addEDNSToQueryTurnedResponse(DNSQuestion& dnsQuestion)
     return true;
   });
 
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses) {
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses) {
     /* now we need to add a new OPT record */
-    return addEDNS(packet, dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration().d_payloadSizeSelfGenAnswers, dnsQuestion.ednsRCode);
+    return addEDNS(packet, dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_payloadSizeSelfGenAnswers, dnsQuestion.ednsRCode);
   }
 
   /* otherwise we are just fine */
@@ -1240,7 +1240,7 @@ bool setInternalQueryRCode(InternalQueryState& state, PacketBuffer& buffer, uint
     buffer.resize(sizeof(dnsheader) + qnameLength + sizeof(uint16_t) + sizeof(uint16_t));
     if (hadEDNS) {
       DNSQuestion dnsQuestion(state, buffer);
-      if (!addEDNS(buffer, dnsQuestion.getMaximumSize(), (edns0.extFlags & htons(EDNS_HEADER_FLAG_DO)) != 0, dnsdist::configuration::getCurrentRuntimeConfiguration().d_payloadSizeSelfGenAnswers, 0)) {
+      if (!addEDNS(buffer, dnsQuestion.getMaximumSize(), (edns0.extFlags & htons(EDNS_HEADER_FLAG_DO)) != 0, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_payloadSizeSelfGenAnswers, 0)) {
         return false;
       }
     }

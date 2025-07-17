@@ -348,7 +348,7 @@ static bool fixUpResponse(PacketBuffer& response, const DNSName& qname, uint16_t
     return true;
   }
 
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_fixupCase) {
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_fixupCase) {
     const auto& realname = qname.getStorage();
     if (response.size() >= (sizeof(dnsheader) + realname.length())) {
       memcpy(&response.at(sizeof(dnsheader)), realname.c_str(), realname.length());
@@ -443,6 +443,10 @@ static bool encryptResponse(PacketBuffer& response, size_t maximumSize, bool tcp
 
 bool applyRulesToResponse(const std::vector<dnsdist::rules::ResponseRuleAction>& respRuleActions, DNSResponse& dnsResponse)
 {
+  if (respRuleActions.empty()) {
+    return true;
+  }
+
   DNSResponseAction::Action action = DNSResponseAction::Action::None;
   std::string ruleresult;
   for (const auto& rrule : respRuleActions) {
@@ -479,7 +483,7 @@ bool applyRulesToResponse(const std::vector<dnsdist::rules::ResponseRuleAction>&
             header.qr = true;
             return true;
           });
-          truncateTC(dnsResponse.getMutableData(), dnsResponse.getMaximumSize(), dnsResponse.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses);
+          truncateTC(dnsResponse.getMutableData(), dnsResponse.getMaximumSize(), dnsResponse.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses);
           ++dnsdist::metrics::g_stats.ruleTruncated;
           return true;
         }
@@ -528,7 +532,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dnsResponse,
     }
     dnsResponse.ids.packetCache->insert(cacheKey, zeroScope ? boost::none : dnsResponse.ids.subnet, dnsResponse.ids.cacheFlags, dnsResponse.ids.dnssecOK, dnsResponse.ids.qname, dnsResponse.ids.qtype, dnsResponse.ids.qclass, response, dnsResponse.ids.forwardedOverUDP, dnsResponse.getHeader()->rcode, dnsResponse.ids.tempFailureTTL);
 
-    const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
+    const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ruleChains;
     const auto& cacheInsertedRespRuleActions = dnsdist::rules::getResponseRuleChain(chains, dnsdist::rules::ResponseRuleChain::CacheInsertedResponseRules);
     if (!applyRulesToResponse(cacheInsertedRespRuleActions, dnsResponse)) {
       return false;
@@ -645,14 +649,14 @@ static void handleResponseTC4UDPClient(DNSQuestion& dnsQuestion, uint16_t udpPay
 {
   if (udpPayloadSize > 0 && response.size() > udpPayloadSize) {
     vinfolog("Got a response of size %d while the initial UDP payload size was %d, truncating", response.size(), udpPayloadSize);
-    truncateTC(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnsQuestion.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses);
+    truncateTC(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnsQuestion.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses);
     dnsdist::PacketMangling::editDNSHeaderFromPacket(dnsQuestion.getMutableData(), [](dnsheader& header) {
       header.tc = true;
       return true;
     });
   }
   else if (dnsQuestion.getHeader()->tc && dnsdist::configuration::getCurrentRuntimeConfiguration().d_truncateTC) {
-    truncateTC(response, dnsQuestion.getMaximumSize(), dnsQuestion.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses);
+    truncateTC(response, dnsQuestion.getMaximumSize(), dnsQuestion.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses);
   }
 }
 
@@ -983,6 +987,10 @@ bool processRulesResult(const DNSAction::Action& action, DNSQuestion& dnsQuestio
 
 static bool applyRulesChainToQuery(const std::vector<dnsdist::rules::RuleAction>& rules, DNSQuestion& dnsQuestion)
 {
+  if (rules.empty()) {
+    return true;
+  }
+
   DNSAction::Action action = DNSAction::Action::None;
   string ruleresult;
   bool drop = false;
@@ -1009,7 +1017,7 @@ static bool applyRulesToQuery(DNSQuestion& dnsQuestion, const timespec& now)
   }
 
   {
-    const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
+    const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
     if (runtimeConfig.d_queryCountConfig.d_enabled) {
       string qname = dnsQuestion.ids.qname.toLogString();
       bool countQuery{true};
@@ -1029,7 +1037,7 @@ static bool applyRulesToQuery(DNSQuestion& dnsQuestion, const timespec& now)
   }
 
 #ifndef DISABLE_DYNBLOCKS
-  const auto defaultDynBlockAction = dnsdist::configuration::getCurrentRuntimeConfiguration().d_dynBlockAction;
+  const auto defaultDynBlockAction = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_dynBlockAction;
   auto setRCode = [&dnsQuestion](uint8_t rcode) {
     dnsdist::self_answers::removeRecordsAndSetRCode(dnsQuestion, rcode);
   };
@@ -1187,7 +1195,7 @@ static bool applyRulesToQuery(DNSQuestion& dnsQuestion, const timespec& now)
   }
 #endif /* DISABLE_DYNBLOCKS */
 
-  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
+  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ruleChains;
   const auto& queryRules = dnsdist::rules::getRuleChain(chains, dnsdist::rules::RuleChain::Rules);
   return applyRulesChainToQuery(queryRules, dnsQuestion);
 }
@@ -1349,7 +1357,7 @@ static bool prepareOutgoingResponse([[maybe_unused]] const ClientState& clientSt
   dnsResponse.ids.selfGenerated = true;
   dnsResponse.ids.cacheHit = cacheHit;
 
-  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
+  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ruleChains;
   const auto& cacheHitRespRules = dnsdist::rules::getResponseRuleChain(chains, dnsdist::rules::ResponseRuleChain::CacheHitResponseRules);
   const auto& selfAnsweredRespRules = dnsdist::rules::getResponseRuleChain(chains, dnsdist::rules::ResponseRuleChain::SelfAnsweredResponseRules);
   if (!applyRulesToResponse(cacheHit ? cacheHitRespRules : selfAnsweredRespRules, dnsResponse)) {
@@ -1410,7 +1418,7 @@ static ProcessQueryResult handleQueryTurnedIntoSelfAnsweredResponse(DNSQuestion&
 static void selectBackendForOutgoingQuery(DNSQuestion& dnsQuestion, const std::shared_ptr<ServerPool>& serverPool, std::shared_ptr<DownstreamState>& selectedBackend)
 {
   std::shared_ptr<ServerPolicy> poolPolicy = serverPool->policy;
-  const auto& policy = poolPolicy != nullptr ? *poolPolicy : *dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy;
+  const auto& policy = poolPolicy != nullptr ? *poolPolicy : *dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_lbPolicy;
   const auto servers = serverPool->getServers();
   selectedBackend = policy.getSelectedBackend(*servers, dnsQuestion);
 }
@@ -1434,7 +1442,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dnsQuestion, std::shared_
       willBeForwardedOverUDP = !serverPool->isTCPOnly();
     }
 
-    uint32_t allowExpired = selectedBackend ? 0 : dnsdist::configuration::getCurrentRuntimeConfiguration().d_staleCacheEntriesTTL;
+    uint32_t allowExpired = selectedBackend ? 0 : dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_staleCacheEntriesTTL;
 
     if (dnsQuestion.ids.packetCache && !dnsQuestion.ids.skipCache) {
       dnsQuestion.ids.dnssecOK = (dnsdist::getEDNSZ(dnsQuestion) & EDNS_HEADER_FLAG_DO) != 0;
@@ -1512,7 +1520,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dnsQuestion, std::shared_
 
       // coverity[auto_causes_copy]
       const auto existingPool = dnsQuestion.ids.poolName;
-      const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
+      const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ruleChains;
       const auto& cacheMissRuleActions = dnsdist::rules::getRuleChain(chains, dnsdist::rules::RuleChain::CacheMissRules);
 
       if (!applyRulesChainToQuery(cacheMissRuleActions, dnsQuestion)) {
@@ -1531,7 +1539,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dnsQuestion, std::shared_
     }
 
     if (!selectedBackend) {
-      auto servFailOnNoPolicy = dnsdist::configuration::getCurrentRuntimeConfiguration().d_servFailOnNoPolicy;
+      auto servFailOnNoPolicy = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_servFailOnNoPolicy;
       ++dnsdist::metrics::g_stats.noPolicy;
 
       vinfolog("%s query for %s|%s from %s, no downstream server available", servFailOnNoPolicy ? "ServFailed" : "Dropped", dnsQuestion.ids.qname.toLogString(), QType(dnsQuestion.ids.qtype).toString(), dnsQuestion.ids.origRemote.toStringWithPort());
@@ -3109,11 +3117,12 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
 static void setupPools()
 {
   bool precompute = false;
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy->getName() == "chashed") {
+  const auto& currentConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  if (currentConfig.d_lbPolicy->getName() == "chashed") {
     precompute = true;
   }
   else {
-    for (const auto& entry : dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools) {
+    for (const auto& entry : currentConfig.d_pools) {
       if (entry.second->policy != nullptr && entry.second->policy->getName() == "chashed") {
         precompute = true;
         break;
@@ -3123,7 +3132,7 @@ static void setupPools()
   if (precompute) {
     vinfolog("Pre-computing hashes for consistent hash load-balancing policy");
     // pre compute hashes
-    for (const auto& backend : dnsdist::configuration::getCurrentRuntimeConfiguration().d_backends) {
+    for (const auto& backend : currentConfig.d_backends) {
       if (backend->d_config.d_weight < 100) {
         vinfolog("Warning, the backend '%s' has a very low weight (%d), which will not yield a good distribution of queries with the 'chashed' policy. Please consider raising it to at least '100'.", backend->getName(), backend->d_config.d_weight);
       }

@@ -247,7 +247,7 @@ shared_ptr<DownstreamState> roundrobin(const ServerPolicy::NumberedServerVector&
   }
 
   if (candidates.empty()) {
-    if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_roundrobinFailOnNoServer) {
+    if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_roundrobinFailOnNoServer) {
       return shared_ptr<DownstreamState>();
     }
     for (auto& d : servers) {
@@ -298,7 +298,7 @@ std::shared_ptr<const ServerPolicy::NumberedServerVector> getDownstreamCandidate
 std::shared_ptr<ServerPool> createPoolIfNotExists(const string& poolName)
 {
   {
-    const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools;
+    const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_pools;
     const auto poolIt = pools.find(poolName);
     if (poolIt != pools.end()) {
       return poolIt->second;
@@ -355,7 +355,7 @@ void removeServerFromPool(const string& poolName, std::shared_ptr<DownstreamStat
 
 std::shared_ptr<ServerPool> getPool(const std::string& poolName)
 {
-  const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools;
+  const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_pools;
   auto poolIt = pools.find(poolName);
   if (poolIt == pools.end()) {
     throw std::out_of_range("No pool named " + poolName);

@@ -74,6 +74,14 @@ public:
     return *operator->();
   }
 
+  const T& get(bool allowedOutdated = false) // fast const-only access, see "read-only" above. An outdated state might be returned!
+  {
+    if (!allowedOutdated || !d_state) {
+      return *operator->();
+    }
+    return *d_state;
+  }
+
   void reset()
   {
     d_generation = 0;

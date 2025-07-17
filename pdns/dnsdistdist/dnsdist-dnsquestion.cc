@@ -66,7 +66,7 @@ uint16_t DNSQuestion::getECSPrefixLength() const
     return *d_ecsPrefixLength;
   }
 
-  const auto& current = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& current = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   return ids.origRemote.sin4.sin_family == AF_INET ? current.d_ECSSourcePrefixV4 : current.d_ECSSourcePrefixV6;
 }
 
@@ -80,7 +80,7 @@ bool DNSQuestion::getECSOverride() const
   if (d_ecsOverride) {
     return *d_ecsOverride;
   }
-  const auto& current = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& current = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   return current.d_ecsOverride;
 }
 
