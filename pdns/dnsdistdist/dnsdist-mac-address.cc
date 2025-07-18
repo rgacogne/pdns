@@ -25,7 +25,7 @@
 
 namespace dnsdist
 {
-LockGuarded<boost::circular_buffer<MacAddressesCache::Entry>> MacAddressesCache::s_cache;
+SharedLockGuarded<boost::circular_buffer<MacAddressesCache::Entry>> MacAddressesCache::s_cache;
 
 int MacAddressesCache::get(const ComboAddress& ca, unsigned char* dest, size_t destLen)
 {
@@ -37,7 +37,7 @@ int MacAddressesCache::get(const ComboAddress& ca, unsigned char* dest, size_t d
   time_t now = time(nullptr);
 
   {
-    auto cache = s_cache.lock();
+    auto cache = s_cache.read_lock();
     for (const auto& entry : *cache) {
       if (entry.ttd >= now && compare(entry.ca, ca) == true) {
         if (!entry.found) {
@@ -52,7 +52,7 @@ int MacAddressesCache::get(const ComboAddress& ca, unsigned char* dest, size_t d
 
   auto res = getMACAddress(ca, reinterpret_cast<char*>(dest), destLen);
   {
-    auto cache = s_cache.lock();
+    auto cache = s_cache.write_lock();
     if (cache->capacity() == 0) {
       cache->set_capacity(MacAddressesCache::s_cacheSize);
     }
