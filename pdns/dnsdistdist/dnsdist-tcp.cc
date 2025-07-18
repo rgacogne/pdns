@@ -328,7 +328,7 @@ void IncomingTCPConnectionState::resetForNewQuery()
 
 boost::optional<timeval> IncomingTCPConnectionState::getClientReadTTD(timeval now) const
 {
-  const auto& runtimeConfiguration = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& runtimeConfiguration = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   if (!isNearTCPLimits() && runtimeConfiguration.d_maxTCPConnectionDuration == 0 && runtimeConfiguration.d_tcpRecvTimeout == 0) {
     return boost::none;
   }
@@ -364,7 +364,7 @@ boost::optional<timeval> IncomingTCPConnectionState::getClientReadTTD(timeval no
 
 boost::optional<timeval> IncomingTCPConnectionState::getClientWriteTTD(const timeval& now) const
 {
-  const auto& runtimeConfiguration = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& runtimeConfiguration = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   if (runtimeConfiguration.d_maxTCPConnectionDuration == 0 && runtimeConfiguration.d_tcpSendTimeout == 0) {
     return boost::none;
   }
@@ -636,7 +636,7 @@ void IncomingTCPConnectionState::handleResponse(const struct timeval& now, TCPRe
     try {
       auto& ids = response.d_idstate;
       std::shared_ptr<DownstreamState> backend = response.d_ds ? response.d_ds : (response.d_connection ? response.d_connection->getDS() : nullptr);
-      if (backend == nullptr || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, backend, dnsdist::configuration::getCurrentRuntimeConfiguration().d_allowEmptyResponse)) {
+      if (backend == nullptr || !responseContentMatches(response.d_buffer, ids.qname, ids.qtype, ids.qclass, backend, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_allowEmptyResponse)) {
         state->terminateClientConnection();
         return;
       }
@@ -1041,7 +1041,7 @@ IncomingTCPConnectionState::ProxyProtocolResult IncomingTCPConnectionState::hand
       else {
         /* proxy header received */
         std::vector<ProxyProtocolValue> proxyProtocolValues;
-        if (!handleProxyProtocol(d_ci.remote, true, dnsdist::configuration::getCurrentRuntimeConfiguration().d_ACL, d_buffer, d_proxiedRemote, d_proxiedDestination, proxyProtocolValues)) {
+        if (!handleProxyProtocol(d_ci.remote, true, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ACL, d_buffer, d_proxiedRemote, d_proxiedDestination, proxyProtocolValues)) {
           vinfolog("Error handling the Proxy Protocol received from TCP client %s", d_ci.remote.toStringWithPort());
           return ProxyProtocolResult::Error;
         }
@@ -1240,7 +1240,7 @@ void IncomingTCPConnectionState::handleIO()
     iostate = IOState::Done;
     IOStateGuard ioGuard(d_ioState);
 
-    if (maxConnectionDurationReached(dnsdist::configuration::getCurrentRuntimeConfiguration().d_maxTCPConnectionDuration, now)) {
+    if (maxConnectionDurationReached(dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_maxTCPConnectionDuration, now)) {
       vinfolog("Terminating TCP connection from %s because it reached the maximum TCP connection duration", d_ci.remote.toStringWithPort());
       // will be handled by the ioGuard
       // handleNewIOState(state, IOState::Done, fd, handleIOCallback);

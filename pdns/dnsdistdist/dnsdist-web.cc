@@ -327,7 +327,7 @@ static bool isAStatsRequest(const YaHTTP::Request& req)
 
 static bool handleAuthorization(const YaHTTP::Request& req)
 {
-  const auto& config = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& config = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
 
   if (isAStatsRequest(req)) {
     if (config.d_statsRequireAuthentication) {
@@ -354,7 +354,7 @@ static bool isMethodAllowed(const YaHTTP::Request& req)
   if (req.method == "GET") {
     return true;
   }
-  if (req.method == "PUT" && dnsdist::configuration::getCurrentRuntimeConfiguration().d_apiReadWrite) {
+  if (req.method == "PUT" && dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_apiReadWrite) {
     if (req.url.path == "/api/v1/servers/localhost/config/allow-from") {
       return true;
     }
@@ -381,7 +381,7 @@ static void handleCORS(const YaHTTP::Request& req, YaHTTP::Response& resp)
   if (origin != req.headers.end()) {
     if (req.method == "OPTIONS") {
       /* Pre-flight request */
-      if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_apiReadWrite) {
+      if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_apiReadWrite) {
         resp.headers["Access-Control-Allow-Methods"] = "GET, PUT";
       }
       else {

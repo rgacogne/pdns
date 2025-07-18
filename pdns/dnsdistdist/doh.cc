@@ -1077,7 +1077,7 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
       }
     }
 
-    if (!dnsdist::configuration::getCurrentRuntimeConfiguration().d_ACL.match(remote)) {
+    if (!dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ACL.match(remote)) {
       ++dnsdist::metrics::g_stats.aclDrops;
       vinfolog("Query from %s (DoH) dropped because of ACL", remote.toStringWithPort());
       h2o_send_error_403(req, "Forbidden", "DoH query not allowed because of ACL", 0);

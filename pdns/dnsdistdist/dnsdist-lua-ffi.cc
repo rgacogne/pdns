@@ -1254,7 +1254,7 @@ size_t dnsdist_ffi_packetcache_get_domain_list_by_addr(const char* poolName, con
     return 0;
   }
 
-  const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools;
+  const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_pools;
   auto poolIt = pools.find(poolName);
   if (poolIt == pools.end()) {
     return 0;
@@ -1303,7 +1303,7 @@ size_t dnsdist_ffi_packetcache_get_address_list_by_domain(const char* poolName, 
     return 0;
   }
 
-  const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools;
+  const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_pools;
   auto poolIt = pools.find(poolName);
   if (poolIt == pools.end()) {
     return 0;
@@ -2058,7 +2058,7 @@ size_t dnsdist_ffi_dynamic_blocks_get_entries(dnsdist_ffi_dynamic_blocks_list_t*
     if (g_defaultBPFFilter && details.bpf) {
       counter += g_defaultBPFFilter->getHits(client.getNetwork());
     }
-    list->d_entries.push_back({strdup(client.toString().c_str()), strdup(details.reason.c_str()), counter, static_cast<uint64_t>(details.until.tv_sec - now.tv_sec), static_cast<uint8_t>(details.action != DNSAction::Action::None ? details.action : dnsdist::configuration::getCurrentRuntimeConfiguration().d_dynBlockAction), g_defaultBPFFilter && details.bpf, details.warning});
+    list->d_entries.push_back({strdup(client.toString().c_str()), strdup(details.reason.c_str()), counter, static_cast<uint64_t>(details.until.tv_sec - now.tv_sec), static_cast<uint8_t>(details.action != DNSAction::Action::None ? details.action : dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_dynBlockAction), g_defaultBPFFilter && details.bpf, details.warning});
   }
 
   auto count = list->d_entries.size();
@@ -2077,7 +2077,7 @@ size_t dnsdist_ffi_dynamic_blocks_smt_get_entries(dnsdist_ffi_dynamic_blocks_lis
   timespec now{};
   gettime(&now);
 
-  const auto defaultAction = dnsdist::configuration::getCurrentRuntimeConfiguration().d_dynBlockAction;
+  const auto defaultAction = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_dynBlockAction;
   const auto& smtBlocks = dnsdist::DynamicBlocks::getSuffixDynamicRules();
   smtBlocks.visit([&now, &list, defaultAction](const SuffixMatchTree<DynBlock>& node) {
     if (!(now < node.d_value.until)) {

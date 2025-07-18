@@ -49,7 +49,7 @@ void TLSSessionCache::putSessions(const boost::uuids::uuid& backendID, time_t no
     cleanup(now, data);
   }
 
-  const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   for (auto& session : sessions) {
     auto& entry = data->d_sessions[backendID];
     if (entry.d_sessions.size() >= runtimeConfig.d_tlsSessionCacheMaxSessionsPerBackend) {

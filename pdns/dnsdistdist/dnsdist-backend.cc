@@ -450,7 +450,7 @@ void DownstreamState::handleUDPTimeout(IDState& ids)
            d_config.remote.toStringWithPort(), getName(),
            ids.internal.qname.toLogString(), QType(ids.internal.qtype).toString(), ids.internal.origRemote.toStringWithPort());
 
-  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
+  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ruleChains;
   const auto& timeoutRespRules = dnsdist::rules::getResponseRuleChain(chains, dnsdist::rules::ResponseRuleChain::TimeoutResponseRules);
   auto sender = ids.internal.du == nullptr ? nullptr : ids.internal.du->getQuerySender();
   if (!handleTimeoutResponseRules(timeoutRespRules, ids.internal, shared_from_this(), sender)) {

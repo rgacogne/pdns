@@ -1097,7 +1097,7 @@ public:
     (void)ruleresult;
     auto filepointer = std::atomic_load_explicit(&d_fp, std::memory_order_acquire);
     if (!filepointer) {
-      if (!d_verboseOnly || dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose) {
+      if (!d_verboseOnly || dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_verbose) {
         if (d_includeTimestamp) {
           infolog("[%u.%u] Packet from %s for %s %s with id %d", static_cast<unsigned long long>(dnsquestion->getQueryRealTime().tv_sec), static_cast<unsigned long>(dnsquestion->getQueryRealTime().tv_nsec), dnsquestion->ids.origRemote.toStringWithPort(), dnsquestion->ids.qname.toString(), QType(dnsquestion->ids.qtype).toString(), dnsquestion->getHeader()->id);
         }
@@ -1210,7 +1210,7 @@ public:
     (void)ruleresult;
     auto filepointer = std::atomic_load_explicit(&d_fp, std::memory_order_acquire);
     if (!filepointer) {
-      if (!d_verboseOnly || dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose) {
+      if (!d_verboseOnly || dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_verbose) {
         if (d_includeTimestamp) {
           infolog("[%u.%u] Answer to %s for %s %s (%s) with id %u", static_cast<unsigned long long>(response->getQueryRealTime().tv_sec), static_cast<unsigned long>(response->getQueryRealTime().tv_nsec), response->ids.origRemote.toStringWithPort(), response->ids.qname.toString(), QType(response->ids.qtype).toString(), RCode::to_s(response->getHeader()->rcode), response->getHeader()->id);
         }

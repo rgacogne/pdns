@@ -64,7 +64,7 @@ bool generateAnswerFromCNAME(DNSQuestion& dnsQuestion, const DNSName& cname, con
 
   bool dnssecOK = false;
   bool hadEDNS = false;
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses) {
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses) {
     if (dnsQuestion.ids.dnssecOK) {
       if (*dnsQuestion.ids.dnssecOK) {
         hadEDNS = true;
@@ -105,7 +105,7 @@ bool generateAnswerFromCNAME(DNSQuestion& dnsQuestion, const DNSName& cname, con
   });
 
   if (hadEDNS) {
-    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration().d_payloadSizeSelfGenAnswers, 0);
+    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_payloadSizeSelfGenAnswers, 0);
   }
 
   dnsQuestion.d_selfGeneratedHandledEDNS = true;
@@ -138,7 +138,7 @@ bool generateAnswerFromIPAddresses(DNSQuestion& dnsQuestion, const std::vector<C
 
   bool dnssecOK = false;
   bool hadEDNS = false;
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses && queryHasEDNS(dnsQuestion)) {
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses && queryHasEDNS(dnsQuestion)) {
     hadEDNS = true;
     dnssecOK = ((dnsdist::getEDNSZ(dnsQuestion) & EDNS_HEADER_FLAG_DO) != 0);
   }
@@ -176,7 +176,7 @@ bool generateAnswerFromIPAddresses(DNSQuestion& dnsQuestion, const std::vector<C
   });
 
   if (hadEDNS) {
-    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration().d_payloadSizeSelfGenAnswers, 0);
+    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_payloadSizeSelfGenAnswers, 0);
   }
 
   dnsQuestion.d_selfGeneratedHandledEDNS = true;
@@ -203,7 +203,7 @@ bool generateAnswerFromRDataEntries(DNSQuestion& dnsQuestion, const std::vector<
 
   bool dnssecOK = false;
   bool hadEDNS = false;
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses && queryHasEDNS(dnsQuestion)) {
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses && queryHasEDNS(dnsQuestion)) {
     hadEDNS = true;
     dnssecOK = ((dnsdist::getEDNSZ(dnsQuestion) & EDNS_HEADER_FLAG_DO) != 0);
   }
@@ -239,7 +239,7 @@ bool generateAnswerFromRDataEntries(DNSQuestion& dnsQuestion, const std::vector<
   });
 
   if (hadEDNS) {
-    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration().d_payloadSizeSelfGenAnswers, 0);
+    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_payloadSizeSelfGenAnswers, 0);
   }
 
   dnsQuestion.d_selfGeneratedHandledEDNS = true;
@@ -262,7 +262,7 @@ bool removeRecordsAndSetRCode(DNSQuestion& dnsQuestion, uint8_t rcode)
 {
   bool dnssecOK = false;
   bool hadEDNS = false;
-  if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses && queryHasEDNS(dnsQuestion)) {
+  if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses && queryHasEDNS(dnsQuestion)) {
     hadEDNS = true;
     dnssecOK = ((dnsdist::getEDNSZ(dnsQuestion) & EDNS_HEADER_FLAG_DO) != 0);
   }
@@ -280,7 +280,7 @@ bool removeRecordsAndSetRCode(DNSQuestion& dnsQuestion, uint8_t rcode)
   dnsQuestion.getMutableData().resize(sizeof(dnsheader) + qnameWireLength + 4);
 
   if (hadEDNS) {
-    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration().d_payloadSizeSelfGenAnswers, 0);
+    addEDNS(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnssecOK, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_payloadSizeSelfGenAnswers, 0);
   }
 
   return true;

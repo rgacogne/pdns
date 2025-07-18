@@ -75,7 +75,7 @@ bool addProxyProtocol(PacketBuffer& buffer, bool tcp, const ComboAddress& source
 
 bool expectProxyProtocolFrom(const ComboAddress& remote)
 {
-  return dnsdist::configuration::getCurrentRuntimeConfiguration().d_proxyProtocolACL.match(remote);
+  return dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_proxyProtocolACL.match(remote);
 }
 
 bool handleProxyProtocol(const ComboAddress& remote, bool isTCP, const NetmaskGroup& acl, PacketBuffer& query, ComboAddress& realRemote, ComboAddress& realDestination, std::vector<ProxyProtocolValue>& values)
@@ -89,7 +89,7 @@ bool handleProxyProtocol(const ComboAddress& remote, bool isTCP, const NetmaskGr
     vinfolog("Ignoring invalid proxy protocol (%d, %d) query over %s from %s", query.size(), used, (isTCP ? "TCP" : "UDP"), remote.toStringWithPort());
     return false;
   }
-  if (static_cast<size_t>(used) > dnsdist::configuration::getCurrentRuntimeConfiguration().d_proxyProtocolMaximumSize) {
+  if (static_cast<size_t>(used) > dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_proxyProtocolMaximumSize) {
     vinfolog("Proxy protocol header in %s packet from %s is larger than proxy-protocol-maximum-size (%d), dropping", (isTCP ? "TCP" : "UDP"), remote.toStringWithPort(), used);
     ++dnsdist::metrics::g_stats.proxyProtocolInvalid;
     return false;
@@ -103,7 +103,7 @@ bool handleProxyProtocol(const ComboAddress& remote, bool isTCP, const NetmaskGr
     return false;
   }
 
-  if (proxyProto && dnsdist::configuration::getCurrentRuntimeConfiguration().d_applyACLToProxiedClients) {
+  if (proxyProto && dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_applyACLToProxiedClients) {
     if (!acl.match(realRemote)) {
       vinfolog("Query from %s dropped because of ACL", realRemote.toStringWithPort());
       ++dnsdist::metrics::g_stats.aclDrops;

@@ -364,7 +364,7 @@ void IncomingHTTP2Connection::handleIO()
   gettimeofday(&now, nullptr);
 
   try {
-    if (maxConnectionDurationReached(dnsdist::configuration::getCurrentRuntimeConfiguration().d_maxTCPConnectionDuration, now)) {
+    if (maxConnectionDurationReached(dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_maxTCPConnectionDuration, now)) {
       vinfolog("Terminating DoH connection from %s because it reached the maximum TCP connection duration", d_ci.remote.toStringWithPort());
       stopIO();
       d_connectionClosing = true;
@@ -1173,7 +1173,7 @@ uint32_t IncomingHTTP2Connection::getConcurrentStreamsCount() const
 
 boost::optional<struct timeval> IncomingHTTP2Connection::getIdleClientReadTTD(struct timeval now) const
 {
-  const auto& currentConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& currentConfig = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   auto idleTimeout = d_ci.cs->dohFrontend->d_idleTimeout;
   if (currentConfig.d_maxTCPConnectionDuration == 0 && idleTimeout == 0) {
     return boost::none;

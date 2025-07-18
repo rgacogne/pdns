@@ -560,7 +560,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dnsResponse,
 
 bool processResponse(PacketBuffer& response, DNSResponse& dnsResponse, bool muted)
 {
-  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
+  const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ruleChains;
   const auto& respRuleActions = dnsdist::rules::getResponseRuleChain(chains, dnsdist::rules::ResponseRuleChain::ResponseRules);
 
   if (!applyRulesToResponse(respRuleActions, dnsResponse)) {
@@ -578,7 +578,7 @@ static size_t getInitialUDPPacketBufferSize(bool expectProxyProtocol)
 {
   static_assert(dnsdist::configuration::s_udpIncomingBufferSize <= s_initialUDPPacketBufferSize, "The incoming buffer size should not be larger than s_initialUDPPacketBufferSize");
 
-  const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   if (!expectProxyProtocol || runtimeConfig.d_proxyProtocolACL.empty()) {
     return s_initialUDPPacketBufferSize;
   }
@@ -592,7 +592,7 @@ static size_t getMaximumIncomingPacketSize(const ClientState& clientState)
     return getInitialUDPPacketBufferSize(clientState.d_enableProxyProtocol);
   }
 
-  const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
+  const auto& runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration(false);
   if (!clientState.d_enableProxyProtocol || runtimeConfig.d_proxyProtocolACL.empty()) {
     return dnsdist::configuration::s_udpIncomingBufferSize;
   }
@@ -647,15 +647,16 @@ void handleResponseSent(const DNSName& qname, const QType& qtype, double udiff, 
 
 static void handleResponseTC4UDPClient(DNSQuestion& dnsQuestion, uint16_t udpPayloadSize, PacketBuffer& response)
 {
-  if (udpPayloadSize > 0 && response.size() > udpPayloadSize) {
+  if (udpPayloadSize != 0 && response.size() > udpPayloadSize) {
     vinfolog("Got a response of size %d while the initial UDP payload size was %d, truncating", response.size(), udpPayloadSize);
+    cerr<<"truncating"<<endl;
     truncateTC(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnsQuestion.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses);
     dnsdist::PacketMangling::editDNSHeaderFromPacket(dnsQuestion.getMutableData(), [](dnsheader& header) {
       header.tc = true;
       return true;
     });
   }
-  else if (dnsQuestion.getHeader()->tc && dnsdist::configuration::getCurrentRuntimeConfiguration().d_truncateTC) {
+  else if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_truncateTC && dnsQuestion.getHeader()->tc) {
     truncateTC(response, dnsQuestion.getMaximumSize(), dnsQuestion.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_addEDNSToSelfGeneratedResponses);
   }
 }
@@ -1314,7 +1315,7 @@ bool checkQueryHeaders(const struct dnsheader& dnsHeader, ClientState& clientSta
 
   if (dnsHeader.qdcount == 0) {
     ++dnsdist::metrics::g_stats.emptyQueries;
-    if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_dropEmptyQueries) {
+    if (dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_dropEmptyQueries) {
       return false;
     }
   }
@@ -1831,7 +1832,7 @@ static void processUDPQuery(ClientState& clientState, const struct msghdr* msgh,
     }
 
     std::vector<ProxyProtocolValue> proxyProtocolValues;
-    if (expectProxyProtocol && !handleProxyProtocol(remote, false, dnsdist::configuration::getCurrentRuntimeConfiguration().d_ACL, query, ids.origRemote, ids.origDest, proxyProtocolValues)) {
+    if (expectProxyProtocol && !handleProxyProtocol(remote, false, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ACL, query, ids.origRemote, ids.origDest, proxyProtocolValues)) {
       return;
     }
 
@@ -1970,7 +1971,7 @@ bool XskProcessQuery(ClientState& clientState, XskPacket& packet)
 
     auto query = packet.clonePacketBuffer();
     std::vector<ProxyProtocolValue> proxyProtocolValues;
-    if (expectProxyProtocol && !handleProxyProtocol(remote, false, dnsdist::configuration::getCurrentRuntimeConfiguration().d_ACL, query, ids.origRemote, ids.origDest, proxyProtocolValues)) {
+    if (expectProxyProtocol && !handleProxyProtocol(remote, false, dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_ACL, query, ids.origRemote, ids.origDest, proxyProtocolValues)) {
       return false;
     }
 
@@ -2325,7 +2326,7 @@ static void maintThread()
 
       /* gather all caches actually used by at least one pool, and see
          if something prevents us from cleaning the expired entries */
-      const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools;
+      const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_pools;
       for (const auto& entry : pools) {
         const auto& pool = entry.second;
 
@@ -2354,7 +2355,7 @@ static void maintThread()
           continue;
         }
         const auto& packetCache = pair.first;
-        size_t upTo = (packetCache->getMaxEntries() * (100 - dnsdist::configuration::getCurrentRuntimeConfiguration().d_cacheCleaningPercentage)) / 100;
+        size_t upTo = (packetCache->getMaxEntries() * (100 - dnsdist::configuration::getCurrentRuntimeConfiguration(false).d_cacheCleaningPercentage)) / 100;
         packetCache->purgeExpired(upTo, now);
       }
       counter = 0;
