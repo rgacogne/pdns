@@ -96,7 +96,7 @@ public:
 
   private:
     const NumberedServerVector* d_backends{nullptr};
-    std::optional<SelectedServerPosition> d_selected;
+    std::optional<SelectedServerPosition> d_selected{std::nullopt};
   };
 
   SelectedBackend getSelectedBackend(const ServerPolicy::NumberedServerVector& servers, DNSQuestion& dnsQuestion) const;
