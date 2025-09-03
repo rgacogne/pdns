@@ -315,3 +315,13 @@ void dnsdist_ffi_dnsquestion_meta_add_str_value_to_key(dnsdist_ffi_dnsquestion_t
 void dnsdist_ffi_dnsquestion_meta_add_int64_value_to_key(dnsdist_ffi_dnsquestion_t* dnsQuestion, int64_t value) __attribute__ ((visibility ("default")));
 /* this function should never be called if dnsdist_ffi_dnsquestion_meta_begin_key has not been called first */
 void dnsdist_ffi_dnsquestion_meta_end_key(dnsdist_ffi_dnsquestion_t* dnsQuestion) __attribute__ ((visibility ("default")));
+
+typedef struct dnsdist_ffi_crypto_authenticated_key dnsdist_ffi_crypto_authenticated_key_t;
+
+bool dnsdist_ffi_crypto_authenticated_key_generate(dnsdist_ffi_crypto_authenticated_key_t** keyOut) __attribute__ ((visibility ("default")));
+bool dnsdist_ffi_crypto_authenticated_key_import(const char* str, size_t strLen, dnsdist_ffi_crypto_authenticated_key_t** keyOut) __attribute__ ((visibility ("default")));
+bool dnsdist_ffi_crypto_authenticated_key_export(const dnsdist_ffi_crypto_authenticated_key_t* key, char** exportedKeyOut, size_t* exportedKeyLen) __attribute__ ((visibility ("default")));
+bool dnsdist_ffi_crypto_authenticated_nonce_generate(char** nonceOut, size_t* nonceOutLen) __attribute__ ((visibility ("default")));
+bool dnsdist_ffi_crypto_authenticated_encrypt(const dnsdist_ffi_crypto_authenticated_key_t* key, const char* nonce, size_t nonceLen, const char* msg, size_t msgLen, char** out, size_t* outLen) __attribute__ ((visibility ("default")));
+bool dnsdist_ffi_crypto_authenticated_decrypt(const dnsdist_ffi_crypto_authenticated_key_t* key, const char* nonce, size_t nonceLen, const char* ciphertext, size_t ciphertextLen, char** out, size_t* outLen) __attribute__ ((visibility ("default")));
+void dnsdist_ffi_crypto_authenticated_key_free(dnsdist_ffi_crypto_authenticated_key_t* key) __attribute__ ((visibility ("default")));

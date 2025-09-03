@@ -83,7 +83,7 @@ enum class DOQ_Packet_Types : uint8_t
   QUIC_PACKET_TYPE_VERSION_NEGOTIATION = 6
 };
 
-static constexpr size_t MAX_TOKEN_LEN = dnsdist::crypto::authenticated::getEncryptedSize(std::tuple_size<decltype(dnsdist::crypto::authenticated::Nonce::value)>{} /* nonce */ + sizeof(uint64_t) /* TTD */ + 16 /* IPv6 */ + QUICHE_MAX_CONN_ID_LEN);
+static constexpr size_t MAX_TOKEN_LEN = dnsdist::crypto::authenticated::getEncryptedSize(dnsdist::crypto::authenticated::Nonce::getSize() /* nonce */ + sizeof(uint64_t) /* TTD */ + 16 /* IPv6 */ + QUICHE_MAX_CONN_ID_LEN);
 static constexpr size_t MAX_DATAGRAM_SIZE = 1200;
 static constexpr size_t LOCAL_CONN_ID_LEN = 16;
 static constexpr std::array<uint8_t, 4> DOQ_ALPN{'\x03', 'd', 'o', 'q'};

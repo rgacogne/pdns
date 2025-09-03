@@ -1090,4 +1090,31 @@ BOOST_AUTO_TEST_CASE(test_meta_values)
 }
 #endif /* DISABLE_PROTOBUF */
 
+BOOST_AUTO_TEST_CASE(test_crypto)
+{
+
+  BOOST_CHECK(!dnsdist_ffi_crypto_authenticated_key_generate(nullptr));
+  dnsdist_ffi_crypto_authenticated_key_free(nullptr);
+  BOOST_CHECK(!dnsdist_ffi_crypto_authenticated_key_export(nullptr, nullptr, nullptr));
+  BOOST_CHECK(!dnsdist_ffi_crypto_authenticated_key_import(nullptr, 0, nullptr));
+
+  dnsdist_ffi_crypto_authenticated_key_t* key{nullptr};
+  dnsdist_ffi_crypto_authenticated_key_generate(&key);
+  BOOST_CHECK(!dnsdist_ffi_crypto_authenticated_key_export(key, nullptr, nullptr));
+  char* exportedKey{nullptr};
+  size_t exportedKeySize{0};
+  BOOST_CHECK(dnsdist_ffi_crypto_authenticated_key_export(key, &exportedKey, &exportedKeySize));
+
+  {
+    dnsdist_ffi_crypto_authenticated_key_t* importedKey{nullptr};
+    BOOST_CHECK_EQUAL(dnsdist_ffi_crypto_authenticated_key_import(exportedKey, exportedKeySize, &importedKey));
+    dnsdist_ffi_crypto_authenticated_key_free(importKey);
+  }
+
+  BOOST_CHECK(dnsdist_ffi_crypto_authenticated_encrypt(key, nonce, nonceLen, "test", 4U, &ciphertext, ciphertextLen));
+  BOOST_CHECK(dnsdist_ffi_crypto_authenticated_decrypt(key, nonce, nonceLen, ciphertext, ciphertextLen, &plaintext, &plaintextLen));
+
+  dnsdist_ffi_crypto_authenticated_key_free(key);
+}
+
 BOOST_AUTO_TEST_SUITE_END();

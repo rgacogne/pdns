@@ -2350,3 +2350,94 @@ void dnsdist_ffi_dnsquestion_meta_end_key([[maybe_unused]] dnsdist_ffi_dnsquesti
   }
 #endif /* DISABLE_PROTOBUF */
 }
+
+struct dnsdist_ffi_crypto_authenticated_key
+{
+  std::string key;
+};
+
+bool dnsdist_ffi_crypto_authenticated_key_generate(dnsdist_ffi_crypto_authenticated_key_t** keyOut)
+{
+  if (keyOut == nullptr) {
+    return false;
+  }
+  auto key = std::make_unique<dnsdist_ffi_crypto_authenticated_key>();
+  key->key = dnsdist::crypto::authenticated::newKey();
+  *keyOut = key.release();
+  return true;
+}
+
+bool dnsdist_ffi_crypto_authenticated_key_import(const char* str, size_t strLen, dnsdist_ffi_crypto_authenticated_key_t** keyOut)
+{
+  if (str == nullptr || strLen == 0 || keyOut == nullptr) {
+    return false;
+  }
+  auto key = std::make_unique<dnsdist_ffi_crypto_authenticated_key>();
+  key->key = std::string(str, strLen);
+  if (!dnsdist::crypto::authenticated::isValidKey(key->key)) {
+    return false;
+  }
+  *keyOut = key.release();
+  return true;
+}
+
+bool dnsdist_ffi_crypto_authenticated_key_export(const dnsdist_ffi_crypto_authenticated_key_t* key, char** exportedKeyOut, size_t* exportedKeyLen)
+{
+  if (key == nullptr || exportedKeyOut == nullptr || exportedKeyLen == nullptr) {
+    return false;
+  }
+
+  *exportedKeyOut = static_cast<char*>(malloc(key->key.size()));
+  memcpy(*exportedKeyOut, key->key.data(), key->key.size());
+  *exportedKeyLen = key->key.size();
+  return true;
+}
+
+bool dnsdist_ffi_crypto_authenticated_nonce_generate(char** nonceOut, size_t* nonceOutLen)
+{
+  if (nonceOut == nullptr || nonceOutLen == nullptr) {
+    return false;
+  }
+
+  dnsdist::crypto::authenticated::Nonce nonce;
+  nonce.init();
+
+  constexpr auto size = dnsdist::crypto::authenticated::Nonce::getSize();
+  *nonceOut = static_cast<char*>(malloc(size));
+  memcpy(*nonceOut, nonce.value.data(), size);
+  *nonceOutLen = size;
+  return true;
+}
+
+bool dnsdist_ffi_crypto_authenticated_encrypt(const dnsdist_ffi_crypto_authenticated_key_t* key, const char* nonce, size_t nonceLen, const char* msg, size_t msgLen, char** out, size_t* outLen)
+{
+  if (key == nullptr || nonce == nullptr || nonceLen != dnsdist::crypto::authenticated::Nonce::getSize() || msg == nullptr || msgLen == 0 || out == nullptr || outLen == nullptr) {
+    return false;
+  }
+  dnsdist::crypto::authenticated::Nonce nonceObj{};
+  memcpy(nonceObj.value.data(), nonce, nonceLen);
+  auto ciphertext = dnsdist::crypto::authenticated::encryptSym(std::string_view(msg, msgLen), key->key, nonceObj, false);
+  *out = static_cast<char*>(malloc(ciphertext.size()));
+  memcpy(*out, ciphertext.data(), ciphertext.size());
+  *outLen = ciphertext.size();
+  return true;
+}
+
+bool dnsdist_ffi_crypto_authenticated_decrypt(const dnsdist_ffi_crypto_authenticated_key_t* key, const char* nonce, size_t nonceLen, const char* ciphertext, size_t ciphertextLen, char** out, size_t* outLen)
+{
+  if (key == nullptr || nonce == nullptr || nonceLen != dnsdist::crypto::authenticated::Nonce::getSize() || ciphertext == nullptr || ciphertextLen == 0 || out == nullptr || outLen == nullptr) {
+    return false;
+  }
+  dnsdist::crypto::authenticated::Nonce nonceObj{};
+  memcpy(nonceObj.value.data(), nonce, nonceLen);
+  auto plaintext = dnsdist::crypto::authenticated::decryptSym(std::string_view(ciphertext, ciphertextLen), key->key, nonceObj, false);
+  *out = static_cast<char*>(malloc(plaintext.size()));
+  memcpy(*out, plaintext.data(), plaintext.size());
+  *outLen = plaintext.size();
+  return true;
+}
+
+void dnsdist_ffi_crypto_authenticated_key_free(dnsdist_ffi_crypto_authenticated_key_t* key)
+{
+  delete key;
+}

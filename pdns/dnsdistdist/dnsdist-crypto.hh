@@ -45,14 +45,22 @@ struct Nonce
   void merge(const Nonce& lower, const Nonce& higher);
   void increment();
 
+  static constexpr size_t getSize()
+  {
+    return s_size;
+  }
+
+private:
 #if defined(HAVE_LIBSODIUM)
-  std::array<unsigned char, crypto_secretbox_NONCEBYTES> value{};
+  static constexpr size_t s_size{crypto_secretbox_NONCEBYTES};
 #elif defined(HAVE_LIBCRYPTO)
   // IV is 96 bits
-  std::array<unsigned char, 12> value{};
+  static constexpr size_t s_size{12U};
 #else
-  std::array<unsigned char, 1> value{};
+  static constexpr size_t s_size{1U};
 #endif
+public:
+  std::array<unsigned char, s_size> value{};
 };
 
 std::string encryptSym(const std::string_view& msg, const std::string& key, Nonce& nonce, bool incrementNonce = true);
