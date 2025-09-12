@@ -2,7 +2,6 @@ name: Test Developer Certificate of Origin
 
 on:
   pull_request:
-  push:
 
 jobs:
   check:
