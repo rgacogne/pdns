@@ -23,7 +23,6 @@
 #include "logging.hh"
 #include <string>
 #include <mutex>
-#include "utility.hh"
 
 namespace Logging
 {
@@ -61,7 +60,7 @@ void Logger::logMessage(const std::string& msg, Logr::Priority prio, const std::
   Entry entry;
   entry.level = _level;
   entry.d_priority = prio;
-  Utility::gettimeofday(&entry.d_timestamp);
+  ::gettimeofday(&entry.d_timestamp, nullptr);
   entry.name = _name;
   entry.message = msg;
   entry.error = err;
