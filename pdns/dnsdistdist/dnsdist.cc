@@ -59,6 +59,7 @@
 #include "dnsdist-edns.hh"
 #include "dnsdist-frontend.hh"
 #include "dnsdist-healthchecks.hh"
+#include "dnsdist-logging.hh"
 #include "dnsdist-lua.hh"
 #include "dnsdist-lua-hooks.hh"
 #include "dnsdist-nghttp2.hh"
@@ -3109,7 +3110,7 @@ static void reportFeatures()
 #endif
 }
 
-static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLine, ComboAddress& clientAddress)
+static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLine, ComboAddress& clientAddress, const std::shared_ptr<Logr::Logger>& logger)
 {
   const std::array<struct option, 16> longopts{{{"acl", required_argument, nullptr, 'a'},
                                                 {"check-config", no_argument, nullptr, 1},
@@ -3178,7 +3179,7 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
     {
       std::string consoleKey;
       if (B64Decode(string(optarg), consoleKey) < 0) {
-        cerr << "Unable to decode key '" << optarg << "'." << endl;
+        logger->info(Logr::Error, "Unable to decode console key", "console-key", Logging::Loggable(optarg));
         // NOLINTNEXTLINE(concurrency-mt-unsafe): only one thread at this point
         exit(EXIT_FAILURE);
       }
@@ -3187,7 +3188,7 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
       });
     }
 #else
-      cerr << "dnsdist has been built without libsodium or libcrypto, -k/--setkey is unsupported." << endl;
+      logger->info(Logr::Error, "dnsdist has been built without libsodium or libcrypto, -k/--setkey is unsupported.");
       // NOLINTNEXTLINE(concurrency-mt-unsafe): only one thread at this point
       exit(EXIT_FAILURE);
 #endif
@@ -3491,17 +3492,21 @@ static std::optional<std::string> lookForTentativeConfigurationFileWithExtension
   return tentativeFile;
 }
 
-static bool loadConfigurationFromFile(const std::string& configurationFile, bool isClient, bool configCheck)
+static bool loadConfigurationFromFile(const std::string& configurationFile, bool isClient, bool configCheck, const std::shared_ptr<Logr::Logger>& logger)
 {
   if (boost::ends_with(configurationFile, ".yml")) {
     // the bindings are always needed, for example for inline Lua
     dnsdist::lua::setupLuaBindingsOnly(*(g_lua.lock()), isClient, configCheck);
 
     if (auto tentativeLuaConfFile = lookForTentativeConfigurationFileWithExtension(configurationFile, "lua")) {
-      vinfolog("Loading configuration from auto-discovered Lua file %s", *tentativeLuaConfFile);
+      if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose) {
+        logger->info(Logr::Info, "Loading configuration from auto-discovered Lua file", "configuration-file", Logging::Loggable(*tentativeLuaConfFile));
+      }
       dnsdist::configuration::lua::loadLuaConfigurationFile(*(g_lua.lock()), *tentativeLuaConfFile, configCheck);
     }
-    vinfolog("Loading configuration from YAML file %s", configurationFile);
+    if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose) {
+      logger->info(Logr::Info, "Loading configuration from YAML file", "configuration-file", Logging::Loggable(configurationFile));
+    }
     if (!dnsdist::configuration::yaml::loadConfigurationFromFile(configurationFile, isClient, configCheck)) {
       return false;
     }
@@ -3513,15 +3518,21 @@ static bool loadConfigurationFromFile(const std::string& configurationFile, bool
 
   dnsdist::lua::setupLua(*(g_lua.lock()), isClient, configCheck);
   if (boost::ends_with(configurationFile, ".lua")) {
-    vinfolog("Loading configuration from Lua file %s", configurationFile);
+    if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose) {
+      logger->info(Logr::Info, "Loading configuration from Lua file", "configuration-file", Logging::Loggable(configurationFile));
+    }
     dnsdist::configuration::lua::loadLuaConfigurationFile(*(g_lua.lock()), configurationFile, configCheck);
     if (auto tentativeYamlConfFile = lookForTentativeConfigurationFileWithExtension(configurationFile, "yml")) {
-      vinfolog("Loading configuration from auto-discovered YAML file %s", *tentativeYamlConfFile);
+      if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose) {
+        logger->info(Logr::Info, "Loading configuration from auto-discovered YAML file", "configuration-file", Logging::Loggable(*tentativeYamlConfFile));
+      }
       return dnsdist::configuration::yaml::loadConfigurationFromFile(*tentativeYamlConfFile, isClient, configCheck);
     }
   }
   else {
-    vinfolog("Loading configuration from Lua file %s", configurationFile);
+    if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose) {
+      logger->info(Logr::Info, "Loading configuration from Lua file", "configuration-file", Logging::Loggable(configurationFile));
+    }
     dnsdist::configuration::lua::loadLuaConfigurationFile(*(g_lua.lock()), configurationFile, configCheck);
   }
   return true;
@@ -3542,11 +3553,16 @@ int main(int argc, char** argv)
     signal(SIGCHLD, SIG_IGN);
     signal(SIGTERM, sigTermHandler);
 
+    dnsdist::logging::setup("json");
+    auto setupLogger = dnsdist::logging::getTopLogger()->withName("setup");
+    //dnsdist::logging::setup("systemd-journal");
+    //dnsdist::logging::getTopLogger()->withName("testing-dnsdist")->withValues("test", Logging::Loggable("remi"), "dnsname", Logging::Loggable(DNSName("test.")))->info("my test");
+
     openlog("dnsdist", LOG_PID | LOG_NDELAY, LOG_DAEMON);
 
 #ifdef HAVE_LIBSODIUM
     if (sodium_init() == -1) {
-      cerr << "Unable to initialize crypto library" << endl;
+      setupLogger->info(Logr::Error, "Unable to initialize crypto library");
       // NOLINTNEXTLINE(concurrency-mt-unsafe): only on thread at this point
       exit(EXIT_FAILURE);
     }
@@ -3566,14 +3582,14 @@ int main(int argc, char** argv)
     ComboAddress clientAddress = ComboAddress();
     cmdLine.config = SYSCONFDIR "/dnsdist.conf";
 
-    parseParameters(argc, argv, cmdLine, clientAddress);
+    parseParameters(argc, argv, cmdLine, clientAddress, setupLogger);
 
     dnsdist::configuration::updateRuntimeConfiguration([](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = std::make_shared<ServerPolicy>("leastOutstanding", leastOutstanding, false);
     });
 
     if (cmdLine.beClient || !cmdLine.command.empty()) {
-      if (!loadConfigurationFromFile(cmdLine.config, true, false)) {
+      if (!loadConfigurationFromFile(cmdLine.config, true, false, setupLogger)) {
 #ifdef COVERAGE
         exit(EXIT_FAILURE);
 #else
@@ -3609,7 +3625,7 @@ int main(int argc, char** argv)
     dnsdist::webserver::registerBuiltInWebHandlers();
 
     if (cmdLine.checkConfig) {
-      if (!loadConfigurationFromFile(cmdLine.config, false, true)) {
+      if (!loadConfigurationFromFile(cmdLine.config, false, true, setupLogger)) {
 #ifdef COVERAGE
         exit(EXIT_FAILURE);
 #else
@@ -3628,7 +3644,7 @@ int main(int argc, char** argv)
     /* create the default pool no matter what */
     createPoolIfNotExists("");
 
-    if (!loadConfigurationFromFile(cmdLine.config, false, false)) {
+    if (!loadConfigurationFromFile(cmdLine.config, false, false, setupLogger)) {
 #ifdef COVERAGE
       exit(EXIT_FAILURE);
 #else
