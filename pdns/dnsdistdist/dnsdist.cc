@@ -140,7 +140,9 @@ static void sendfromto(int sock, const PacketBuffer& buffer, const ComboAddress&
     auto ret = sendto(sock, buffer.data(), buffer.size(), flags, reinterpret_cast<const struct sockaddr*>(&dest), dest.getSocklen());
     if (ret == -1) {
       int error = errno;
-      vinfolog("Error sending UDP response to %s: %s", dest.toStringWithPort(), stringerror(error));
+      if (dnsdist::logging::doVerboseLogging()) {
+        dnsdist::logging::getTopLogger()->withName("sendfromto")->error(error, "Error sending UDP response", "destination", Logging::Loggable(dest));
+      }
     }
     return;
   }
@@ -149,7 +151,9 @@ static void sendfromto(int sock, const PacketBuffer& buffer, const ComboAddress&
     sendMsgWithOptions(sock, buffer.data(), buffer.size(), &dest, &from, 0, 0);
   }
   catch (const std::exception& exp) {
-    vinfolog("Error sending UDP response from %s to %s: %s", from.toStringWithPort(), dest.toStringWithPort(), exp.what());
+    if (dnsdist::logging::doVerboseLogging()) {
+      dnsdist::logging::getTopLogger()->withName("sendfromto")->error(exp.what(), "Error sending UDP response", "source", Logging::Loggable(from), "destination", Logging::Loggable(dest));
+    }
   }
 }
 
@@ -2663,7 +2667,7 @@ static void checkFileDescriptorsLimits(size_t udpBindsCount, size_t tcpBindsCoun
   }
 }
 
-static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr, int& socket, bool tcp, bool warn)
+static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr, int& socket, bool tcp, bool warn, const std::shared_ptr<Logr::Logger>& logger)
 {
   const auto& immutableConfig = dnsdist::configuration::getImmutableConfiguration();
   static bool s_warned_ipv6_recvpktinfo = false;
@@ -2688,7 +2692,7 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
 #endif /* TCP_FASTOPEN_KEY */
 #else /* TCP_FASTOPEN */
       if (warn) {
-        warnlog("TCP Fast Open has been configured on local address '%s' but is not supported", addr.toStringWithPort());
+        logger->info(Logr::Warning, "TCP Fast Open has been configured but is not supported", "local-adddress", Logging::Loggable(addr));
       }
 #endif /* TCP_FASTOPEN */
     }
@@ -2706,6 +2710,7 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
 #ifdef IPV6_RECVPKTINFO
     if (addr.isIPv6() && setsockopt(socket, IPPROTO_IPV6, IPV6_RECVPKTINFO, &one, sizeof(one)) < 0 && !s_warned_ipv6_recvpktinfo) {
       warnlog("Warning: IPV6_RECVPKTINFO setsockopt failed: %s", stringerror());
+      logger->error(stringerror(), "IPV6_RECVPKTINFO setsockopt failed", "local-address", Logging::Loggable(addr));
       s_warned_ipv6_recvpktinfo = true;
     }
 #endif
@@ -2715,7 +2720,7 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
     if (!setReusePort(socket)) {
       if (warn) {
         /* no need to warn again if configured but support is not available, we already did for UDP */
-        warnlog("SO_REUSEPORT has been configured on local address '%s' but is not supported", addr.toStringWithPort());
+        logger->info(Logr::Warning, "SO_REUSEPORT has been configured but is not supported", "local-adddress", Logging::Loggable(addr));
       }
     }
   }
@@ -2727,7 +2732,7 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
       setSocketForcePMTU(socket, addr.sin4.sin_family);
     }
     catch (const std::exception& e) {
-      warnlog("Failed to set IP_MTU_DISCOVER on QUIC server socket for local address '%s': %s", addr.toStringWithPort(), e.what());
+      logger->error(Logr::Warning, e.what(), "Failed to set IP_MTU_DISCOVER on QUIC server socket", "local-adddress", Logging::Loggable(addr));
     }
   }
   else if (!tcp && !clientState.dnscryptCtx) {
@@ -2738,7 +2743,7 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
       setSocketIgnorePMTU(socket, addr.sin4.sin_family);
     }
     catch (const std::exception& e) {
-      warnlog("Failed to set IP_MTU_DISCOVER on UDP server socket for local address '%s': %s", addr.toStringWithPort(), e.what());
+      logger->error(Logr::Warning, e.what(), "Failed to set IP_MTU_DISCOVER on UDP server socket", "local-adddress", Logging::Loggable(addr));
     }
   }
 
@@ -2748,18 +2753,18 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
         setSocketSendBuffer(socket, immutableConfig.d_socketUDPSendBuffer);
       }
       catch (const std::exception& e) {
-        warnlog(e.what());
+        logger->error(Logr::Warning, e.what(), "Failed to raise send buffer size on UDP server socket", "local-adddress", Logging::Loggable(addr));
       }
     }
     else {
       try {
         auto result = raiseSocketSendBufferToMax(socket);
         if (result > 0) {
-          infolog("Raised send buffer to %u for local address '%s'", result, addr.toStringWithPort());
+          logger->info(Logr::Info, "Raised send buffer size", "local-adddress", Logging::Loggable(addr), "buffer-size", Logging::Loggable(result));
         }
       }
       catch (const std::exception& e) {
-        warnlog(e.what());
+        logger->error(Logr::Warning, e.what(), "Failed to raise send buffer size on UDP server socket", "local-adddress", Logging::Loggable(addr));
       }
     }
 
@@ -2768,18 +2773,18 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
         setSocketReceiveBuffer(socket, immutableConfig.d_socketUDPRecvBuffer);
       }
       catch (const std::exception& e) {
-        warnlog(e.what());
+        logger->error(Logr::Warning, e.what(), "Failed to raise receive buffer size on UDP server socket", "local-adddress", Logging::Loggable(addr));
       }
     }
     else {
       try {
         auto result = raiseSocketReceiveBufferToMax(socket);
         if (result > 0) {
-          infolog("Raised receive buffer to %u for local address '%s'", result, addr.toStringWithPort());
+          logger->info(Logr::Info, "Raised receive buffer size", "local-adddress", Logging::Loggable(addr), "buffer-size", Logging::Loggable(result));
         }
       }
       catch (const std::exception& e) {
-        warnlog(e.what());
+        logger->error(Logr::Warning, e.what(), "Failed to raise receive buffer size on UDP server socket", "local-adddress", Logging::Loggable(addr));
       }
     }
   }
@@ -2789,11 +2794,11 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
 #ifdef SO_BINDTODEVICE
     int res = setsockopt(socket, SOL_SOCKET, SO_BINDTODEVICE, itf.c_str(), itf.length());
     if (res != 0) {
-      warnlog("Error setting up the interface on local address '%s': %s", addr.toStringWithPort(), stringerror());
+      logger->error(Logr::Warning, stringerror(), "Error setting up the interface", "local-adddress", Logging::Loggable(addr));
     }
 #else
     if (warn) {
-      warnlog("An interface has been configured on local address '%s' but SO_BINDTODEVICE is not supported", addr.toStringWithPort());
+      logger->error(Logr::Warning, stringerror(), "An interface has been configured but SO_BINDTODEVICE is not supported", "local-adddress", Logging::Loggable(addr));
     }
 #endif
   }
@@ -2804,7 +2809,9 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
      work well for these. */
   if (!isQUIC && g_defaultBPFFilter && !g_defaultBPFFilter->isExternal()) {
     clientState.attachFilter(g_defaultBPFFilter, socket);
-    vinfolog("Attaching default BPF Filter to %s frontend %s", (!tcp ? std::string("UDP") : std::string("TCP")), addr.toStringWithPort());
+    if (dnsdist::logging::doVerboseLogging()) {
+      logger->info(Logr::Info, "Attaching default BPF Filter to frontend", "local-adddress", Logging::Loggable(addr), "protocol", Logging::Loggable((!tcp ? std::string("UDP") : std::string("TCP"))));
+    }
   }
 #endif /* HAVE_EBPF */
 
@@ -2814,49 +2821,49 @@ static void setupLocalSocket(ClientState& clientState, const ComboAddress& addr,
     SListen(socket, clientState.tcpListenQueueSize);
 
     if (clientState.tlsFrontend != nullptr) {
-      infolog("Listening on %s for TLS", addr.toStringWithPort());
+      logger->info(Logr::Info, "Listening on DoT frontend", "local-adddress", Logging::Loggable(addr));
     }
     else if (clientState.dohFrontend != nullptr) {
-      infolog("Listening on %s for DoH", addr.toStringWithPort());
+      logger->info(Logr::Info, "Listening on DoH frontend", "local-adddress", Logging::Loggable(addr));
     }
     else if (clientState.dnscryptCtx != nullptr) {
-      infolog("Listening on %s for DNSCrypt", addr.toStringWithPort());
+      logger->info(Logr::Info, "Listening on DNSCrypt frontend", "local-adddress", Logging::Loggable(addr));
     }
     else {
-      infolog("Listening on %s", addr.toStringWithPort());
+      logger->info(Logr::Info, "Listening on Do53 frontend", "local-adddress", Logging::Loggable(addr));
     }
   }
   else {
     if (clientState.doqFrontend != nullptr) {
-      infolog("Listening on %s for DoQ", addr.toStringWithPort());
+      logger->info(Logr::Info, "Listening on DoQ frontend", "local-adddress", Logging::Loggable(addr));
     }
     else if (clientState.doh3Frontend != nullptr) {
-      infolog("Listening on %s for DoH3", addr.toStringWithPort());
+      logger->info(Logr::Info, "Listening on DoH3 frontend", "local-adddress", Logging::Loggable(addr));
     }
 #ifdef HAVE_XSK
     else if (clientState.xskInfo != nullptr) {
-      infolog("Listening on %s (XSK-enabled)", addr.toStringWithPort());
+      logger->info(Logr::Info, "Listening on XSK-enabled frontend", "local-adddress", Logging::Loggable(addr));
     }
 #endif
   }
 }
 
-static void setUpLocalBind(ClientState& cstate)
+static void setUpLocalBind(ClientState& cstate, const std::shared_ptr<Logr::Logger>& logger)
 {
   /* skip some warnings if there is an identical UDP context */
   bool warn = !cstate.tcp || cstate.tlsFrontend != nullptr || cstate.dohFrontend != nullptr;
   int& descriptor = !cstate.tcp ? cstate.udpFD : cstate.tcpFD;
   (void)warn;
 
-  setupLocalSocket(cstate, cstate.local, descriptor, cstate.tcp, warn);
+  setupLocalSocket(cstate, cstate.local, descriptor, cstate.tcp, warn, logger);
 
   for (auto& [addr, socket] : cstate.d_additionalAddresses) {
-    setupLocalSocket(cstate, addr, socket, true, false);
+    setupLocalSocket(cstate, addr, socket, true, false, logger);
   }
 
   if (cstate.tlsFrontend != nullptr) {
     if (!cstate.tlsFrontend->setupTLS()) {
-      errlog("Error while setting up TLS on local address '%s', exiting", cstate.local.toStringWithPort());
+      logger->info(Logr::Error, "Error while setting up TLS bind, exiting", "local-address", Logging::Loggable(cstate.local));
       _exit(EXIT_FAILURE);
     }
   }
@@ -3233,7 +3240,7 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
     config = std::move(newConfig);
   });
 }
-static void setupPools()
+static void setupPools(const std::shared_ptr<Logr::Logger>& logger)
 {
   bool precompute = false;
   const auto& currentConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
@@ -3249,11 +3256,16 @@ static void setupPools()
     }
   }
   if (precompute) {
-    vinfolog("Pre-computing hashes for consistent hash load-balancing policy");
+    if (dnsdist::logging::doVerboseLogging()) {
+      logger->info(Logr::Info, "Pre-computing hashes for consistent hash load-balancing policy");
+    }
+
     // pre compute hashes
     for (const auto& backend : currentConfig.d_backends) {
       if (backend->d_config.d_weight < 100) {
-        vinfolog("Warning, the backend '%s' has a very low weight (%d), which will not yield a good distribution of queries with the 'chashed' policy. Please consider raising it to at least '100'.", backend->getName(), backend->d_config.d_weight);
+        if (dnsdist::logging::doVerboseLogging()) {
+          logger->info(Logr::Info, "Warning, this backend has a very low weight, which will not yield a good distribution of queries with the 'chashed' policy. Please consider raising it to at least '100'", "backend", Logging::Loggable(backend->getName()), "weight", Logging::Loggable(backend->d_config.d_weight));
+        }
       }
 
       backend->hash();
@@ -3553,10 +3565,9 @@ int main(int argc, char** argv)
     signal(SIGCHLD, SIG_IGN);
     signal(SIGTERM, sigTermHandler);
 
-    dnsdist::logging::setup("json");
+    /* for now, we will create the correct backend after parsing the configuration */
+    dnsdist::logging::setup("");
     auto setupLogger = dnsdist::logging::getTopLogger()->withName("setup");
-    //dnsdist::logging::setup("systemd-journal");
-    //dnsdist::logging::getTopLogger()->withName("testing-dnsdist")->withValues("test", Logging::Loggable("remi"), "dnsname", Logging::Loggable(DNSName("test.")))->info("my test");
 
     openlog("dnsdist", LOG_PID | LOG_NDELAY, LOG_DAEMON);
 
@@ -3633,11 +3644,11 @@ int main(int argc, char** argv)
 #endif
       }
       // No exception was thrown
-      infolog("Configuration '%s' OK!", cmdLine.config);
+      setupLogger->info(Logr::Info, "Configuration OK", "configuration-file", Logging::Loggable(cmdLine.config));
       doExitNicely();
     }
 
-    infolog("dnsdist %s comes with ABSOLUTELY NO WARRANTY. This is free software, and you are welcome to redistribute it according to the terms of the GPL version 2", VERSION);
+    setupLogger->info(Logr::Info, "dnsdist " VERSION " comes with ABSOLUTELY NO WARRANTY. This is free software, and you are welcome to redistribute it according to the terms of the GPL version 2");
 
     dnsdist::g_asyncHolder = std::make_unique<dnsdist::AsynchronousHolder>();
 
@@ -3652,6 +3663,10 @@ int main(int argc, char** argv)
 #endif
     }
 
+    dnsdist::logging::setup(dnsdist::configuration::getImmutableConfiguration().d_loggingBackend);
+    // json
+    //dnsdist::logging::setup("systemd-journal");
+
     // we only want to update this value if it has not been set by either the Lua or YAML configuration,
     // and we need to stop touching this value once the backends' hashes have been computed, in setupPools()
     dnsdist::configuration::updateImmutableConfiguration([](dnsdist::configuration::ImmutableConfiguration& config) {
@@ -3660,7 +3675,7 @@ int main(int argc, char** argv)
       }
     });
 
-    setupPools();
+    setupPools(setupLogger);
 
     initFrontends(cmdLine);
 
@@ -3693,7 +3708,7 @@ int main(int argc, char** argv)
     }
 
     for (const auto& frontend : dnsdist::getFrontends()) {
-      setUpLocalBind(*frontend);
+      setUpLocalBind(*frontend, setupLogger);
     }
 
     {
@@ -3787,7 +3802,7 @@ int main(int argc, char** argv)
     }
 
     if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_backends.empty()) {
-      errlog("No downstream servers defined: all packets will get dropped");
+      setupLogger->info(Logr::Error, "No downstream servers defined: all packets will get dropped");
       // you might define them later, but you need to know
     }
 
