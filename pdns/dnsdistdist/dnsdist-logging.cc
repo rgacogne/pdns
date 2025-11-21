@@ -189,7 +189,7 @@ void setup(const std::string& backend)
   }
 }
 
-std::shared_ptr<const Logging::Logger> getTopLogger()
+std::shared_ptr<const Logr::Logger> getTopLogger()
 {
   auto topLogger = std::atomic_load_explicit(&s_topLogger, std::memory_order_acquire);
   if (!topLogger) {

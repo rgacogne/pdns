@@ -314,7 +314,9 @@ bool responseContentMatches(const PacketBuffer& response, const DNSName& qname, 
   }
   catch (const std::exception& e) {
     if (remote && !response.empty() && static_cast<size_t>(response.size()) > sizeof(dnsheader)) {
-      infolog("Backend %s sent us a response with id %d that did not parse: %s", remote->d_config.remote.toStringWithPort(), ntohs(dnsHeader->id), e.what());
+      if (dnsdist::logging::doVerboseLogging()) {
+        dnsdist::logging::getTopLogger()->withName("udp-response-worker")->error(e.what(), "Received a DNS response from a backend that we could not parse", "address", Logging::Loggable(remote->d_config.remote), "response-id", Logging::Loggable(ntohs(dnsHeader->id)));
+      }
     }
     ++dnsdist::metrics::g_stats.nonCompliantResponses;
     if (remote) {
@@ -412,7 +414,7 @@ static bool fixUpResponse(PacketBuffer& response, const DNSName& qname, uint16_t
             response = std::move(rewrittenResponse);
           }
           else {
-            warnlog("Error rewriting content");
+            dnsdist::logging::getTopLogger()->withName("fixup-response")->info(Logr::Error, "Error rewriting response content", "qname", Logging::Loggable(qname));
           }
         }
       }
@@ -434,7 +436,7 @@ static bool fixUpResponse(PacketBuffer& response, const DNSName& qname, uint16_t
             response = std::move(rewrittenResponse);
           }
           else {
-            warnlog("Error rewriting content");
+            dnsdist::logging::getTopLogger()->withName("fixup-response")->info(Logr::Error, "Error rewriting response content", "qname", Logging::Loggable(qname));
           }
         }
       }
@@ -451,7 +453,9 @@ static bool encryptResponse(PacketBuffer& response, size_t maximumSize, bool tcp
     int res = dnsCryptQuery->encryptResponse(response, maximumSize, tcp);
     if (res != 0) {
       /* dropping response */
-      vinfolog("Error encrypting the response, dropping.");
+      if (dnsdist::logging::doVerboseLogging()) {
+        dnsdist::logging::getTopLogger()->withName("dnscrypt")->info(Logr::Error, "Error encrypting response, dropping");
+      }
       return false;
     }
   }
@@ -679,7 +683,10 @@ void handleResponseSent(const DNSName& qname, const QType& qtype, double udiff, 
 static void handleResponseTC4UDPClient(DNSQuestion& dnsQuestion, uint16_t udpPayloadSize, PacketBuffer& response)
 {
   if (udpPayloadSize != 0 && response.size() > udpPayloadSize) {
-    vinfolog("Got a response of size %d while the initial UDP payload size was %d, truncating", response.size(), udpPayloadSize);
+    if (dnsdist::logging::doVerboseLogging()) {
+      dnsQuestion.getLogger()->withName("udp-response")->info(Logr::Info, "Got a UDP response larger than the initial UDP payload size, truncating", "size", Logging::Loggable(response.size()), "udp-payload-size", Logging::Loggable(udpPayloadSize));
+    }
+
     truncateTC(dnsQuestion.getMutableData(), dnsQuestion.getMaximumSize(), dnsQuestion.ids.qname.wirelength(), dnsdist::configuration::getCurrentRuntimeConfiguration().d_addEDNSToSelfGeneratedResponses);
     dnsdist::PacketMangling::editDNSHeaderFromPacket(dnsQuestion.getMutableData(), [](dnsheader& header) {
       header.tc = true;
@@ -726,14 +733,23 @@ static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& re
   if (!selfGenerated) {
     double udiff = ids.queryRealTime.udiff();
     if (!muted) {
-      vinfolog("Got answer from %s, relayed to %s (UDP), took %f us", backend->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff);
+      if (dnsdist::logging::doVerboseLogging()) {
+        if (!ids.isXSK()) {
+          dnsResponse.getLogger()->withName("udp-response")->info(Logr::Info, "Got answer from backend, relayed to client", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff));
+        }
+        else {
+          dnsResponse.getLogger()->withName("udp-xsk-response")->info(Logr::Info, "Got answer from backend, relayed to client", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff));
+        }
+      }
     }
     else {
-      if (!ids.isXSK()) {
-        vinfolog("Got answer from %s, NOT relayed to %s (UDP) since that frontend is muted, took %f us", backend->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff);
-      }
-      else {
-        vinfolog("Got answer from %s, relayed to %s (UDP via XSK), took %f us", backend->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff);
+      if (dnsdist::logging::doVerboseLogging()) {
+        if (!ids.isXSK()) {
+          dnsResponse.getLogger()->withName("udp-response")->info(Logr::Info, "Got answer from backend, NOT relayed to client since that frontend is muted", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff));
+        }
+        else {
+          dnsResponse.getLogger()->withName("udp-xsk-response")->info(Logr::Info, "Got answer from backend, NOT relayed to client since that frontend is muted", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff));
+        }
       }
     }
 
@@ -783,6 +799,8 @@ bool processResponderPacket(std::shared_ptr<DownstreamState>& dss, PacketBuffer&
 // listens on a dedicated socket, lobs answers from downstream servers to original requestors
 void responderThread(std::shared_ptr<DownstreamState> dss)
 {
+  auto responderLogger = dnsdist::logging::getTopLogger()->withName("udp-response")->withValues("frontend-address", Logging::Loggable(dss->d_config.remote));
+
   try {
     setThreadName("dnsdist/respond");
     const size_t initialBufferSize = getInitialUDPPacketBufferSize(false);
@@ -865,18 +883,21 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
         }
       }
       catch (const std::exception& e) {
-        vinfolog("Got an error in UDP responder thread while parsing a response from %s, id %d: %s", dss->d_config.remote.toStringWithPort(), queryId, e.what());
+        if (dnsdist::logging::doVerboseLogging()) {
+          responderLogger->error(e.what(), "Got an error in UDP responder thread while parsing a response", "response-id", Logging::Loggable(queryId));
+        }
       }
     }
   }
   catch (const std::exception& e) {
+    responderLogger->error(e.what(), "UDP responder thread died because of an exception");
     errlog("UDP responder thread died because of exception: %s", e.what());
   }
   catch (const PDNSException& e) {
-    errlog("UDP responder thread died because of PowerDNS exception: %s", e.reason);
+    responderLogger->error(e.reason, "UDP responder thread died because of a PowerDNS exception");
   }
   catch (...) {
-    errlog("UDP responder thread died because of an exception: %s", "unknown");
+    responderLogger->info(Logr::Error, "UDP responder thread died because of an unknown exception");
   }
 }
 
@@ -1783,7 +1804,7 @@ std::unique_ptr<CrossProtocolQuery> getUDPCrossProtocolQueryFromDQ(DNSQuestion& 
 
 ProcessQueryResult processQuery(DNSQuestion& dnsQuestion, std::shared_ptr<DownstreamState>& selectedBackend)
 {
-
+  dnsQuestion.getLogger()->info("test");
   auto closer = dnsQuestion.ids.getCloser(__func__); // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   const uint16_t queryId = ntohs(dnsQuestion.getHeader()->id);
   try {

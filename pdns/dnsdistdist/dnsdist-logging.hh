@@ -28,6 +28,6 @@
 namespace dnsdist::logging
 {
 void setup(const std::string& backend);
-std::shared_ptr<const Logging::Logger> getTopLogger();
+std::shared_ptr<const Logr::Logger> getTopLogger();
 bool doVerboseLogging();
 }
