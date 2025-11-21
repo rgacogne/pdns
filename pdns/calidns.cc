@@ -43,9 +43,6 @@
 #include "sstuff.hh"
 #include "statbag.hh"
 
-using std::thread;
-using std::unique_ptr;
-
 StatBag S;
 
 namespace po = boost::program_options;
@@ -171,7 +168,7 @@ static void replaceSourceIPInProxyProtocolPayload(std::vector<uint8_t>& packet, 
   memcpy(&packet.at(position), &addr, sizeof(addr));
 }
 
-static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const vector<vector<uint8_t>* >& packets, uint32_t qps, ComboAddress dest, const Netmask& range, bool ecs, bool proxyProtocol)
+static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const vector<vector<uint8_t>* >& packets, uint32_t qps, ComboAddress dest, const std::optional<Netmask>& range, bool ecs, bool proxyProtocol)
 {
   unsigned int burst=100;
   const auto nsecPerBurst=1*(unsigned long)(burst*1000000000.0/qps);
@@ -194,11 +191,13 @@ static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const ve
 
     Unit u;
 
-    if (ecs) {
-      replaceEDNSClientSubnet(*p, range);
-    }
-    else if (proxyProtocol) {
-      replaceSourceIPInProxyProtocolPayload(*p, range);
+    if (range) {
+      if (ecs) {
+        replaceEDNSClientSubnet(*p, *range);
+      }
+      else if (proxyProtocol) {
+        replaceSourceIPInProxyProtocolPayload(*p, *range);
+      }
     }
 
     fillMSGHdr(&u.msgh, &u.iov, nullptr, 0, (char*)&(*p)[0], p->size(), &dest);
@@ -291,6 +290,99 @@ namespace {
 }
 }
 
+static std::pair<int, std::optional<Netmask>> handleRange(const po::variables_map& options, bool beQuiet)
+{
+  std::optional<Netmask> range;
+  if (options.count("ecs") || options.count("proxy-protocol")) {
+    try {
+      if (options.count("ecs")) {
+        range = Netmask(options["ecs"].as<string>());
+      }
+      else {
+        range = Netmask(options["proxy-protocol"].as<string>());
+      }
+
+      if (range && !range->empty()) {
+        if (!range->isIPv4()) {
+          cerr<<"Only IPv4 ranges are supported for ECS and Proxy Protocol at the moment!"<<endl;
+          return {EXIT_FAILURE, range};
+        }
+
+        if (!beQuiet) {
+          if (options.count("ecs")) {
+            cout<<"Adding ECS option to outgoing queries with random addresses from the "<<range->toString()<<" range"<<endl;
+          }
+          else {
+            cout<<"Adding a Proxy Protocol payload in front of outgoing queries with random source IP addresses from the "<<range->toString()<<" range"<<endl;
+          }
+        }
+      }
+    }
+    catch (const NetmaskException& exp) {
+      if (options.count("ecs")) {
+        cerr<<"Error while parsing the ECS netmask: "<<exp.reason<<endl;
+      }
+      else {
+        cerr<<"Error while parsing the Proxy Protocol netmask: "<<exp.reason<<endl;
+      }
+      return {EXIT_FAILURE, range};
+    }
+  }
+  return {0, range};
+}
+
+static void sendThread(bool beQuiet)
+{
+  double bestQPS = 0.0;
+  double bestPerfectQPS = 0.0;
+  std::vector<std::vector<uint8_t>*> toSend;
+
+  for (qps = qpsstart;;) {
+    double seconds=1;
+    if (!beQuiet) {
+      cout<<"Aiming at "<<qps<< "qps (RD="<<wantRecursion<<") for "<<seconds<<" seconds at cache hitrate "<<100.0*hitrate<<"%";
+    }
+    unsigned int misses = (1-hitrate) * qps * seconds;
+    unsigned int total = qps * seconds;
+    if (misses == 0) {
+      misses = 1;
+    }
+    if (!beQuiet) {
+      cout<<", need "<<misses<<" misses, "<<total<<" queries, have "<<unknown.size()<<" unknown left!"<<endl;
+    }
+
+    if (misses > unknown.size()) {
+      cerr<<"Not enough queries remaining (need at least "<<misses<<" and got "<<unknown.size()<<", please add more to the query file), exiting."<<endl;
+      return EXIT_FAILURE;
+    }
+    toSend.reserve(total);
+    unsigned int n;
+
+    for (n = 0; n < misses; ++n) {
+      auto ptr = unknown.back();
+      unknown.pop_back();
+      toSend.push_back(ptr.get());
+      known.push_back(ptr);
+    }
+    for (;n < total; ++n) {
+      toSend.push_back(known[dns_random(known.size())].get());
+    }
+
+    shuffle(toSend.begin(), toSend.end(), pdns::dns_random_engine());
+    for (size_t idx = 0; idx < numberOfWorkers; idx++) {
+      auto& metrics = workerMetrics.at(idx);
+      metrics.recvCounter.store(0);
+      metrics.recvBytes.store(0);
+    }
+
+    DTime dt;
+    dt.set();
+
+    sendPackets(*sockets, toSend, qps, dest, range, addECS, addProxyProtocol);
+    toSend.clear();
+  }
+
+
 /*
   New plan. Set cache hit percentage, which we achieve on a per second basis.
   So we start with 10000 qps for example, and for 90% cache hit ratio means
@@ -371,7 +463,7 @@ try
   try {
     increment = options["increment"].as<float>();
   }
-  catch(...) {
+  catch (...) {
   }
 
   bool wantRecursion = options.count("want-recursion");
@@ -406,47 +498,14 @@ try
     return EXIT_FAILURE;
   }
 
-  Netmask range;
-  if (options.count("ecs") || options.count("proxy-protocol")) {
-    try {
-      if (options.count("ecs")) {
-        range = Netmask(options["ecs"].as<string>());
-      }
-      else {
-        range = Netmask(options["proxy-protocol"].as<string>());
-      }
-
-      if (!range.empty()) {
-        if (!range.isIPv4()) {
-          cerr<<"Only IPv4 ranges are supported for ECS and Proxy Protocol at the moment!"<<endl;
-          return EXIT_FAILURE;
-        }
-
-        if (!beQuiet) {
-          if (options.count("ecs")) {
-            cout<<"Adding ECS option to outgoing queries with random addresses from the "<<range.toString()<<" range"<<endl;
-          }
-          else {
-            cout<<"Adding a Proxy Protocol payload in front of outgoing queries with random source IP addresses from the "<<range.toString()<<" range"<<endl;
-          }
-        }
-      }
-    }
-    catch (const NetmaskException& e) {
-      if (options.count("ecs")) {
-        cerr<<"Error while parsing the ECS netmask: "<<e.reason<<endl;
-      }
-      else {
-        cerr<<"Error while parsing the Proxy Protocol netmask: "<<e.reason<<endl;
-      }
-      return EXIT_FAILURE;
-    }
+  auto [error, range] = handleRange(options, beQuiet);
+  if (error != 0) {
+    return error;
   }
 
-  struct sched_param param{};
-  param.sched_priority=99;
-
 #ifdef HAVE_SCHED_SETSCHEDULER
+  struct sched_param param{};
+  param.sched_priority = 99;
   if (sched_setscheduler(0, SCHED_FIFO, &param) < 0) {
     if (!beQuiet) {
       cerr<<"Unable to set SCHED_FIFO: "<<stringerror()<<endl;
@@ -463,7 +522,6 @@ try
     cout<<"Generated "<<unknown.size()<<" ready to use queries"<<endl;
   }
 
-  auto sockets = std::make_shared<std::vector<std::unique_ptr<Socket>>>();
   ComboAddress dest;
   try {
     dest = ComboAddress(options["destination"].as<string>(), 53);
@@ -472,34 +530,40 @@ try
     cerr<<e.reason<<endl;
     return EXIT_FAILURE;
   }
-  for(int i=0; i < 24; ++i) {
-    auto sock = make_unique<Socket>(dest.sin4.sin_family, SOCK_DGRAM);
-    //    sock->connect(dest);
-    try {
-      setSocketSendBuffer(sock->getHandle(), 2000000);
-    }
-    catch (const std::exception& e) {
-      if (!beQuiet) {
-        cerr<<e.what()<<endl;
-      }
-    }
-    try {
-      setSocketReceiveBuffer(sock->getHandle(), 2000000);
-    }
-    catch (const std::exception& e) {
-      if (!beQuiet) {
-        cerr<<e.what()<<endl;
-      }
-    }
 
-    sockets->emplace_back(std::move(sock));
+  auto workerSockets = std::vector<std::shared_ptr<std::vector<std::unique_ptr<Socket>>>>(numberOfWorkers);
+  for (size_t workerIdx = 0; workerIdx < numberOfWorkers; workerIdx++) {
+    auto& sockets = workerSockets.at(workerIdx);
+    sockets = std::make_shared<std::vector<std::unique_ptr<Socket>>>();
+    for (int i = 0; i < 24; ++i) {
+      auto sock = make_unique<Socket>(dest.sin4.sin_family, SOCK_DGRAM);
+      //    sock->connect(dest);
+      try {
+        setSocketSendBuffer(sock->getHandle(), 2000000);
+      }
+      catch (const std::exception& e) {
+        if (!beQuiet) {
+          cerr<<e.what()<<endl;
+        }
+      }
+      try {
+        setSocketReceiveBuffer(sock->getHandle(), 2000000);
+      }
+      catch (const std::exception& e) {
+        if (!beQuiet) {
+        cerr<<e.what()<<endl;
+        }
+      }
+
+      sockets->emplace_back(std::move(sock));
+    }
   }
 
   std::vector<WorkerMetrics> workerMetrics(numberOfWorkers);
 
   {
     auto& metrics = workerMetrics.at(0);
-    std::thread receiver(recvThread, sockets, std::ref(metrics));
+    std::thread receiver(recvThread, workerSockets.at(0), std::ref(metrics));
     receiver.detach();
   }
 
@@ -514,52 +578,16 @@ try
     }
   }
 
-  double bestQPS = 0.0;
-  double bestPerfectQPS = 0.0;
-  vector<vector<uint8_t>*> toSend;
-
-  for(qps=qpsstart;;) {
-    double seconds=1;
-    if (!beQuiet) {
-      cout<<"Aiming at "<<qps<< "qps (RD="<<wantRecursion<<") for "<<seconds<<" seconds at cache hitrate "<<100.0*hitrate<<"%";
-    }
-    unsigned int misses=(1-hitrate)*qps*seconds;
-    unsigned int total=qps*seconds;
-    if (misses == 0) {
-      misses = 1;
-    }
-    if (!beQuiet) {
-      cout<<", need "<<misses<<" misses, "<<total<<" queries, have "<<unknown.size()<<" unknown left!"<<endl;
-    }
-
-    if (misses > unknown.size()) {
-      cerr<<"Not enough queries remaining (need at least "<<misses<<" and got "<<unknown.size()<<", please add more to the query file), exiting."<<endl;
-      return EXIT_FAILURE;
-    }
-    toSend.reserve(total);
-    unsigned int n;
-    for(n=0; n < misses; ++n) {
-      auto ptr=unknown.back();
-      unknown.pop_back();
-      toSend.push_back(ptr.get());
-      known.push_back(ptr);
-    }
-    for(;n < total; ++n) {
-      toSend.push_back(known[dns_random(known.size())].get());
-    }
-
-    shuffle(toSend.begin(), toSend.end(), pdns::dns_random_engine());
-    for (size_t idx = 0; idx < numberOfWorkers; idx++) {
+      for (size_t idx = 0; idx < numberOfWorkers; idx++) {
       auto& metrics = workerMetrics.at(idx);
       metrics.recvCounter.store(0);
       metrics.recvBytes.store(0);
     }
 
-    DTime dt;
-    dt.set();
-
-    sendPackets(*sockets, toSend, qps, dest, range, addECS, addProxyProtocol);
-    toSend.clear();
+  for (size_t idx = 0; idx < numberOfWorkers; idx++) {
+    std::thread sender(sendThread, sockets.at(idx));
+    sender.join();
+  }
 
     const auto udiff = dt.udiffNoReset();
     const auto realqps = toSend.size()/(udiff/1000000.0);
