@@ -48,36 +48,34 @@ using std::unique_ptr;
 
 StatBag S;
 
-static std::atomic<unsigned int> g_recvcounter, g_recvbytes;
-static volatile bool g_done;
-
 namespace po = boost::program_options;
-static po::variables_map g_vm;
 
-static bool g_quiet;
+struct WorkerMetrics
+{
+  std::atomic<uint64_t> recvCounter{0};
+  std::atomic<uint64_t> recvBytes{0};
+};
 
 //NOLINTNEXTLINE(performance-unnecessary-value-param): we do want a copy to increase the reference count, thank you very much
-static void recvThread(const std::shared_ptr<std::vector<std::unique_ptr<Socket>>> sockets)
+static void recvThread(const std::shared_ptr<std::vector<std::unique_ptr<Socket>>> sockets, WorkerMetrics& metrics)
 {
-  vector<pollfd> rfds, fds;
-  for (const auto& s : *sockets) {
-    if (s == nullptr) {
+  std::vector<pollfd> rfds, fds;
+  for (const auto& sock : *sockets) {
+    if (sock == nullptr) {
       continue;
     }
-    struct pollfd pfd;
-    pfd.fd = s->getHandle();
+    pollfd pfd{};
+    pfd.fd = sock->getHandle();
     pfd.events = POLLIN;
     pfd.revents = 0;
     rfds.push_back(pfd);
   }
 
-  int err;
-
 #ifdef HAVE_RECVMMSG
-  vector<struct mmsghdr> buf(100);
-  for(auto& m : buf) {
+  std::vector<struct mmsghdr> buffers(100);
+  for (auto& buffer : buffers) {
     cmsgbuf_aligned *cbuf = new cmsgbuf_aligned;
-    fillMSGHdr(&m.msg_hdr, new struct iovec, cbuf, sizeof(*cbuf), new char[1500], 1500, new ComboAddress("127.0.0.1"));
+    fillMSGHdr(&buffer.msg_hdr, new struct iovec, cbuf, sizeof(*cbuf), new char[1500], 1500, new ComboAddress("127.0.0.1"));
   }
 #else
   struct msghdr buf;
@@ -85,38 +83,45 @@ static void recvThread(const std::shared_ptr<std::vector<std::unique_ptr<Socket>
   fillMSGHdr(&buf, new struct iovec, cbuf, sizeof(*cbuf), new char[1500], 1500, new ComboAddress("127.0.0.1"));
 #endif
 
-  while(!g_done) {
-    fds=rfds;
+  while (true) {
+    fds = rfds;
 
-    err = poll(&fds[0], fds.size(), -1);
+    auto err = poll(&fds[0], fds.size(), -1);
     if (err < 0) {
-      if (errno == EINTR)
+      if (errno == EINTR) {
         continue;
+      }
       unixDie("Unable to poll for new UDP events");
     }
 
-    for(auto &pfd : fds) {
-      if (pfd.revents & POLLIN) {
-#ifdef HAVE_RECVMMSG
-        if ((err=recvmmsg(pfd.fd, &buf[0], buf.size(), MSG_WAITFORONE, 0)) < 0 ) {
-          if(errno != EAGAIN)
-            unixDie("recvmmsg");
-          continue;
-        }
-        g_recvcounter+=err;
-        for(int n=0; n < err; ++n)
-          g_recvbytes += buf[n].msg_len;
-#else
-        if ((err = recvmsg(pfd.fd, &buf, 0)) < 0) {
-          if (errno != EAGAIN)
-            unixDie("recvmsg");
-          continue;
-        }
-        g_recvcounter++;
-        for (decltype(buf.msg_iovlen) i = 0; i < buf.msg_iovlen; i++)
-          g_recvbytes += buf.msg_iov[i].iov_len;
-#endif
+    for (auto &pfd : fds) {
+      if ((pfd.revents & POLLIN) == 0) {
+        continue;
       }
+
+#ifdef HAVE_RECVMMSG
+      if ((err = recvmmsg(pfd.fd, buffers.data(), buffers.size(), MSG_WAITFORONE, 0)) < 0 ) {
+        if (errno != EAGAIN) {
+          unixDie("recvmmsg");
+        }
+        continue;
+      }
+
+      metrics.recvCounter += err;
+      for (int idx = 0; idx < err; ++idx) {
+        metrics.recvBytes += buffers.at(idx).msg_len;
+      }
+#else
+      if ((err = recvmsg(pfd.fd, &buf, 0)) < 0) {
+        if (errno != EAGAIN) {
+          unixDie("recvmsg");
+        }
+        continue;
+      }
+      ++metrics.recvCounter;
+      for (decltype(buf.msg_iovlen) idx = 0; idx < buf.msg_iovlen; idx++)
+        metrics.recvBytes += buf.msg_iov[idx].iov_len;
+#endif
     }
   }
 }
@@ -183,7 +188,6 @@ static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const ve
     struct iovec iov;
     cmsgbuf_aligned cbuf;
   };
-  vector<unique_ptr<Unit> > units;
 
   for(const auto& p : packets) {
     count++;
@@ -343,52 +347,55 @@ try
   p.add("initial-qps", 1);
   p.add("hitrate", 1);
 
-  po::store(po::command_line_parser(argc, argv).options(alloptions).positional(p).run(), g_vm);
-  po::notify(g_vm);
+  po::variables_map options;
 
-  if (g_vm.count("help")) {
+  po::store(po::command_line_parser(argc, argv).options(alloptions).positional(p).run(), options);
+  po::notify(options);
+
+  if (options.count("help")) {
     usage(desc);
     return EXIT_SUCCESS;
   }
 
-  if (g_vm.count("version")) {
+  if (options.count("version")) {
     cerr<<"calidns "<<VERSION<<endl;
     return EXIT_SUCCESS;
   }
 
-  if (!(g_vm.count("query-file") && g_vm.count("destination") && g_vm.count("initial-qps") && g_vm.count("hitrate"))) {
+  if (!(options.count("query-file") && options.count("destination") && options.count("initial-qps") && options.count("hitrate"))) {
     usage(desc);
     return EXIT_FAILURE;
   }
 
   float increment = 1.1;
   try {
-    increment = g_vm["increment"].as<float>();
+    increment = options["increment"].as<float>();
   }
   catch(...) {
   }
 
-  bool wantRecursion = g_vm.count("want-recursion");
-  bool useECSFromFile = g_vm.count("ecs-from-file");
-  bool addECS = useECSFromFile || g_vm.count("ecs");
-  bool useProxyProtocolFromFile = g_vm.count("proxy-protocol-from-file");
-  bool addProxyProtocol = useProxyProtocolFromFile || g_vm.count("proxy-protocol");
-  g_quiet = g_vm.count("quiet");
+  bool wantRecursion = options.count("want-recursion");
+  bool useECSFromFile = options.count("ecs-from-file");
+  bool addECS = useECSFromFile || options.count("ecs");
+  bool useProxyProtocolFromFile = options.count("proxy-protocol-from-file");
+  bool addProxyProtocol = useProxyProtocolFromFile || options.count("proxy-protocol");
+  bool beQuiet = options.count("quiet");
+  size_t numberOfWorkers = 1;
 
-  double hitrate = g_vm["hitrate"].as<double>();
+  double hitrate = options["hitrate"].as<double>();
   if (hitrate > 100 || hitrate < 0) {
     cerr<<"hitrate must be between 0 and 100, not "<<hitrate<<endl;
     return EXIT_FAILURE;
   }
   hitrate /= 100;
-  uint32_t qpsstart = g_vm["initial-qps"].as<uint32_t>();
+  uint32_t qpsstart = options["initial-qps"].as<uint32_t>();
 
   uint32_t maximumQps = std::numeric_limits<uint32_t>::max();
-  if (g_vm.count("maximum-qps")) {
-    maximumQps = g_vm["maximum-qps"].as<uint32_t>();
+  if (options.count("maximum-qps")) {
+    maximumQps = options["maximum-qps"].as<uint32_t>();
   }
 
-  double minimumSuccessRate = g_vm["minimum-success-rate"].as<double>();
+  double minimumSuccessRate = options["minimum-success-rate"].as<double>();
   if (minimumSuccessRate > 100.0 || minimumSuccessRate < 0.0) {
     cerr<<"Minimum success rate must be between 0 and 100, not "<<minimumSuccessRate<<endl;
     return EXIT_FAILURE;
@@ -400,13 +407,13 @@ try
   }
 
   Netmask range;
-  if (g_vm.count("ecs") || g_vm.count("proxy-protocol")) {
+  if (options.count("ecs") || options.count("proxy-protocol")) {
     try {
-      if (g_vm.count("ecs")) {
-        range = Netmask(g_vm["ecs"].as<string>());
+      if (options.count("ecs")) {
+        range = Netmask(options["ecs"].as<string>());
       }
       else {
-        range = Netmask(g_vm["proxy-protocol"].as<string>());
+        range = Netmask(options["proxy-protocol"].as<string>());
       }
 
       if (!range.empty()) {
@@ -415,8 +422,8 @@ try
           return EXIT_FAILURE;
         }
 
-        if (!g_quiet) {
-          if (g_vm.count("ecs")) {
+        if (!beQuiet) {
+          if (options.count("ecs")) {
             cout<<"Adding ECS option to outgoing queries with random addresses from the "<<range.toString()<<" range"<<endl;
           }
           else {
@@ -426,7 +433,7 @@ try
       }
     }
     catch (const NetmaskException& e) {
-      if (g_vm.count("ecs")) {
+      if (options.count("ecs")) {
         cerr<<"Error while parsing the ECS netmask: "<<e.reason<<endl;
       }
       else {
@@ -436,30 +443,30 @@ try
     }
   }
 
-  struct sched_param param;
+  struct sched_param param{};
   param.sched_priority=99;
 
 #ifdef HAVE_SCHED_SETSCHEDULER
   if (sched_setscheduler(0, SCHED_FIFO, &param) < 0) {
-    if (!g_quiet) {
+    if (!beQuiet) {
       cerr<<"Unable to set SCHED_FIFO: "<<stringerror()<<endl;
     }
   }
 #endif
 
   reportAllTypes();
-  vector<std::shared_ptr<vector<uint8_t>>> unknown;
-  vector<std::shared_ptr<vector<uint8_t>>> known;
-  parseQueryFile(g_vm["query-file"].as<string>(), unknown, useECSFromFile || useProxyProtocolFromFile, wantRecursion, addECS, addProxyProtocol);
+  std::vector<std::shared_ptr<vector<uint8_t>>> unknown;
+  std::vector<std::shared_ptr<vector<uint8_t>>> known;
+  parseQueryFile(options["query-file"].as<string>(), unknown, useECSFromFile || useProxyProtocolFromFile, wantRecursion, addECS, addProxyProtocol);
 
-  if (!g_quiet) {
+  if (!beQuiet) {
     cout<<"Generated "<<unknown.size()<<" ready to use queries"<<endl;
   }
 
   auto sockets = std::make_shared<std::vector<std::unique_ptr<Socket>>>();
   ComboAddress dest;
   try {
-    dest = ComboAddress(g_vm["destination"].as<string>(), 53);
+    dest = ComboAddress(options["destination"].as<string>(), 53);
   }
   catch (PDNSException &e) {
     cerr<<e.reason<<endl;
@@ -472,7 +479,7 @@ try
       setSocketSendBuffer(sock->getHandle(), 2000000);
     }
     catch (const std::exception& e) {
-      if (!g_quiet) {
+      if (!beQuiet) {
         cerr<<e.what()<<endl;
       }
     }
@@ -480,7 +487,7 @@ try
       setSocketReceiveBuffer(sock->getHandle(), 2000000);
     }
     catch (const std::exception& e) {
-      if (!g_quiet) {
+      if (!beQuiet) {
         cerr<<e.what()<<endl;
       }
     }
@@ -488,28 +495,32 @@ try
     sockets->emplace_back(std::move(sock));
   }
 
+  std::vector<WorkerMetrics> workerMetrics(numberOfWorkers);
+
   {
-    std::thread receiver(recvThread, sockets);
+    auto& metrics = workerMetrics.at(0);
+    std::thread receiver(recvThread, sockets, std::ref(metrics));
     receiver.detach();
   }
 
   uint32_t qps;
 
   ofstream plot;
-  if (g_vm.count("plot-file")) {
-    plot.open(g_vm["plot-file"].as<string>());
+  if (options.count("plot-file")) {
+    plot.open(options["plot-file"].as<string>());
     if (!plot) {
-      cerr<<"Error opening "<<g_vm["plot-file"].as<string>()<<" for writing: "<<stringerror()<<endl;
+      cerr<<"Error opening "<<options["plot-file"].as<string>()<<" for writing: "<<stringerror()<<endl;
       return EXIT_FAILURE;
     }
   }
 
   double bestQPS = 0.0;
   double bestPerfectQPS = 0.0;
+  vector<vector<uint8_t>*> toSend;
 
   for(qps=qpsstart;;) {
     double seconds=1;
-    if (!g_quiet) {
+    if (!beQuiet) {
       cout<<"Aiming at "<<qps<< "qps (RD="<<wantRecursion<<") for "<<seconds<<" seconds at cache hitrate "<<100.0*hitrate<<"%";
     }
     unsigned int misses=(1-hitrate)*qps*seconds;
@@ -517,7 +528,7 @@ try
     if (misses == 0) {
       misses = 1;
     }
-    if (!g_quiet) {
+    if (!beQuiet) {
       cout<<", need "<<misses<<" misses, "<<total<<" queries, have "<<unknown.size()<<" unknown left!"<<endl;
     }
 
@@ -525,7 +536,7 @@ try
       cerr<<"Not enough queries remaining (need at least "<<misses<<" and got "<<unknown.size()<<", please add more to the query file), exiting."<<endl;
       return EXIT_FAILURE;
     }
-    vector<vector<uint8_t>*> toSend;
+    toSend.reserve(total);
     unsigned int n;
     for(n=0; n < misses; ++n) {
       auto ptr=unknown.back();
@@ -538,30 +549,42 @@ try
     }
 
     shuffle(toSend.begin(), toSend.end(), pdns::dns_random_engine());
-    g_recvcounter.store(0);
-    g_recvbytes=0;
+    for (size_t idx = 0; idx < numberOfWorkers; idx++) {
+      auto& metrics = workerMetrics.at(idx);
+      metrics.recvCounter.store(0);
+      metrics.recvBytes.store(0);
+    }
+
     DTime dt;
     dt.set();
 
     sendPackets(*sockets, toSend, qps, dest, range, addECS, addProxyProtocol);
+    toSend.clear();
 
     const auto udiff = dt.udiffNoReset();
-    const auto realqps=toSend.size()/(udiff/1000000.0);
-    if (!g_quiet) {
+    const auto realqps = toSend.size()/(udiff/1000000.0);
+    if (!beQuiet) {
       cout<<"Achieved "<<realqps<<" qps over "<< udiff/1000000.0<<" seconds"<<endl;
     }
 
     usleep(50000);
-    const auto received = g_recvcounter.load();
+    uint64_t received = 0;
+    uint64_t receivedBytes = 0;
+    for (size_t idx = 0; idx < numberOfWorkers; idx++) {
+      auto& metrics = workerMetrics.at(idx);
+      received += metrics.recvCounter.load();
+      receivedBytes += metrics.recvBytes.load();
+    }
+
     const auto udiffReceived = dt.udiff();
     const auto realReceivedQPS = received/(udiffReceived/1000000.0);
     double perc=received*100.0/toSend.size();
-     if (!g_quiet) {
+     if (!beQuiet) {
        cout<<"Received "<<received<<" packets over "<< udiffReceived/1000000.0<<" seconds ("<<perc<<"%, adjusted received rate "<<realReceivedQPS<<" qps)"<<endl;
      }
 
     if (plot) {
-      plot<<qps<<" "<<realqps<<" "<<perc<<" "<<received/(udiff/1000000.0)<<" " << 8*g_recvbytes.load()/(udiff/1000000.0)<<endl;
+      plot<<qps<<" "<<realqps<<" "<<perc<<" "<<received/(udiff/1000000.0)<<" " << 8*receivedBytes/(udiff/1000000.0)<<endl;
       plot.flush();
     }
 
@@ -573,7 +596,7 @@ try
     }
 
     if (minimumSuccessRate > 0.0 && perc < minimumSuccessRate) {
-      if (g_quiet) {
+      if (beQuiet) {
         cout<<bestQPS<<endl;
       }
       else {
