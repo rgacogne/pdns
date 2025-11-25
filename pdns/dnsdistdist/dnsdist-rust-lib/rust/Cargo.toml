@@ -19,3 +19,6 @@ serde_yaml = { version = "0.9.34" }
 
 [build-dependencies]
 cxx-build = "1.0"
+
+[profile.release]
+lto = "thin"
