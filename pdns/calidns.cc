@@ -47,6 +47,9 @@ StatBag S;
 
 namespace po = boost::program_options;
 
+using Packet = std::vector<uint8_t>;
+using ListOfQueries = std::vector<Packet>;
+
 struct WorkerMetrics
 {
   std::atomic<uint64_t> recvCounter{0};
@@ -138,7 +141,7 @@ static ComboAddress getRandomAddressFromRange(const Netmask& range)
   return result;
 }
 
-static void replaceEDNSClientSubnet(vector<uint8_t>& packet, const Netmask& ecsRange)
+static void replaceEDNSClientSubnet(Packet& packet, const Netmask& ecsRange)
 {
   /* the last 4 bytes of the packet are the IPv4 address */
   ComboAddress rnd = getRandomAddressFromRange(ecsRange);
@@ -152,7 +155,7 @@ static void replaceEDNSClientSubnet(vector<uint8_t>& packet, const Netmask& ecsR
   memcpy(&packet.at(packetSize - sizeof(addr)), &addr, sizeof(addr));
 }
 
-static void replaceSourceIPInProxyProtocolPayload(std::vector<uint8_t>& packet, const Netmask& range)
+static void replaceSourceIPInProxyProtocolPayload(Packet& packet, const Netmask& range)
 {
   /* the first 12 bytes of the packet are the Proxy Protocol magic, then one byte for version and command,
    one byte for protocol, 2 bytes for length, then the 4 bytes of the source IPv4 address */
@@ -168,8 +171,9 @@ static void replaceSourceIPInProxyProtocolPayload(std::vector<uint8_t>& packet, 
   memcpy(&packet.at(position), &addr, sizeof(addr));
 }
 
-static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const vector<vector<uint8_t>* >& packets, uint32_t qps, ComboAddress dest, const std::optional<Netmask>& range, bool ecs, bool proxyProtocol)
+static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const std::vector<const Packet*>& packets, uint32_t qps, ComboAddress dest, const std::optional<Netmask>& range, bool ecs, bool proxyProtocol)
 {
+  DTime dt;
   unsigned int burst=100;
   const auto nsecPerBurst=1*(unsigned long)(burst*1000000000.0/qps);
   struct timespec nsec;
@@ -177,8 +181,6 @@ static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const ve
   nsec.tv_nsec=0;
   int count=0;
   unsigned int nBursts=0;
-  DTime dt;
-  dt.set();
 
   struct Unit {
     struct msghdr msgh;
@@ -186,7 +188,8 @@ static void sendPackets(const vector<std::unique_ptr<Socket>>& sockets, const ve
     cmsgbuf_aligned cbuf;
   };
 
-  for(const auto& p : packets) {
+  dt.set();
+  for (const auto& p : packets) {
     count++;
 
     Unit u;
@@ -230,7 +233,7 @@ static void usage(po::options_description &desc) {
 }
 
 namespace {
-  void parseQueryFile(const std::string& queryFile, vector<std::shared_ptr<vector<uint8_t>>>& unknown, bool useRangeFromFile, bool wantRecursion, bool addECS, bool addProxyProtocol)
+  void parseQueryFile(const std::string& queryFile, std::vector<std::shared_ptr<Packet>>& unknown, bool useRangeFromFile, bool wantRecursion, bool addECS, bool addProxyProtocol)
 {
   const ComboAddress emptyAddr("0.0.0.0");
   const ComboAddress localAddr("127.0.0.1");
@@ -241,7 +244,7 @@ namespace {
   fields.reserve(3);
 
   while (getline(ifs, line)) {
-    vector<uint8_t> packet;
+    Packet packet;
     DNSPacketWriter::optvect_t ednsOptions;
     boost::trim(line);
     if (line.empty() || line.at(0) == '#') {
@@ -283,7 +286,7 @@ namespace {
       packet.insert(packet.begin(), payload.begin(), payload.end());
     }
 
-    unknown.emplace_back(std::make_shared<vector<uint8_t>>(std::move(packet)));
+    unknown.emplace_back(std::make_shared<Packet>(std::move(packet)));
   }
 
   shuffle(unknown.begin(), unknown.end(), pdns::dns_random_engine());
@@ -331,11 +334,74 @@ static std::pair<int, std::optional<Netmask>> handleRange(const po::variables_ma
   return {0, range};
 }
 
+static bool prepareQueries(std::vector<std::shared_ptr<Packet>>& unknown, std::vector<std::shared_ptr<Packet>>& known, std::vector<std::vector<const Packet*>>& workerQueries, const double hitrate, const double qps, bool beQuiet, size_t& numberOfQueriesToSend)
+{
+  constexpr double seconds = 1;
+  const auto numberOfWorkers = workerQueries.size();
+  unsigned int misses = (1-hitrate) * qps * seconds;
+  numberOfQueriesToSend = qps * seconds;
+  if (misses == 0) {
+    misses = 1;
+  }
+  if (!beQuiet) {
+    cout<<", need "<<misses<<" misses, " << numberOfQueriesToSend << " queries, have "<<unknown.size()<<" unknown left!"<<endl;
+  }
+
+  if (misses > unknown.size()) {
+    cerr<<"Not enough queries remaining (need at least "<<misses<<" and got "<<unknown.size()<<", please add more to the query file), exiting."<<endl;
+    return false;
+  }
+
+  unsigned int assigned = 0;
+  unsigned int missesAssigned = 0;
+  const auto perWorker = numberOfQueriesToSend / numberOfWorkers;
+  const auto missPerWorker = misses / numberOfWorkers;
+
+  for (auto& worker : workerQueries) {
+    worker.reserve(perWorker);
+    unsigned int assignedToThisWorker = 0;
+
+    for (assignedToThisWorker = 0; assignedToThisWorker < missPerWorker; ++assignedToThisWorker) {
+      auto ptr = unknown.back();
+      unknown.pop_back();
+      worker.push_back(ptr.get());
+      known.push_back(ptr);
+    }
+
+    for (;assignedToThisWorker < perWorker; ++assignedToThisWorker) {
+      worker.push_back(known[dns_random(known.size())].get());
+    }
+
+    missesAssigned += missPerWorker;
+    assigned += assignedToThisWorker;
+  }
+
+  if (assigned < numberOfQueriesToSend) {
+    /* not an even number */
+    auto& worker = workerQueries.at(0);
+    const auto missesRemaining = misses - missesAssigned;
+
+    for (size_t idx = 0; idx < missesRemaining; idx++) {
+      auto ptr = unknown.back();
+      unknown.pop_back();
+      worker.push_back(ptr.get());
+      known.push_back(ptr);
+    }
+    assigned += missesRemaining;
+
+    const auto remaining = numberOfQueriesToSend - assigned;
+    for (size_t idx = 0; idx < remaining; idx++) {
+      worker.push_back(known[dns_random(known.size())].get());
+    }
+  }
+
+  return true;
+}
+
+#if 0
 static void sendThread(bool beQuiet)
 {
-  double bestQPS = 0.0;
-  double bestPerfectQPS = 0.0;
-  std::vector<std::vector<uint8_t>*> toSend;
+  std::vector<Packet*> toSend;
 
   for (qps = qpsstart;;) {
     double seconds=1;
@@ -381,7 +447,7 @@ static void sendThread(bool beQuiet)
     sendPackets(*sockets, toSend, qps, dest, range, addECS, addProxyProtocol);
     toSend.clear();
   }
-
+#endif
 
 /*
   New plan. Set cache hit percentage, which we achieve on a per second basis.
@@ -514,8 +580,8 @@ try
 #endif
 
   reportAllTypes();
-  std::vector<std::shared_ptr<vector<uint8_t>>> unknown;
-  std::vector<std::shared_ptr<vector<uint8_t>>> known;
+  std::vector<std::shared_ptr<Packet>> unknown;
+  std::vector<std::shared_ptr<Packet>> known;
   parseQueryFile(options["query-file"].as<string>(), unknown, useECSFromFile || useProxyProtocolFromFile, wantRecursion, addECS, addProxyProtocol);
 
   if (!beQuiet) {
@@ -567,8 +633,6 @@ try
     receiver.detach();
   }
 
-  uint32_t qps;
-
   ofstream plot;
   if (options.count("plot-file")) {
     plot.open(options["plot-file"].as<string>());
@@ -578,21 +642,38 @@ try
     }
   }
 
-      for (size_t idx = 0; idx < numberOfWorkers; idx++) {
+  double bestQPS = 0.0;
+  double bestPerfectQPS = 0.0;
+  DTime dt;
+  for (uint32_t qps = qpsstart;;) {
+    dt.set();
+    for (size_t idx = 0; idx < numberOfWorkers; idx++) {
       auto& metrics = workerMetrics.at(idx);
       metrics.recvCounter.store(0);
       metrics.recvBytes.store(0);
     }
 
-  for (size_t idx = 0; idx < numberOfWorkers; idx++) {
-    std::thread sender(sendThread, sockets.at(idx));
-    sender.join();
-  }
+    uint64_t numberOfQueriesToSend = 0;
+    std::vector<std::vector<const Packet*>> workerQueries(numberOfWorkers);
+    if (!prepareQueries(unknown, known, workerQueries, hitrate, qps, beQuiet, numberOfQueriesToSend)) {
+      return EXIT_FAILURE;
+    }
+
+    for (size_t idx = 0; idx < numberOfWorkers; idx++) {
+      auto sendThread = [&]() {
+        const auto& threadSockets = workerSockets.at(idx);
+        auto& workerPackets = workerQueries.at(idx);
+        shuffle(workerPackets.begin(), workerPackets.end(), pdns::dns_random_engine());
+        sendPackets(*threadSockets, workerPackets, qps, dest, range, addECS, addProxyProtocol);
+      };
+      std::thread sender(sendThread);
+      sender.join();
+    }
 
     const auto udiff = dt.udiffNoReset();
-    const auto realqps = toSend.size()/(udiff/1000000.0);
+    const auto realqps = numberOfQueriesToSend / (udiff / 1000000.0);
     if (!beQuiet) {
-      cout<<"Achieved "<<realqps<<" qps over "<< udiff/1000000.0<<" seconds"<<endl;
+      cout<<"Achieved "<<realqps<<" qps over "<< udiff / 1000000.0<<" seconds"<<endl;
     }
 
     usleep(50000);
@@ -606,7 +687,7 @@ try
 
     const auto udiffReceived = dt.udiff();
     const auto realReceivedQPS = received/(udiffReceived/1000000.0);
-    double perc=received*100.0/toSend.size();
+    double perc=received*100.0/numberOfQueriesToSend;
      if (!beQuiet) {
        cout<<"Received "<<received<<" packets over "<< udiffReceived/1000000.0<<" seconds ("<<perc<<"%, adjusted received rate "<<realReceivedQPS<<" qps)"<<endl;
      }
