@@ -103,6 +103,18 @@ namespace dnsdist::configuration::lua
 void loadLuaConfigurationFile(LuaContext& luaCtx, const std::string& config, bool configCheck);
 }
 
+template<typename T> struct is_variant : std::false_type {};
+
+template<typename ...Args>
+struct is_variant<std::variant<Args...>> : std::true_type {};
+
+template<typename ...Args>
+struct is_variant<boost::variant<Args...>> : std::true_type {};
+
+template<typename T>
+inline constexpr bool is_variant_v = is_variant<T>::value;
+
+
 /**
  * getOptionalValue(vars, key, value)
  *
@@ -120,16 +132,21 @@ static inline int getOptionalValue(std::optional<V>& vars, const std::string& ke
   }
 
   if (vars->count(key)) {
-    try {
-      value = boost::get<G>((*vars)[key]);
-    }
-    catch (const boost::bad_get& e) {
-      /* key is there but isn't compatible */
-      if (warnOnWrongType) {
-        warnlog("Invalid type for key '%s' - ignored", key);
-        vars->erase(key);
+    if constexpr (is_variant_v<typename V::mapped_type>) {
+      try {
+        value = boost::get<G>((*vars)[key]);
       }
-      return -1;
+      catch (const boost::bad_get& e) {
+        /* key is there but isn't compatible */
+        if (warnOnWrongType) {
+          warnlog("Invalid type for key '%s' - ignored", key);
+          vars->erase(key);
+        }
+        return -1;
+      }
+    }
+    else {
+      value = (*vars)[key];
     }
   }
   return vars->erase(key);
