@@ -651,6 +651,7 @@ fuzz_target_dnsdistcache_SOURCES = \
 	ext/json11/json11.cpp \
 	ext/json11/json11.hpp \
 	fuzz_dnsdistcache.cc \
+	gettime.cc gettime.hh \
 	iputils.cc iputils.hh \
 	logging.cc logging.hh \
 	misc.cc misc.hh \
