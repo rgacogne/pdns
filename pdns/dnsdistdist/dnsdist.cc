@@ -2472,7 +2472,8 @@ static void maintThread()
       }
       catch (const std::exception& e) {
         if (secondsToWaitLog <= 0) {
-          warnlog("Error during execution of maintenance function(s): %s", e.what());
+          SLOG(warnlog("Error during execution of maintenance function(s): %s", e.what()),
+               dnsdist::logging::getTopLogger()->error(Logr::Warning, e.what(), "Error during execution of maintenance function(s)"));
           secondsToWaitLog = 61;
         }
         secondsToWaitLog -= interval;
@@ -3812,7 +3813,8 @@ int main(int argc, char** argv)
         }
         acls += aclEntry;
       }
-      infolog("ACL allowing queries from: %s", acls);
+      SLOG(infolog("ACL allowing queries from: %s", acls),
+           setupLogger->info(Logr::Info, "Allowing queries from", "acl", Logging::Loggable(acls)));
     }
     {
       std::string acls;
@@ -3823,14 +3825,16 @@ int main(int argc, char** argv)
         }
         acls += entry;
       }
-      infolog("Console ACL allowing connections from: %s", acls.c_str());
+      SLOG(infolog("Console ACL allowing connections from: %s", acls),
+           setupLogger->info(Logr::Info, "Allowing console connections from", "acl", Logging::Loggable(acls)));
     }
 
     auto listeningSockets = initListeningSockets();
 
 #if defined(HAVE_LIBSODIUM) || defined(HAVE_LIBCRYPTO)
     if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_consoleEnabled && dnsdist::configuration::getCurrentRuntimeConfiguration().d_consoleKey.empty()) {
-      warnlog("Warning, the console has been enabled via 'controlSocket()' but no key has been set with 'setKey()' so all connections will fail until a key has been set");
+      SLOG(warnlog("Warning, the console has been enabled via 'controlSocket()' but no key has been set with 'setKey()' so all connections will fail until a key has been set"),
+           setupLogger->info(Logr::Warning, "The console has been enabled via 'controlSocket()' but no key has been set with 'setKey()' so allconnections will fail until a key has been set"));
     }
 #endif
 
@@ -3856,7 +3860,8 @@ int main(int argc, char** argv)
     /* the limit is completely arbitrary: hopefully high enough not to trigger too many false positives
        but low enough to be useful */
     if (maxTCPClientThreads >= 50U) {
-      warnlog("setMaxTCPClientThreads(%d) might create a large number of TCP connections to backends, and is probably not needed, please consider lowering it", maxTCPClientThreads);
+      SLOG(warnlog("setMaxTCPClientThreads(%d) might create a large number of TCP connections to backends, and is probably not needed, please consider lowering it", maxTCPClientThreads),
+           setupLogger->info(Logr::Warning, "The current setMaxTCPClientThreads() value might create a large number of TCP connections to backends, and is probably not needed, please consider lowering it", "value", Logging::Loggable(maxTCPClientThreads)));
     }
     g_tcpclientthreads = std::make_unique<TCPClientCollection>(maxTCPClientThreads, std::vector<ClientState*>());
 #endif
@@ -3915,7 +3920,8 @@ int main(int argc, char** argv)
           if (!queueHealthCheck(mplexer, dss, true)) {
             dss->submitHealthCheckResult(true, false);
             dss->setUpStatus(false);
-            warnlog("Marking downstream %s as 'down'", dss->getNameWithAddr());
+            SLOG(warnlog("Marking downstream %s as 'down'", dss->getNameWithAddr()),
+                 setupLogger->info(Logr::Warning, "Marking downstream backend server as 'down'", "backend-name", Logging::Loggable(dss->getName()), "address", Logging::Loggable(dss->d_config.remote)));
           }
         }
       }
