@@ -732,21 +732,21 @@ static void handleResponseForUDPClient(InternalQueryState& ids, PacketBuffer& re
     if (!muted) {
       if (!ids.isXSK()) {
         VERBOSESLOG(infolog("Got answer from %s, relayed to %s (UDP), took %f us", backend->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff),
-                    dnsResponse.getLogger()->withName("udp-response")->info(Logr::Info, "Got answer from backend, relayed to client", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff)));
+                    dnsResponse.getLogger()->withName("udp-response")->info(Logr::Info, "Got answer from backend, relayed to client"));
       }
       else {
         VERBOSESLOG(infolog("Got answer from %s, relayed to %s (UDP via XSK), took %f us", backend->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff),
-                    dnsResponse.getLogger()->withName("udp-xsk-response")->info(Logr::Info, "Got answer from backend, relayed to client", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff)));
+                    dnsResponse.getLogger()->withName("udp-xsk-response")->info(Logr::Info, "Got answer from backend, relayed to client"));
       }
     }
     else {
       if (!ids.isXSK()) {
         VERBOSESLOG(infolog("Got answer from %s, NOT relayed to %s (UDP) since that frontend is muted, took %f us", backend->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff),
-                    dnsResponse.getLogger()->withName("udp-response")->info(Logr::Info, "Got answer from backend, NOT relayed to client since that frontend is muted", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff)));
+                    dnsResponse.getLogger()->withName("udp-response")->info(Logr::Info, "Got answer from backend, NOT relayed to client since that frontend is muted"));
       }
       else {
         VERBOSESLOG(infolog("Got answer from %s, relayed to %s (UDP via XSK), took %f us", backend->d_config.remote.toStringWithPort(), ids.origRemote.toStringWithPort(), udiff),
-                    dnsResponse.getLogger()->withName("udp-xsk-response")->info(Logr::Info, "Got answer from backend, NOT relayed to client since that frontend is muted", "backend", Logging::Loggable(backend->d_config.remote), "latency-us", Logging::Loggable(udiff)));
+                    dnsResponse.getLogger()->withName("udp-xsk-response")->info(Logr::Info, "Got answer from backend, NOT relayed to client since that frontend is muted"));
       }
     }
 
@@ -1830,7 +1830,6 @@ std::unique_ptr<CrossProtocolQuery> getUDPCrossProtocolQueryFromDQ(DNSQuestion& 
 
 ProcessQueryResult processQuery(DNSQuestion& dnsQuestion, std::shared_ptr<DownstreamState>& selectedBackend)
 {
-  dnsQuestion.getLogger()->info("test");
   auto closer = dnsQuestion.ids.getCloser(__func__); // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   const uint16_t queryId = ntohs(dnsQuestion.getHeader()->id);
   try {

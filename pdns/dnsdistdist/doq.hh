@@ -55,7 +55,7 @@ struct DOQFrontend
     return *d_logger;
   }
 
-  std::shared_ptr<Logr::Logger> d_logger{nullptr};
+  std::shared_ptr<const Logr::Logger> d_logger{nullptr};
   std::unique_ptr<DOQServerConfig> d_server_config;
   dnsdist::doq::QuicheParams d_quicheParams;
   ComboAddress d_local;

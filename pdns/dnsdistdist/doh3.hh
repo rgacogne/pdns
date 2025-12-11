@@ -65,7 +65,7 @@ struct DOH3Frontend
     return *d_logger;
   }
 
-  std::shared_ptr<Logr::Logger> d_logger{nullptr};
+  std::shared_ptr<const Logr::Logger> d_logger{nullptr};
   std::unique_ptr<DOH3ServerConfig> d_server_config;
   ComboAddress d_local;
 
