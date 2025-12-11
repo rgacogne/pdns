@@ -24,8 +24,7 @@ permissions: # least privileges, see https://docs.github.com/en/actions/using-wo
 
 env:
   COMPILER: clang
-  # CLANG_VERSION: ${{ contains(inputs.runner-docker-image-name, 'debian-11') && '13' || '19' }}
-  CLANG_VERSION: '13'
+  CLANG_VERSION: ${{ contains(inputs.runner-docker-image-name, 'debian-11') && '13' || '19' }}
   # github.workspace variable points to the Runner home folder. Container home folder defined below.
   REPO_HOME: '/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}'
   BUILDER_VERSION: '0.0.0-git1'
@@ -44,7 +43,7 @@ jobs:
       tag: ${{ steps.get-runner-image.outputs.tag }}
     env:
       DEFAULT_IMAGE_TAG: master # update when backporting, e.g. auth-4.9.x
-      DOCKER_IMAGE: ${{ inputs.runner-docker-image-name || 'base-pdns-ci-image/debian-12-pdns-base' }}
+      DOCKER_IMAGE: ${{ inputs.runner-docker-image-name || 'base-pdns-ci-image/debian-13-pdns-base' }}
     steps:
       - id: get-runner-image
         run: |

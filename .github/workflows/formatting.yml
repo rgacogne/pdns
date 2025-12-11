@@ -2,7 +2,7 @@
 name: 'Verify source code formatting; check Makefile.am sort order'
 
 on:
-  push:
+  # push:
   pull_request:
 
 permissions: # least privileges, see https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions
