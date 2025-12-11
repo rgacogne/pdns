@@ -84,7 +84,7 @@ std::shared_ptr<const Logr::Logger> DNSResponse::getThisLogger() const
     logger = logger->withValues("backend-protocol", Logging::Loggable(d_downstream->getProtocol()), "backend-name", Logging::Loggable(d_downstream->getName()), "backend-address", Logging::Loggable(d_downstream->d_config.remote));
   }
   const double udiff = ids.queryRealTime.udiff();
-  logger = logger->withValues("latency", Logging::Loggable(udiff), "response-size", Logging::Loggable(data.size()));
+  logger = logger->withValues("latency-us", Logging::Loggable(udiff), "response-size", Logging::Loggable(data.size()));
   return logger;
 }
 

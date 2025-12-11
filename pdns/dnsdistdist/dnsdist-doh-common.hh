@@ -100,7 +100,7 @@ struct DOHFrontend
   std::shared_ptr<DOHServerConfig> d_dsc{nullptr};
   std::shared_ptr<std::vector<std::shared_ptr<DOHResponseMapEntry>>> d_responsesMap;
   std::shared_ptr<TLSFrontend> d_tlsContext;
-  std::shared_ptr<Logr::Logger> d_logger;
+  std::shared_ptr<const Logr::Logger> d_logger;
   std::string d_serverTokens{"h2o/dnsdist"};
   std::unordered_map<std::string, std::string> d_customResponseHeaders;
   std::string d_library;
