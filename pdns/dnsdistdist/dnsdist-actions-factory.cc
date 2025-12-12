@@ -1522,7 +1522,7 @@ static void remoteLoggerQueueData(RemoteLoggerInterface& remoteLogger, const std
     break;
   case RemoteLoggerInterface::Result::PipeFull: {
     VERBOSESLOG(infolog("%s: %s", remoteLogger.name(), RemoteLoggerInterface::toErrorString(ret)),
-               dnsdist::logging::getTopLogger()->error(Logr::Info, RemoteLoggerInterface::toErrorString(ret), "Remote logger pipe full event", "remote-logger-name", Logging::Loggable(remoteLogger.name())));
+                dnsdist::logging::getTopLogger()->error(Logr::Info, RemoteLoggerInterface::toErrorString(ret), "Remote logger pipe full event", "remote-logger-name", Logging::Loggable(remoteLogger.name())));
     break;
   }
   case RemoteLoggerInterface::Result::TooLarge: {

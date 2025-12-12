@@ -973,7 +973,7 @@ static void addStatsToJSONObject(Json::object& obj)
 #ifndef DISABLE_BUILTIN_HTML
 static void handleJSONStats(const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   handleCORS(req, resp);
   resp.status = 200;
 
@@ -1159,7 +1159,7 @@ static void addServerToJSON(Json::array& servers, int identifier, const std::sha
 
 static void handleStats(const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   handleCORS(req, resp);
   resp.status = 200;
 
@@ -1363,7 +1363,7 @@ static void handleStats(const YaHTTP::Request& req, YaHTTP::Response& resp, cons
 
 static void handlePoolStats(const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   handleCORS(req, resp);
   const auto poolName = req.getvars.find("name");
   if (poolName == req.getvars.end()) {
@@ -1414,7 +1414,7 @@ static void handlePoolStats(const YaHTTP::Request& req, YaHTTP::Response& resp, 
 
 static void handleStatsOnly(const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   handleCORS(req, resp);
   resp.status = 200;
 
@@ -1454,7 +1454,7 @@ static void handleStatsOnly(const YaHTTP::Request& req, YaHTTP::Response& resp, 
 #ifndef DISABLE_WEB_CONFIG
 static void handleConfigDump(const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   handleCORS(req, resp);
   resp.status = 200;
 
@@ -1563,7 +1563,7 @@ static void handleAllowFrom(const YaHTTP::Request& req, YaHTTP::Response& resp, 
 #ifndef DISABLE_WEB_CACHE_MANAGEMENT
 static void handleCacheManagement(const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   handleCORS(req, resp);
 
   resp.headers["Content-Type"] = "application/json";
@@ -1690,7 +1690,7 @@ static void handleRings(const YaHTTP::Request& req, YaHTTP::Response& resp, cons
     }
     catch (const std::exception& exp) {
       VERBOSESLOG(infolog("Error parsing the 'maxQueries' value from rings HTTP GET query: %s", exp.what()),
-                          logger.error(Logr::Info, exp.what(), "Error parsing the 'maxQueries' value from rings HTTP GET query"));
+                  logger.error(Logr::Info, exp.what(), "Error parsing the 'maxQueries' value from rings HTTP GET query"));
     }
   }
 
@@ -1774,7 +1774,7 @@ void clearWebHandlers()
 
 static void redirectToIndex([[maybe_unused]] const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   const string charset = "; charset=utf-8";
   resp.body.assign(s_urlmap.at("index.html"));
   resp.headers["Content-Type"] = "text/html" + charset;
@@ -1783,7 +1783,7 @@ static void redirectToIndex([[maybe_unused]] const YaHTTP::Request& req, YaHTTP:
 
 static void handleBuiltInFiles(const YaHTTP::Request& req, YaHTTP::Response& resp, const Logr::Logger& logger)
 {
-  (void) logger;
+  (void)logger;
   if (req.url.path.empty()) {
     resp.status = 404;
     return;
