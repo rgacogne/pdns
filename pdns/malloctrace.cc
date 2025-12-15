@@ -103,18 +103,20 @@ MallocTracer::allocators_t MallocTracer::topAllocators(int num)
 {
   l_active=true;
   allocators_t ret;
-  for(const auto& e : d_stats) {
+  ret.reserve(d_stats.size());
+
+  for (const auto& e : d_stats) {
     ret.emplace_back(e.second, e.first);
   }
-  std::sort(ret.begin(), ret.end(), 
-       [](const allocators_t::value_type& a, 
+  std::sort(ret.begin(), ret.end(),
+       [](const allocators_t::value_type& a,
 	  const allocators_t::value_type& b) {
 	 return a.first.count < b.first.count;
        });
-  if((unsigned int)num > ret.size())
-    ret.clear();
-  else if(num > 0)
-    ret.erase(ret.begin(), ret.begin() + (ret.size() - num));
+
+  if (num > 0 && static_cast<size_t>(num) < ret.size()) {
+    ret.erase(ret.begin(), ret.begin() + (ret.size() - static_cast<size_t>(num)));
+  }
   l_active=false;
   return ret;
 }
@@ -127,7 +129,7 @@ std::string MallocTracer::topAllocatorsString(int num)
   std::ostringstream ret;
   for(const auto& e : raw) {
     ret<<"Called "<<e.first.count<<" times\n";
-    for(const auto& u : e.first.sizes) 
+    for(const auto& u : e.first.sizes)
       ret<<u.first<<"b: "<<u.second<<" times, ";
     ret<<'\n';
     char** strings = backtrace_symbols(&e.second[0], e.second.size());
@@ -144,8 +146,7 @@ std::string MallocTracer::topAllocatorsString(int num)
 void MallocTracer::clearAllocators()
 {
   l_active=true;
-  auto lock = std::scoped_lock(d_mut); 
-  d_stats.clear(); 
+  auto lock = std::scoped_lock(d_mut);
+  d_stats.clear();
   l_active=false;
 }
-
