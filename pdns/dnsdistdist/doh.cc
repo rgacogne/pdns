@@ -876,7 +876,7 @@ static void processDOHQuery(DOHUnitUniquePtr&& unit, bool inMainThread = false)
   catch (const std::exception& e) {
     if (unit) {
       VERBOSESLOG(infolog("Got an error in DOH question thread while parsing a query from %s, id %d: %s", remote.toStringWithPort(), queryId, e.what()),
-                  unit->dsc->dohFrontend->getLogger().error(Logr::Info, e.what(), "Got an error in DoH question thread while parsing a query", "address", Logging::Loggable(remote), "query-id", Logging::Loggable(queryId)));
+                  unit->dsc->dohFrontend->getLogger().error(Logr::Info, e.what(), "Got an error in DoH question thread while parsing a query", "client.address", Logging::Loggable(remote), "dns.question.id", Logging::Loggable(queryId)));
       unit->status_code = 500;
       handleImmediateResponse(std::move(unit), "DoH internal error");
     }
@@ -1018,7 +1018,7 @@ static void doh_dispatch_query(DOHServerConfig* dsc, h2o_handler_t* self, h2o_re
   }
   catch (const std::exception& e) {
     VERBOSESLOG(infolog("Had error parsing DoH DNS packet from %s: %s", remote.toStringWithPort(), e.what()),
-                dsc->dohFrontend->getLogger().error(Logr::Info, e.what(), "Had error parsing DoH DNS packet", "address", Logging::Loggable(remote)));
+                dsc->dohFrontend->getLogger().error(Logr::Info, e.what(), "Had error parsing DoH DNS packet", "client.address", Logging::Loggable(remote)));
 
     if (conn != nullptr) {
       --conn->d_concurrentStreams;
@@ -1070,11 +1070,11 @@ static std::optional<ComboAddress> processForwardedForHeader(const DOHFrontend& 
     }
     catch (const std::exception& e) {
       VERBOSESLOG(infolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.what()),
-                  frontend.getLogger().error(Logr::Info, e.what(), "Invalid X-Forwarded-For header received from client", "address", Logging::Loggable(remote), "header-value", Logging::Loggable(value)));
+                  frontend.getLogger().error(Logr::Info, e.what(), "Invalid X-Forwarded-For header received from client", "client.address", Logging::Loggable(remote), "http.request.header.x-forwarded-for", Logging::Loggable(value)));
     }
     catch (const PDNSException& e) {
       VERBOSESLOG(infolog("Invalid X-Forwarded-For header ('%s') received from %s : %s", std::string(value), remote.toStringWithPort(), e.reason),
-                  frontend.getLogger().error(Logr::Info, e.reason, "Invalid X-Forwarded-For header received from client", "address", Logging::Loggable(remote), "header-value", Logging::Loggable(value)));
+                  frontend.getLogger().error(Logr::Info, e.reason, "Invalid X-Forwarded-For header received from client", "client.address", Logging::Loggable(remote), "http.request.header.x-forwarded-for", Logging::Loggable(value)));
     }
   }
 
@@ -1103,7 +1103,7 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
     auto& conn = *connPtr;
     if (conn.d_concurrentStreams >= dnsdist::doh::MAX_INCOMING_CONCURRENT_STREAMS) {
       VERBOSESLOG(infolog("Too many concurrent streams on connection from %d", conn.d_remote.toStringWithPort()),
-                  dsc->dohFrontend->getLogger().info(Logr::Info, "Too many concurrent streams on connection", "address", Logging::Loggable(conn.d_remote)));
+                  dsc->dohFrontend->getLogger().info(Logr::Info, "Too many concurrent streams on connection", "client.address", Logging::Loggable(conn.d_remote)));
       return 0;
     }
 
@@ -1133,7 +1133,7 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
     if (!dnsdist::configuration::getCurrentRuntimeConfiguration().d_ACL.match(remote)) {
       ++dnsdist::metrics::g_stats.aclDrops;
       VERBOSESLOG(infolog("Query from %s (DoH) dropped because of ACL", remote.toStringWithPort()),
-                  dsc->dohFrontend->getLogger().info(Logr::Info, "DoH query dropped because of ACL", "address", Logging::Loggable(remote)));
+                  dsc->dohFrontend->getLogger().info(Logr::Info, "DoH query dropped because of ACL", "client.address", Logging::Loggable(remote)));
       h2o_send_error_403(req, "Forbidden", "DoH query not allowed because of ACL", 0);
       return 0;
     }
@@ -1243,7 +1243,7 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
       }
       else {
         VERBOSESLOG(infolog("HTTP request without DNS parameter: %s", req->path.base),
-                    dsc->dohFrontend->getLogger().info(Logr::Info, "DoH query withouth DNS parameter", "address", Logging::Loggable(remote), "url", Logging::Loggable(req->path.base)));
+                    dsc->dohFrontend->getLogger().info(Logr::Info, "DoH query withouth DNS parameter", "client.address", Logging::Loggable(remote), "url", Logging::Loggable(req->path.base)));
         h2o_send_error_400(req, "Bad Request", "Unable to find the DNS parameter", 0);
         ++dsc->dohFrontend->d_badrequests;
         return 0;
@@ -1453,7 +1453,7 @@ static void on_accept(h2o_socket_t *listener, const char *err)
   if (dsc->dohFrontend->d_earlyACLDrop && !dsc->dohFrontend->d_trustForwardedForHeader && !dnsdist::configuration::getCurrentRuntimeConfiguration().d_ACL.match(remote)) {
     ++dnsdist::metrics::g_stats.aclDrops;
     VERBOSESLOG(infolog("Dropping DoH connection from %s because of ACL", remote.toStringWithPort()),
-                dsc->dohFrontend->getLogger().info(Logr::Info, "Dropping DoH connection because of ACL", "address", Logging::Loggable(remote)));
+                dsc->dohFrontend->getLogger().info(Logr::Info, "Dropping DoH connection because of ACL", "client.address", Logging::Loggable(remote)));
     h2o_socket_close(sock);
     return;
   }
@@ -1636,7 +1636,7 @@ void dohThread(ClientState* clientState)
 {
   try {
     std::shared_ptr<DOHFrontend>& dohFrontend = clientState->dohFrontend;
-    auto frontendLogger = dnsdist::logging::getTopLogger()->withName("doh-frontend")->withValues("address", Logging::Loggable(clientState->local), "provider", Logging::Loggable("h2o"));
+    auto frontendLogger = dnsdist::logging::getTopLogger()->withName("doh-frontend")->withValues("frontend.address", Logging::Loggable(clientState->local), "provider", Logging::Loggable("h2o"));
     dohFrontend->d_logger = frontendLogger;
     auto& dsc = dohFrontend->d_dsc;
     dsc->clientState = clientState;
