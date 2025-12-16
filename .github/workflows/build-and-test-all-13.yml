@@ -2,7 +2,7 @@
 name: 'Build and test everything'
 
 on:
-  # push:
+  push:
   pull_request:
   workflow_call:
     inputs:
