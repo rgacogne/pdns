@@ -215,7 +215,6 @@ void setupConfigurationItems(LuaContext& luaCtx)
         g_outputBuffer = name + " cannot be used at runtime!\n";
         SLOG(errlog("%s cannot be used at runtime!", name),
              dnsdist::logging::getTopLogger()->withName("configuration")->info(Logr::Error, "The " + name + " directive cannot be used at runtime"));
-
       }
     });
   }
