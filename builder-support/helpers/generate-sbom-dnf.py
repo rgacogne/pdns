@@ -71,8 +71,8 @@ def getPackageInformations(pkgDB, packageName):
         return None
     return matches[0]
 
-def addDependencyToSBOM(sbom, pkg):
-    bom_ref = 'lib:' + pkg.name
+def addDependencyToSBOM(sbom, pkg, subDepFor=None):
+    bom_ref = 'lib:' + ('' if subDepFor is None else (subDepFor + '_')) + pkg.name
     component = { 'name': pkg.name, 'bom-ref': bom_ref, 'type': 'library'}
     if pkg.release:
         component['version'] = (pkg.version if pkg.epoch == 0 else str(pkg.epoch) + ':' + pkg.version) + '-' + pkg.release
@@ -137,7 +137,7 @@ def processDependencies(pkg_db, sbom, appInfos, depRelations):
         depRelations['pkg:' + appInfos.name].append(depRef)
 
 class StaticLibDep:
-    def __init__(self, name, version, description, purl, external_refs, author, license, sha256):
+    def __init__(self, name, version, description, purl, external_refs, author, license_, sha256):
         self.epoch = 0
         self.release = None
         self.name = name
@@ -151,7 +151,7 @@ class StaticLibDep:
             self.author = author
         self.supplier = None
         self.publisher = None
-        self.license = license
+        self.license = license_
         if sha256:
             self.sha256 = sha256
         self.cargo = True
@@ -172,8 +172,8 @@ def mergeLibSBOM(sbom, appInfos, lib_sbom_path, depRelations):
         for component in sub_components:
             pkg = StaticLibDep(component['name'], component['version'], None, component.get('purl'), component.get('externalReferences') or [], component.get('author') or None, component['licenses'][0]['expression'], component['hashes'][0]['content'] if 'hashes' in component else None)
 
-            addDependencyToSBOM(sbom, pkg)
-            depRef = 'lib:' + pkg.name
+            addDependencyToSBOM(sbom, pkg, main_component_name)
+            depRef = 'lib:' + main_component_name + '_' + pkg.name
             if not 'lib:' + main_component_name in depRelations:
                 depRelations['lib:' + main_component_name] = []
             depRelations['lib:' + main_component_name].append(depRef)
