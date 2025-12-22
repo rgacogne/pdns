@@ -34,6 +34,7 @@
 #include "dnscrypt.hh"
 #include "dnsdist-configuration.hh"
 #include "dnsname.hh"
+#include "dnsdist-logging.hh"
 #include "dnsdist-protocols.hh"
 #include "ednsextendederror.hh"
 #include "gettime.hh"
@@ -176,6 +177,8 @@ struct InternalQueryState
   void sendDelayedProtobufMessages() const;
 
   InternalQueryState partialCloneForXFR() const;
+
+  std::shared_ptr<const Logr::Logger> getLogger(std::shared_ptr<const Logr::Logger> parent = nullptr) const;
 
   std::optional<Netmask> subnet{std::nullopt}; // 40
   std::string poolName; // 32
