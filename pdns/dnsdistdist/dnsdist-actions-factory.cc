@@ -1176,7 +1176,7 @@ public:
     if (!reopenLogFile()) {
       int savederrno = errno;
       SLOG(warnlog("Unable to open file '%s' for logging: %s", d_fname, stringerror(savederrno)),
-           dnsdist::logging::getTopLogger()->error(Logr::Warning, savederrno, "Unable to open file for logging", "filename", Logging::Loggable(d_fname)));
+           dnsdist::logging::getTopLogger()->error(Logr::Warning, savederrno, "Unable to open file for logging", "path", Logging::Loggable(d_fname)));
     }
   }
 
@@ -1270,7 +1270,7 @@ public:
     if (!reopenLogFile()) {
       int savederrno = errno;
       SLOG(warnlog("Unable to open file '%s' for logging: %s", d_fname, stringerror(savederrno)),
-           dnsdist::logging::getTopLogger()->error(Logr::Warning, savederrno, "Unable to open file for logging", "filename", Logging::Loggable(d_fname)));
+           dnsdist::logging::getTopLogger()->error(Logr::Warning, savederrno, "Unable to open file for logging", "path", Logging::Loggable(d_fname)));
     }
   }
 
