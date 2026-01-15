@@ -294,11 +294,11 @@ static void sendDoHUnitToTheMainThread(DOHUnitUniquePtr&& dohUnit, const char* d
     if (!dohUnit->responseSender->send(std::move(dohUnit))) {
       ++dnsdist::metrics::g_stats.dohResponsePipeFull;
       VERBOSESLOG(infolog("Unable to pass a %s to the DoH worker thread because the pipe is full", description),
-                  dnsdist::logging::getTopLogger()->info(Logr::Info, std::string("Unable to pass a ") + std::string(description) + " to the DoH worker thread because the pipe is full"));
+                  dnsdist::logging::getTopLogger("doh")->info(Logr::Info, std::string("Unable to pass a ") + std::string(description) + " to the DoH worker thread because the pipe is full"));
     }
   } catch (const std::exception& e) {
     VERBOSESLOG(infolog("Unable to pass a %s to the DoH worker thread because we couldn't write to the pipe: %s", description, e.what()),
-                dnsdist::logging::getTopLogger()->error(Logr::Info, e.what(), std::string("Unable to pass a ") + std::string(description) + " to the DoH worker thread because we couldn't write to the pipe"));
+                dnsdist::logging::getTopLogger("doh")->error(Logr::Info, e.what(), std::string("Unable to pass a ") + std::string(description) + " to the DoH worker thread because we couldn't write to the pipe"));
 
   }
 }
@@ -1257,7 +1257,7 @@ static int doh_handler(h2o_handler_t *self, h2o_req_t *req)
   }
   catch (const std::exception& e) {
     VERBOSESLOG(infolog("DOH Handler function failed with error: '%s'", e.what()),
-                dnsdist::logging::getTopLogger()->error(Logr::Info, e.what(), "DoH Handler function failed with error"));
+                dnsdist::logging::getTopLogger("doh")->error(Logr::Info, e.what(), "DoH Handler function failed with error"));
     return 0;
   }
 }
@@ -1551,7 +1551,7 @@ static void setupTLSContext(DOHAcceptContext& acceptCtx,
   auto [ctx, warnings] = libssl_init_server_context_no_sni(tlsConfig, acceptCtx.d_ocspResponses);
   for (const auto& warning : warnings) {
     SLOG(warnlog("%s", warning),
-                 dnsdist::logging::getTopLogger()->info(Logr::Warning, warning));
+                 dnsdist::logging::getTopLogger("doh")->info(Logr::Warning, warning));
   }
 
   if (tlsConfig.d_enableTickets && tlsConfig.d_numberOfTicketsKeys > 0) {
@@ -1636,7 +1636,7 @@ void dohThread(ClientState* clientState)
 {
   try {
     std::shared_ptr<DOHFrontend>& dohFrontend = clientState->dohFrontend;
-    auto frontendLogger = dnsdist::logging::getTopLogger()->withName("doh-frontend")->withValues("frontend.address", Logging::Loggable(clientState->local), "provider", Logging::Loggable("h2o"));
+    auto frontendLogger = dnsdist::logging::getTopLogger("doh-frontend")->withValues("frontend.address", Logging::Loggable(clientState->local), "provider", Logging::Loggable("h2o"));
     dohFrontend->d_logger = frontendLogger;
     auto& dsc = dohFrontend->d_dsc;
     dsc->clientState = clientState;
