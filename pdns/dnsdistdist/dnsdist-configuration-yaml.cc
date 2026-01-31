@@ -127,10 +127,9 @@ static T checkedConversionFromStr(const std::string& context, const std::string&
 }
 
 template <class T>
-static bool getOptionalLuaFunction(T& destination, const ::rust::string& functionName)
+static bool getOptionalLuaFunction(LuaContext& luaCtx, T& destination, const ::rust::string& functionName)
 {
-  auto lua = g_lua.lock();
-  auto function = lua->readVariable<std::optional<T>>(std::string(functionName));
+  auto function = luaCtx.readVariable<std::optional<T>>(std::string(functionName));
   if (!function) {
     return false;
   }
@@ -209,14 +208,16 @@ template <class FuncType>
 static bool getLuaFunctionFromConfiguration(FuncType& destination, const ::rust::string& functionName, const ::rust::string& functionCode, const ::rust::string& functionFile, const std::string& context)
 {
   if (!functionName.empty()) {
-    auto found = getOptionalLuaFunction<FuncType>(destination, functionName);
+    auto luaCtx = g_lua.lock();
+    auto found = getOptionalLuaFunction<FuncType>(*luaCtx, destination, functionName);
     if (found) {
       return true;
     }
     throw std::runtime_error("Unable to locate the Lua function named '" + std::string(functionName) + "', referenced by a Lua directive in " + context + " context");
   }
   if (!functionCode.empty()) {
-    auto function = dnsdist::lua::getFunctionFromLuaCode<FuncType>(std::string(functionCode), context);
+    auto luaCtx = g_lua.lock();
+    auto function = dnsdist::lua::getFunctionFromLuaCode<FuncType>(*luaCtx, std::string(functionCode), context);
     if (function) {
       destination = *function;
       return true;
@@ -228,10 +229,13 @@ static bool getLuaFunctionFromConfiguration(FuncType& destination, const ::rust:
     if (!content) {
       throw std::runtime_error("Unable to load content of lua-file's '" + std::string(functionFile) + "' in " + context + " context");
     }
-    auto function = dnsdist::lua::getFunctionFromLuaCode<FuncType>(*content, context);
-    if (function) {
-      destination = *function;
-      return true;
+    {
+      auto luaCtx = g_lua.lock();
+      auto function = dnsdist::lua::getFunctionFromLuaCode<FuncType>(*luaCtx, *content, context);
+      if (function) {
+        destination = *function;
+        return true;
+      }
     }
     throw std::runtime_error("Unable to load a Lua function from the content of lua-file's '" + std::string(functionFile) + "' in " + context + " context");
   }

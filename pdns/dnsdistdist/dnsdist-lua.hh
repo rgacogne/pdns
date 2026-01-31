@@ -71,10 +71,10 @@ void setupLuaConfigurationOptions(LuaContext& luaCtx, bool client, bool configCh
 void setupConfigurationItems(LuaContext& luaCtx);
 
 template <class FunctionType>
-std::optional<FunctionType> getFunctionFromLuaCode(const std::string& code, const std::string& context)
+std::optional<FunctionType> getFunctionFromLuaCode(LuaContext& luaCtx, const std::string& code, const std::string& context)
 {
   try {
-    auto function = g_lua.lock()->executeCode<FunctionType>(code);
+    auto function = luaCtx.executeCode<FunctionType>(code);
     if (!function) {
       return std::nullopt;
     }
