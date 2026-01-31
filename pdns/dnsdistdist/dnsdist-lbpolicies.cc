@@ -319,10 +319,10 @@ const ServerPolicy::NumberedServerVector& getDownstreamCandidates(const std::str
   return getPool(poolName).getServers();
 }
 
-const ServerPool& createPoolIfNotExists(const string& poolName)
+const ServerPool& createPoolIfNotExists(dnsdist::configuration::RuntimeConfiguration& config, const string& poolName)
 {
   {
-    const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools;
+    const auto& pools = config.d_pools;
     const auto poolIt = pools.find(poolName);
     if (poolIt != pools.end()) {
       return poolIt->second;
@@ -334,18 +334,12 @@ const ServerPool& createPoolIfNotExists(const string& poolName)
                 dnsdist::logging::getTopLogger("pool")->info(Logr::Info, "Creating a new pool of backends", "pool", Logging::Loggable(poolName)));
   }
 
-  dnsdist::configuration::updateRuntimeConfiguration([&poolName](dnsdist::configuration::RuntimeConfiguration& config) {
-    config.d_pools.emplace(poolName, ServerPool());
-  });
-
-  {
-    const auto& pools = dnsdist::configuration::getCurrentRuntimeConfiguration().d_pools;
-    const auto poolIt = pools.find(poolName);
-    return poolIt->second;
-  }
+  config.d_pools.emplace(poolName, ServerPool());
+  const auto poolIt = config.d_pools.find(poolName);
+  return poolIt->second;
 }
 
-void setPoolPolicy(const string& poolName, std::shared_ptr<ServerPolicy> policy)
+void setPoolPolicy(dnsdist::configuration::RuntimeConfiguration& config, const string& poolName, std::shared_ptr<ServerPolicy> policy)
 {
   if (!poolName.empty()) {
     VERBOSESLOG(infolog("Setting pool %s server selection policy to %s", poolName, policy->getName()),
@@ -356,13 +350,11 @@ void setPoolPolicy(const string& poolName, std::shared_ptr<ServerPolicy> policy)
                 dnsdist::logging::getTopLogger("pool")->info(Logr::Info, "Setting pool server selection policy", "pool", Logging::Loggable(poolName), "policy", Logging::Loggable(policy->getName())));
   }
 
-  dnsdist::configuration::updateRuntimeConfiguration([&poolName, &policy](dnsdist::configuration::RuntimeConfiguration& config) {
-    auto [poolIt, _] = config.d_pools.emplace(poolName, ServerPool());
-    poolIt->second.policy = std::move(policy);
-  });
+  auto [poolIt, _] = config.d_pools.emplace(poolName, ServerPool());
+  poolIt->second.policy = std::move(policy);
 }
 
-void addServerToPool(const string& poolName, std::shared_ptr<DownstreamState> server)
+void addServerToPool(dnsdist::configuration::RuntimeConfiguration& config, const string& poolName, std::shared_ptr<DownstreamState> server)
 {
   if (!poolName.empty()) {
     VERBOSESLOG(infolog("Adding server to pool %s", poolName),
@@ -373,13 +365,11 @@ void addServerToPool(const string& poolName, std::shared_ptr<DownstreamState> se
                 dnsdist::logging::getTopLogger("pool")->info(Logr::Info, "Adding server to pool", "pool", Logging::Loggable(poolName)));
   }
 
-  dnsdist::configuration::updateRuntimeConfiguration([&poolName, &server](dnsdist::configuration::RuntimeConfiguration& config) {
-    auto [poolIt, _] = config.d_pools.emplace(poolName, ServerPool());
-    poolIt->second.addServer(server);
-  });
+  auto [poolIt, _] = config.d_pools.emplace(poolName, ServerPool());
+  poolIt->second.addServer(server);
 }
 
-void removeServerFromPool(const string& poolName, std::shared_ptr<DownstreamState> server)
+void removeServerFromPool(dnsdist::configuration::RuntimeConfiguration& config, const string& poolName, std::shared_ptr<DownstreamState> server)
 {
   if (!poolName.empty()) {
     VERBOSESLOG(infolog("Removing server from pool %s", poolName),
@@ -390,10 +380,8 @@ void removeServerFromPool(const string& poolName, std::shared_ptr<DownstreamStat
                 dnsdist::logging::getTopLogger("pool")->info(Logr::Info, "Removing server from pool", "pool", Logging::Loggable(poolName)));
   }
 
-  dnsdist::configuration::updateRuntimeConfiguration([&poolName, &server](dnsdist::configuration::RuntimeConfiguration& config) {
-    auto [poolIt, _] = config.d_pools.emplace(poolName, ServerPool());
-    poolIt->second.removeServer(server);
-  });
+  auto [poolIt, _] = config.d_pools.emplace(poolName, ServerPool());
+  poolIt->second.removeServer(server);
 }
 
 const ServerPool& getPool(const std::string& poolName)

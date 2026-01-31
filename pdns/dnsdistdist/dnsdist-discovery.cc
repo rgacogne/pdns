@@ -470,37 +470,39 @@ bool ServiceDiscovery::tryToUpgradeBackend(const Logr::Logger& logger, const Upg
     SLOG(infolog("Added automatically upgraded server %s", newServer->getNameWithAddr()),
          logger.info(Logr::Info, "Added automatically upgraded server"));
 
-    if (!newServer->d_config.pools.empty()) {
-      for (const auto& poolName : newServer->d_config.pools) {
-        addServerToPool(poolName, newServer);
+    dnsdist::configuration::updateRuntimeConfiguration([&backend, &newServer](dnsdist::configuration::RuntimeConfiguration& runtimeConf) {
+      if (!newServer->d_config.pools.empty()) {
+        for (const auto& poolName : newServer->d_config.pools) {
+          addServerToPool(runtimeConf, poolName, newServer);
+        }
       }
-    }
-    else {
-      addServerToPool("", newServer);
-    }
+      else {
+        addServerToPool(runtimeConf, "", newServer);
+      }
 
-    newServer->start();
+      newServer->start();
 
-    /* remove the existing backend if needed */
-    if (!backend.keepAfterUpgrade) {
-      dnsdist::configuration::updateRuntimeConfiguration([&backend](dnsdist::configuration::RuntimeConfiguration& runtimeConfig) {
-        auto& backends = runtimeConfig.d_backends;
+      /* remove the existing backend if needed */
+      if (!backend.keepAfterUpgrade) {
+        auto& backends = runtimeConf.d_backends;
         for (auto backendIt = backends.begin(); backendIt != backends.end(); ++backendIt) {
           if (*backendIt == backend.d_ds) {
             backends.erase(backendIt);
             break;
           }
         }
-      });
 
-      for (const string& poolName : backend.d_ds->d_config.pools) {
-        removeServerFromPool(poolName, backend.d_ds);
+        for (const string& poolName : backend.d_ds->d_config.pools) {
+          removeServerFromPool(runtimeConf, poolName, backend.d_ds);
+        }
+        /* the server might also be in the default pool */
+        removeServerFromPool(runtimeConf, "", backend.d_ds);
       }
-      /* the server might also be in the default pool */
-      removeServerFromPool("", backend.d_ds);
-    }
 
-    dnsdist::backend::registerNewBackend(newServer);
+      #warning check if this is OK
+      dnsdist::backend::registerNewBackend(newServer);
+    });
+
 
     if (!backend.keepAfterUpgrade) {
       backend.d_ds->stop();

@@ -135,13 +135,18 @@ public:
 };
 
 struct ServerPool;
-
 using pools_t = std::map<std::string, std::shared_ptr<ServerPool>>;
+
+namespace dnsdist::configuration
+{
+struct RuntimeConfiguration;
+}
+
 const ServerPool& getPool(const std::string& poolName);
-const ServerPool& createPoolIfNotExists(const std::string& poolName);
-void setPoolPolicy(const std::string& poolName, std::shared_ptr<ServerPolicy> policy);
-void addServerToPool(const std::string& poolName, std::shared_ptr<DownstreamState> server);
-void removeServerFromPool(const std::string& poolName, std::shared_ptr<DownstreamState> server);
+const ServerPool& createPoolIfNotExists(dnsdist::configuration::RuntimeConfiguration& config, const std::string& poolName);
+void setPoolPolicy(dnsdist::configuration::RuntimeConfiguration& config, const std::string& poolName, std::shared_ptr<ServerPolicy> policy);
+void addServerToPool(dnsdist::configuration::RuntimeConfiguration& config, const std::string& poolName, std::shared_ptr<DownstreamState> server);
+void removeServerFromPool(dnsdist::configuration::RuntimeConfiguration& config, const std::string& poolName, std::shared_ptr<DownstreamState> server);
 
 const ServerPolicy::NumberedServerVector& getDownstreamCandidates(const std::string& poolName);
 

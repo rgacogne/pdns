@@ -202,13 +202,17 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
   });
   luaCtx.registerFunction<void (std::shared_ptr<DownstreamState>::*)(string)>("addPool", [](const std::shared_ptr<DownstreamState>& state, const string& pool) {
     if (state) {
-      addServerToPool(pool, state);
+      dnsdist::configuration::updateRuntimeConfiguration([&pool, &state](dnsdist::configuration::RuntimeConfiguration& runtimeConfig) {
+        addServerToPool(runtimeConfig, pool, state);
+      });
       state->d_config.pools.insert(pool);
     }
   });
   luaCtx.registerFunction<void (std::shared_ptr<DownstreamState>::*)(string)>("rmPool", [](const std::shared_ptr<DownstreamState>& state, const string& pool) {
     if (state) {
-      removeServerFromPool(pool, state);
+      dnsdist::configuration::updateRuntimeConfiguration([&pool, &state](dnsdist::configuration::RuntimeConfiguration& runtimeConfig) {
+        removeServerFromPool(runtimeConfig, pool, state);
+      });
       state->d_config.pools.erase(pool);
     }
   });

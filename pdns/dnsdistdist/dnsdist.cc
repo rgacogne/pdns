@@ -3731,7 +3731,9 @@ int main(int argc, char** argv)
     dnsdist::g_asyncHolder = std::make_unique<dnsdist::AsynchronousHolder>();
 
     /* create the default pool no matter what */
-    createPoolIfNotExists("");
+    dnsdist::configuration::updateRuntimeConfiguration([](dnsdist::configuration::RuntimeConfiguration& config) {
+      createPoolIfNotExists(config, "");
+    });
 
     if (!loadConfigurationFromFile(cmdLine.config, false, false, setupLogger)) {
 #ifdef COVERAGE
@@ -3882,9 +3884,9 @@ int main(int argc, char** argv)
         DownstreamState::Config config;
         config.remote = ComboAddress(address, 53);
         auto ret = std::make_shared<DownstreamState>(std::move(config), nullptr, true);
-        addServerToPool("", ret);
-        ret->start();
         dnsdist::configuration::updateRuntimeConfiguration([&ret](dnsdist::configuration::RuntimeConfiguration& runtimeConfig) {
+          addServerToPool(runtimeConfig, "", ret);
+          ret->start();
           runtimeConfig.d_backends.push_back(std::move(ret));
         });
       }

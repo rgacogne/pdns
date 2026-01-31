@@ -625,57 +625,55 @@ static std::shared_ptr<DownstreamState> createBackendFromConfiguration(const Con
   return downstream;
 }
 
-static void loadRulesConfiguration(const dnsdist::rust::settings::GlobalConfiguration& globalConfig)
+static void loadRulesConfiguration(dnsdist::configuration::RuntimeConfiguration& config, const dnsdist::rust::settings::GlobalConfiguration& globalConfig)
 {
-  dnsdist::configuration::updateRuntimeConfiguration([&globalConfig](dnsdist::configuration::RuntimeConfiguration& config) {
-    for (const auto& rule : globalConfig.query_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::RuleChain::Rules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
+  for (const auto& rule : globalConfig.query_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::RuleChain::Rules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 
-    for (const auto& rule : globalConfig.cache_miss_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::RuleChain::CacheMissRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
+  for (const auto& rule : globalConfig.cache_miss_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::RuleChain::CacheMissRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 
-    for (const auto& rule : globalConfig.response_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::ResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
+  for (const auto& rule : globalConfig.response_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::ResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 
-    for (const auto& rule : globalConfig.cache_hit_response_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::CacheHitResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
+  for (const auto& rule : globalConfig.cache_hit_response_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::CacheHitResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 
-    for (const auto& rule : globalConfig.cache_inserted_response_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::CacheInsertedResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
+  for (const auto& rule : globalConfig.cache_inserted_response_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::CacheInsertedResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 
-    for (const auto& rule : globalConfig.self_answered_response_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::SelfAnsweredResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
+  for (const auto& rule : globalConfig.self_answered_response_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::SelfAnsweredResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 
-    for (const auto& rule : globalConfig.xfr_response_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::XFRResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
+  for (const auto& rule : globalConfig.xfr_response_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::XFRResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 
-    for (const auto& rule : globalConfig.timeout_response_rules) {
-      boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
-      dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::TimeoutResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
-    }
-  });
+  for (const auto& rule : globalConfig.timeout_response_rules) {
+    boost::uuids::uuid ruleUniqueID = rule.uuid.empty() ? getUniqueID() : getUniqueID(std::string(rule.uuid));
+    dnsdist::rules::add(config.d_ruleChains, dnsdist::rules::ResponseRuleChain::TimeoutResponseRules, rule.selector.selector->d_rule, rule.action.action->d_action, std::string(rule.name), ruleUniqueID, 0);
+  }
 }
 
-static void loadDynamicBlockConfiguration(const dnsdist::rust::settings::DynamicRulesSettingsConfiguration& settings, const ::rust::Vec<dnsdist::rust::settings::DynamicRulesConfiguration>& dynamicRules)
+static std::vector<std::shared_ptr<DynBlockRulesGroup>> loadDynamicBlockConfiguration(dnsdist::configuration::RuntimeConfiguration& config, const dnsdist::rust::settings::DynamicRulesSettingsConfiguration& settings, const ::rust::Vec<dnsdist::rust::settings::DynamicRulesConfiguration>& dynamicRules)
 {
+  std::vector<std::shared_ptr<DynBlockRulesGroup>> dbrgs;
+
   if (!settings.default_action.empty()) {
-    dnsdist::configuration::updateRuntimeConfiguration([default_action = settings.default_action](dnsdist::configuration::RuntimeConfiguration& config) {
-      config.d_dynBlockAction = DNSAction::typeFromString(std::string(default_action));
-    });
+    config.d_dynBlockAction = DNSAction::typeFromString(std::string(settings.default_action));
   }
 
   for (const auto& dbrg : dynamicRules) {
@@ -781,8 +779,10 @@ static void loadDynamicBlockConfiguration(const dnsdist::rust::settings::Dynamic
         dbrgObj->setSuffixMatchRuleFFI(std::move(ruleParams), std::move(visitor));
       }
     }
-    dnsdist::DynamicBlocks::registerGroup(dbrgObj);
+    dbrgs.push_back(std::move(dbrgObj));
   }
+
+  return dbrgs;
 }
 
 static void handleAdditionalAddressesForFrontend(const Context& context, const std::shared_ptr<ClientState>& state, const std::string& protocol, const ::rust::Vec<::rust::String>& additionalAddresses)
@@ -804,147 +804,142 @@ static void handleAdditionalAddressesForFrontend(const Context& context, const s
   }
 }
 
-static void loadBinds(const Context& context, const ::rust::Vec<dnsdist::rust::settings::BindConfiguration>& binds)
+static void loadBinds(dnsdist::configuration::ImmutableConfiguration& immutableConf, const Context& context, const ::rust::Vec<dnsdist::rust::settings::BindConfiguration>& binds)
 {
   for (const auto& bind : binds) {
-    updateImmutableConfiguration([&bind, &context](ImmutableConfiguration& config) {
-      auto protocol = boost::to_lower_copy(std::string(bind.protocol));
-      uint16_t defaultPort = 53;
-      if (protocol == "dot" || protocol == "doq") {
-        defaultPort = 853;
+    auto protocol = boost::to_lower_copy(std::string(bind.protocol));
+    uint16_t defaultPort = 53;
+    if (protocol == "dot" || protocol == "doq") {
+      defaultPort = 853;
+    }
+    else if (protocol == "doh" || protocol == "dnscrypt" || protocol == "doh3") {
+      defaultPort = 443;
+    }
+    ComboAddress listeningAddress(std::string(bind.listen_address), defaultPort);
+    auto cpus = getCPUPiningFromStr("binds", std::string(bind.cpus));
+    std::shared_ptr<XSKMap> xskMap;
+    if (!bind.xsk.empty()) {
+      xskMap = getRegisteredTypeByName<XSKMap>(bind.xsk);
+      if (!xskMap) {
+        throw std::runtime_error("XSK map " + std::string(bind.xsk) + " attached to bind " + std::string(bind.listen_address) + " not found");
       }
-      else if (protocol == "doh" || protocol == "dnscrypt" || protocol == "doh3") {
-        defaultPort = 443;
+      if (xskMap->size() != bind.threads) {
+        throw std::runtime_error("XSK map " + std::string(bind.xsk) + " attached to bind " + std::string(bind.listen_address) + " has less queues than the number of threads of the bind");
       }
-      ComboAddress listeningAddress(std::string(bind.listen_address), defaultPort);
-      auto cpus = getCPUPiningFromStr("binds", std::string(bind.cpus));
-      std::shared_ptr<XSKMap> xskMap;
-      if (!bind.xsk.empty()) {
-        xskMap = getRegisteredTypeByName<XSKMap>(bind.xsk);
-        if (!xskMap) {
-          throw std::runtime_error("XSK map " + std::string(bind.xsk) + " attached to bind " + std::string(bind.listen_address) + " not found");
-        }
-        if (xskMap->size() != bind.threads) {
-          throw std::runtime_error("XSK map " + std::string(bind.xsk) + " attached to bind " + std::string(bind.listen_address) + " has less queues than the number of threads of the bind");
-        }
-      }
+    }
 
-      std::shared_ptr<const TLSFrontend> tlsFrontendParent;
-      for (size_t idx = 0; idx < bind.threads; idx++) {
+    std::shared_ptr<const TLSFrontend> tlsFrontendParent;
+    for (size_t idx = 0; idx < bind.threads; idx++) {
 #if defined(HAVE_DNSCRYPT)
-        std::shared_ptr<DNSCryptContext> dnsCryptContext;
+      std::shared_ptr<DNSCryptContext> dnsCryptContext;
 #endif /* defined(HAVE_DNSCRYPT) */
 
-        auto state = std::make_shared<ClientState>(listeningAddress, protocol != "doq" && protocol != "doh3", bind.reuseport, bind.tcp.fast_open_queue_size, std::string(bind.interface), cpus, bind.enable_proxy_protocol, bind.pad_responses);
+      auto state = std::make_shared<ClientState>(listeningAddress, protocol != "doq" && protocol != "doh3", bind.reuseport, bind.tcp.fast_open_queue_size, std::string(bind.interface), cpus, bind.enable_proxy_protocol, bind.pad_responses);
 
-        if (bind.tcp.listen_queue_size > 0) {
-          state->tcpListenQueueSize = bind.tcp.listen_queue_size;
-        }
-        if (bind.tcp.max_in_flight_queries > 0) {
-          state->d_maxInFlightQueriesPerConn = bind.tcp.max_in_flight_queries;
-        }
-        if (bind.tcp.max_concurrent_connections > 0) {
-          state->d_tcpConcurrentConnectionsLimit = bind.tcp.max_concurrent_connections;
-        }
+      if (bind.tcp.listen_queue_size > 0) {
+        state->tcpListenQueueSize = bind.tcp.listen_queue_size;
+      }
+      if (bind.tcp.max_in_flight_queries > 0) {
+        state->d_maxInFlightQueriesPerConn = bind.tcp.max_in_flight_queries;
+      }
+      if (bind.tcp.max_concurrent_connections > 0) {
+        state->d_tcpConcurrentConnectionsLimit = bind.tcp.max_concurrent_connections;
+      }
 
-        handleAdditionalAddressesForFrontend(context, state, protocol, bind.additional_addresses);
+      handleAdditionalAddressesForFrontend(context, state, protocol, bind.additional_addresses);
 
-        if (protocol == "dnscrypt") {
+      if (protocol == "dnscrypt") {
 #if defined(HAVE_DNSCRYPT)
-          std::vector<DNSCryptContext::CertKeyPaths> certKeys;
-          for (const auto& pair : bind.dnscrypt.certificates) {
-            certKeys.push_back({std::string(pair.certificate), std::string(pair.key)});
-          }
-          dnsCryptContext = std::make_shared<DNSCryptContext>(std::string(bind.dnscrypt.provider_name), certKeys);
-          state->dnscryptCtx = dnsCryptContext;
+        std::vector<DNSCryptContext::CertKeyPaths> certKeys;
+        for (const auto& pair : bind.dnscrypt.certificates) {
+          certKeys.push_back({std::string(pair.certificate), std::string(pair.key)});
+        }
+        dnsCryptContext = std::make_shared<DNSCryptContext>(std::string(bind.dnscrypt.provider_name), certKeys);
+        state->dnscryptCtx = dnsCryptContext;
 #endif /* defined(HAVE_DNSCRYPT) */
+      }
+      else if (protocol != "do53") {
+        if (!handleTLSConfiguration(context, bind, *state, tlsFrontendParent)) {
+          continue;
         }
-        else if (protocol != "do53") {
-          if (!handleTLSConfiguration(context, bind, *state, tlsFrontendParent)) {
-            continue;
-          }
-          if (tlsFrontendParent == nullptr && (protocol == "dot" || protocol == "doh")) {
-            tlsFrontendParent = state->getTLSFrontend();
-          }
+        if (tlsFrontendParent == nullptr && (protocol == "dot" || protocol == "doh")) {
+          tlsFrontendParent = state->getTLSFrontend();
         }
+      }
 
-        config.d_frontends.emplace_back(std::move(state));
-        if (protocol == "do53" || protocol == "dnscrypt") {
-          /* also create the UDP listener */
-          state = std::make_shared<ClientState>(ComboAddress(std::string(bind.listen_address), defaultPort), false, bind.reuseport, bind.tcp.fast_open_queue_size, std::string(bind.interface), cpus, bind.enable_proxy_protocol, bind.pad_responses);
+      immutableConf.d_frontends.emplace_back(std::move(state));
+      if (protocol == "do53" || protocol == "dnscrypt") {
+        /* also create the UDP listener */
+        state = std::make_shared<ClientState>(ComboAddress(std::string(bind.listen_address), defaultPort), false, bind.reuseport, bind.tcp.fast_open_queue_size, std::string(bind.interface), cpus, bind.enable_proxy_protocol, bind.pad_responses);
 #if defined(HAVE_DNSCRYPT)
-          state->dnscryptCtx = std::move(dnsCryptContext);
+        state->dnscryptCtx = std::move(dnsCryptContext);
 #endif /* defined(HAVE_DNSCRYPT) */
 #if defined(HAVE_XSK)
-          if (xskMap) {
-            auto xsk = xskMap->at(idx);
-            state->xskInfo = XskWorker::create(XskWorker::Type::Bidirectional, xsk->sharedEmptyFrameOffset);
-            xsk->addWorker(state->xskInfo);
-            xsk->addWorkerRoute(state->xskInfo, listeningAddress);
-            state->xskInfoResponder = XskWorker::create(XskWorker::Type::OutgoingOnly, xsk->sharedEmptyFrameOffset);
-            xsk->addWorker(state->xskInfoResponder);
-            VERBOSESLOG(infolog("Enabling XSK in %s mode for incoming UDP packets to %s", xsk->getXDPMode(), listeningAddress.toStringWithPort()),
-                        context.logger->info(Logr::Info, "Enabling XSK for incoming UDP packet", "frontend.address", Logging::Loggable(listeningAddress), "xsk_mode", Logging::Loggable(xsk->getXDPMode())));
-          }
-#endif /* defined(HAVE_XSK) */
-          config.d_frontends.emplace_back(std::move(state));
+        if (xskMap) {
+          auto xsk = xskMap->at(idx);
+          state->xskInfo = XskWorker::create(XskWorker::Type::Bidirectional, xsk->sharedEmptyFrameOffset);
+          xsk->addWorker(state->xskInfo);
+          xsk->addWorkerRoute(state->xskInfo, listeningAddress);
+          state->xskInfoResponder = XskWorker::create(XskWorker::Type::OutgoingOnly, xsk->sharedEmptyFrameOffset);
+          xsk->addWorker(state->xskInfoResponder);
+          VERBOSESLOG(infolog("Enabling XSK in %s mode for incoming UDP packets to %s", xsk->getXDPMode(), listeningAddress.toStringWithPort()),
+                      context.logger->info(Logr::Info, "Enabling XSK for incoming UDP packet", "frontend.address", Logging::Loggable(listeningAddress), "xsk_mode", Logging::Loggable(xsk->getXDPMode())));
         }
+#endif /* defined(HAVE_XSK) */
+        immutableConf.d_frontends.emplace_back(std::move(state));
       }
-    });
+    }
   }
 }
 
-static void loadWebServer(const Context& context, const dnsdist::rust::settings::WebserverConfiguration& webConfig)
+static void loadWebServer(dnsdist::configuration::RuntimeConfiguration& config, const Context& context, const dnsdist::rust::settings::WebserverConfiguration& webConfig)
 {
-  dnsdist::configuration::updateRuntimeConfiguration([&context, &webConfig](dnsdist::configuration::RuntimeConfiguration& config) {
-    for (const auto& address : webConfig.listen_addresses) {
-      try {
-        config.d_webServerAddresses.emplace(ComboAddress(std::string(address)));
-      }
-      catch (const PDNSException& exp) {
-        throw std::runtime_error(std::string("Error parsing bind address for the webserver: ") + exp.reason);
+  for (const auto& address : webConfig.listen_addresses) {
+    try {
+      config.d_webServerAddresses.emplace(ComboAddress(std::string(address)));
+    }
+    catch (const PDNSException& exp) {
+      throw std::runtime_error(std::string("Error parsing bind address for the webserver: ") + exp.reason);
+    }
+  }
+  if (!webConfig.password.empty()) {
+    auto holder = std::make_shared<CredentialsHolder>(std::string(webConfig.password), webConfig.hash_plaintext_credentials);
+    if (!holder->wasHashed() && holder->isHashingAvailable()) {
+      SLOG(infolog("Passing a plain-text password via the 'webserver.password' parameter is not advised, please consider generating a hashed one using 'hashPassword()' instead."),
+           context.logger->info(Logr::Info, "Passing a plain-text password via the 'webserver.password' parameter is not advised, please generating a hashed one using 'hashPassword()' instead"));
+    }
+    config.d_webPassword = std::move(holder);
+  }
+  if (!webConfig.api_key.empty()) {
+    auto holder = std::make_shared<CredentialsHolder>(std::string(webConfig.api_key), webConfig.hash_plaintext_credentials);
+    if (!holder->wasHashed() && holder->isHashingAvailable()) {
+      SLOG(infolog("Passing a plain-text API key via the 'webserver.api_key' parameter is not advised, please consider generating a hashed one using 'hashPassword()' instead."),
+           context.logger->info(Logr::Info, "Passing a plain-text API key via the 'webserver.api_key' parameter is not advised, please generating a hashed one using 'hashPassword()' instead"));
+    }
+    config.d_webAPIKey = std::move(holder);
+  }
+  if (!webConfig.acl.empty()) {
+    config.d_webServerACL.clear();
+    for (const auto& acl : webConfig.acl) {
+      config.d_webServerACL.toMasks(std::string(acl));
+    }
+  }
+  if (!webConfig.custom_headers.empty()) {
+    if (!config.d_webCustomHeaders) {
+      config.d_webCustomHeaders = std::unordered_map<std::string, std::string>();
+      for (const auto& customHeader : webConfig.custom_headers) {
+        auto headerResponse = std::pair(boost::to_lower_copy(std::string(customHeader.key)), std::string(customHeader.value));
+        config.d_webCustomHeaders->insert(std::move(headerResponse));
       }
     }
-    if (!webConfig.password.empty()) {
-      auto holder = std::make_shared<CredentialsHolder>(std::string(webConfig.password), webConfig.hash_plaintext_credentials);
-      if (!holder->wasHashed() && holder->isHashingAvailable()) {
-        SLOG(infolog("Passing a plain-text password via the 'webserver.password' parameter is not advised, please consider generating a hashed one using 'hashPassword()' instead."),
-             context.logger->info(Logr::Info, "Passing a plain-text password via the 'webserver.password' parameter is not advised, please generating a hashed one using 'hashPassword()' instead"));
-      }
-      config.d_webPassword = std::move(holder);
-    }
-    if (!webConfig.api_key.empty()) {
-      auto holder = std::make_shared<CredentialsHolder>(std::string(webConfig.api_key), webConfig.hash_plaintext_credentials);
-      if (!holder->wasHashed() && holder->isHashingAvailable()) {
-        SLOG(infolog("Passing a plain-text API key via the 'webserver.api_key' parameter is not advised, please consider generating a hashed one using 'hashPassword()' instead."),
-             context.logger->info(Logr::Info, "Passing a plain-text API key via the 'webserver.api_key' parameter is not advised, please generating a hashed one using 'hashPassword()' instead"));
-      }
-      config.d_webAPIKey = std::move(holder);
-    }
-    if (!webConfig.acl.empty()) {
-      config.d_webServerACL.clear();
-      for (const auto& acl : webConfig.acl) {
-        config.d_webServerACL.toMasks(std::string(acl));
-      }
-    }
-    if (!webConfig.custom_headers.empty()) {
-      if (!config.d_webCustomHeaders) {
-        config.d_webCustomHeaders = std::unordered_map<std::string, std::string>();
-        for (const auto& customHeader : webConfig.custom_headers) {
-          auto headerResponse = std::pair(boost::to_lower_copy(std::string(customHeader.key)), std::string(customHeader.value));
-          config.d_webCustomHeaders->insert(std::move(headerResponse));
-        }
-      }
-    }
+  }
 
-    config.d_apiRequiresAuthentication = webConfig.api_requires_authentication;
-    config.d_prometheusAddInstanceLabel = webConfig.prometheus_add_instance;
-    config.d_dashboardRequiresAuthentication = webConfig.dashboard_requires_authentication;
-    config.d_statsRequireAuthentication = webConfig.stats_require_authentication;
-    dnsdist::webserver::setMaxConcurrentConnections(webConfig.max_concurrent_connections);
-    config.d_apiConfigDirectory = std::string(webConfig.api_configuration_directory);
-    config.d_apiReadWrite = webConfig.api_read_write;
-  });
+  config.d_apiRequiresAuthentication = webConfig.api_requires_authentication;
+  config.d_prometheusAddInstanceLabel = webConfig.prometheus_add_instance;
+  config.d_dashboardRequiresAuthentication = webConfig.dashboard_requires_authentication;
+  config.d_statsRequireAuthentication = webConfig.stats_require_authentication;
+  config.d_apiConfigDirectory = std::string(webConfig.api_configuration_directory);
+  config.d_apiReadWrite = webConfig.api_read_write;
 }
 
 static void loadCustomPolicies(const ::rust::Vec<dnsdist::rust::settings::CustomLoadBalancingPolicyConfiguration>& customPolicies)
@@ -1005,12 +1000,13 @@ static void handleOpenSSLSettings(const Context& context, const dnsdist::rust::s
   }
 }
 
-static void handleLoggingConfiguration(const Context& context, const dnsdist::rust::settings::LoggingConfiguration& settings)
+static void handleLoggingConfiguration(dnsdist::configuration::ImmutableConfiguration& config, const Context& context, const dnsdist::rust::settings::LoggingConfiguration& settings)
 {
   if (!settings.verbose_log_destination.empty()) {
     auto dest = std::string(settings.verbose_log_destination);
     try {
       auto stream = std::ofstream(dest.c_str());
+      #warning oops
       dnsdist::logging::LoggingConfiguration::setVerboseStream(std::move(stream));
     }
     catch (const std::exception& e) {
@@ -1026,6 +1022,7 @@ static void handleLoggingConfiguration(const Context& context, const dnsdist::ru
            context.logger->info(Logr::Warning, "Unknown facility passed to logging.syslog_facility", "facility", Logging::Loggable(settings.syslog_facility)));
     }
     else {
+      #warning oops
       setSyslogFacility(*facilityLevel);
     }
   }
@@ -1045,28 +1042,24 @@ static void handleLoggingConfiguration(const Context& context, const dnsdist::ru
     }
   }
 
-  dnsdist::configuration::updateImmutableConfiguration([&settings, timeFormat](dnsdist::configuration::ImmutableConfiguration& config) {
-    config.d_loggingBackend = std::string(settings.structured.backend);
-    config.d_structuredLogging = settings.structured.enabled;
-    if (timeFormat) {
-      config.d_structuredLoggingTimeFormat = *timeFormat;
-    }
-    config.d_structuredLoggingUseServerID = settings.structured.set_instance_from_server_id;
-  });
+  config.d_loggingBackend = std::string(settings.structured.backend);
+  config.d_structuredLogging = settings.structured.enabled;
+  if (timeFormat) {
+    config.d_structuredLoggingTimeFormat = *timeFormat;
+  }
+  config.d_structuredLoggingUseServerID = settings.structured.set_instance_from_server_id;
 }
 
-static void handleConsoleConfiguration(const dnsdist::rust::settings::ConsoleConfiguration& consoleConf)
+static void handleConsoleConfiguration(dnsdist::configuration::RuntimeConfiguration& config, const dnsdist::rust::settings::ConsoleConfiguration& consoleConf)
 {
   if (!consoleConf.listen_address.empty()) {
-    dnsdist::configuration::updateRuntimeConfiguration([consoleConf](dnsdist::configuration::RuntimeConfiguration& config) {
-      config.d_consoleServerAddress = ComboAddress(std::string(consoleConf.listen_address), 5199);
-      config.d_consoleEnabled = true;
-      config.d_consoleACL.clear();
-      for (const auto& aclEntry : consoleConf.acl) {
-        config.d_consoleACL.addMask(std::string(aclEntry));
-      }
-      B64Decode(std::string(consoleConf.key), config.d_consoleKey);
-    });
+    config.d_consoleServerAddress = ComboAddress(std::string(consoleConf.listen_address), 5199);
+    config.d_consoleEnabled = true;
+    config.d_consoleACL.clear();
+    for (const auto& aclEntry : consoleConf.acl) {
+      config.d_consoleACL.addMask(std::string(aclEntry));
+    }
+    B64Decode(std::string(consoleConf.key), config.d_consoleKey);
   }
 }
 
@@ -1146,20 +1139,18 @@ static void handleEBPFConfiguration([[maybe_unused]] const dnsdist::rust::settin
 #endif /* defined(HAVE_EBPF) */
 }
 
-static void handleCarbonConfiguration([[maybe_unused]] const ::rust::Vec<dnsdist::rust::settings::CarbonConfiguration>& carbonConfigs)
+static void handleCarbonConfiguration([[maybe_unused]] dnsdist::configuration::RuntimeConfiguration& config, [[maybe_unused]] const ::rust::Vec<dnsdist::rust::settings::CarbonConfiguration>& carbonConfigs)
 {
 #ifndef DISABLE_CARBON
   if (!carbonConfigs.empty()) {
-    dnsdist::configuration::updateRuntimeConfiguration([&carbonConfigs](dnsdist::configuration::RuntimeConfiguration& config) {
-      for (const auto& carbonConfig : carbonConfigs) {
-        auto newEndpoint = dnsdist::Carbon::newEndpoint(std::string(carbonConfig.address),
-                                                        carbonConfig.name.empty() ? std::nullopt : std::optional<std::string>(carbonConfig.name),
-                                                        carbonConfig.interval,
-                                                        carbonConfig.name_space.empty() ? "dnsdist" : std::string(carbonConfig.name_space),
-                                                        carbonConfig.instance.empty() ? "main" : std::string(carbonConfig.instance));
-        config.d_carbonEndpoints.push_back(std::move(newEndpoint));
-      }
-    });
+    for (const auto& carbonConfig : carbonConfigs) {
+      auto newEndpoint = dnsdist::Carbon::newEndpoint(std::string(carbonConfig.address),
+                                                      carbonConfig.name.empty() ? std::nullopt : std::optional<std::string>(carbonConfig.name),
+                                                      carbonConfig.interval,
+                                                      carbonConfig.name_space.empty() ? "dnsdist" : std::string(carbonConfig.name_space),
+                                                      carbonConfig.instance.empty() ? "main" : std::string(carbonConfig.instance));
+      config.d_carbonEndpoints.push_back(std::move(newEndpoint));
+    }
   }
 #endif /* DISABLE_CARBON */
 }
@@ -1193,30 +1184,25 @@ bool loadConfigurationFromFile(const std::string& fileName, [[maybe_unused]] boo
 
   try {
     auto globalConfig = dnsdist::rust::settings::from_yaml_string(*data);
+    dnsdist::configuration::RuntimeConfiguration runtimeConfig{};
+    dnsdist::configuration::ImmutableConfiguration immutableConfig{};
 
-    dnsdist::configuration::updateImmutableConfiguration([&globalConfig](dnsdist::configuration::ImmutableConfiguration& config) {
-      convertImmutableFlatSettingsFromRust(globalConfig, config);
-    });
+    convertImmutableFlatSettingsFromRust(globalConfig, immutableConfig);
+    convertRuntimeFlatSettingsFromRust(globalConfig, runtimeConfig);
 
-    dnsdist::configuration::updateRuntimeConfiguration([&globalConfig](dnsdist::configuration::RuntimeConfiguration& config) {
-      convertRuntimeFlatSettingsFromRust(globalConfig, config);
-    });
+    handleLoggingConfiguration(immutableConfig, context, globalConfig.logging);
 
-    handleLoggingConfiguration(context, globalConfig.logging);
-
-    handleConsoleConfiguration(globalConfig.console);
+    handleConsoleConfiguration(runtimeConfig, globalConfig.console);
 
     if (isClient) {
       return true;
     }
 
     if (!globalConfig.acl.empty()) {
-      dnsdist::configuration::updateRuntimeConfiguration([&acl = globalConfig.acl](dnsdist::configuration::RuntimeConfiguration& config) {
-        config.d_ACL.clear();
-        for (const auto& aclEntry : acl) {
-          config.d_ACL.addMask(std::string(aclEntry));
-        }
-      });
+      runtimeConfig.d_ACL.clear();
+      for (const auto& aclEntry : globalConfig.acl) {
+        runtimeConfig.d_ACL.addMask(std::string(aclEntry));
+      }
     }
 
     handleOpenSSLSettings(context, globalConfig.tuning.tls);
@@ -1235,47 +1221,43 @@ bool loadConfigurationFromFile(const std::string& fileName, [[maybe_unused]] boo
     }
 #endif /* defined(HAVE_XSK) */
 
-    loadBinds(context, globalConfig.binds);
+    loadBinds(immutableConfig, context, globalConfig.binds);
 
     for (const auto& backend : globalConfig.backends) {
       auto downstream = createBackendFromConfiguration(context, backend, configCheck);
 
       if (!downstream->d_config.pools.empty()) {
         for (const auto& poolName : downstream->d_config.pools) {
-          addServerToPool(poolName, downstream);
+          addServerToPool(runtimeConfig, poolName, downstream);
         }
       }
       else {
-        addServerToPool("", downstream);
+        addServerToPool(runtimeConfig, "", downstream);
       }
 
       dnsdist::backend::registerNewBackend(downstream);
     }
 
     if (!globalConfig.proxy_protocol.acl.empty()) {
-      dnsdist::configuration::updateRuntimeConfiguration([&globalConfig](dnsdist::configuration::RuntimeConfiguration& config) {
-        config.d_proxyProtocolACL.clear();
-        for (const auto& aclEntry : globalConfig.proxy_protocol.acl) {
-          config.d_proxyProtocolACL.addMask(std::string(aclEntry));
-        }
-      });
+      runtimeConfig.d_proxyProtocolACL.clear();
+      for (const auto& aclEntry : globalConfig.proxy_protocol.acl) {
+        runtimeConfig.d_proxyProtocolACL.addMask(std::string(aclEntry));
+      }
     }
 
-    handleCarbonConfiguration(globalConfig.metrics.carbon);
+    handleCarbonConfiguration(runtimeConfig, globalConfig.metrics.carbon);
 
     if (!globalConfig.webserver.listen_addresses.empty()) {
       const auto& webConfig = globalConfig.webserver;
-      loadWebServer(context, webConfig);
+      loadWebServer(runtimeConfig, context, webConfig);
     }
 
     if (globalConfig.query_count.enabled) {
-      dnsdist::configuration::updateRuntimeConfiguration([&globalConfig](dnsdist::configuration::RuntimeConfiguration& config) {
-        config.d_queryCountConfig.d_enabled = true;
-        getLuaFunctionFromConfiguration(config.d_queryCountConfig.d_filter, globalConfig.query_count.filter_function_name, globalConfig.query_count.filter_function_code, globalConfig.query_count.filter_function_file, "query count filter function");
-      });
+      runtimeConfig.d_queryCountConfig.d_enabled = true;
+      getLuaFunctionFromConfiguration(runtimeConfig.d_queryCountConfig.d_filter, globalConfig.query_count.filter_function_name, globalConfig.query_count.filter_function_code, globalConfig.query_count.filter_function_file, "query count filter function");
     }
 
-    loadDynamicBlockConfiguration(globalConfig.dynamic_rules_settings, globalConfig.dynamic_rules);
+    auto dbrgs = loadDynamicBlockConfiguration(runtimeConfig, globalConfig.dynamic_rules_settings, globalConfig.dynamic_rules);
 
     if (!globalConfig.tuning.tcp.fast_open_key.empty()) {
       std::vector<uint32_t> key(4);
@@ -1283,23 +1265,17 @@ bool loadConfigurationFromFile(const std::string& fileName, [[maybe_unused]] boo
       if (ret < 0 || static_cast<size_t>(ret) != key.size()) {
         throw std::runtime_error("Invalid value passed to tuning.tcp.fast_open_key!\n");
       }
-      dnsdist::configuration::updateImmutableConfiguration([&key](dnsdist::configuration::ImmutableConfiguration& config) {
-        config.d_tcpFastOpenKey = std::move(key);
-      });
+      immutableConfig.d_tcpFastOpenKey = std::move(key);
     }
 
     if (!globalConfig.general.capabilities_to_retain.empty()) {
-      dnsdist::configuration::updateImmutableConfiguration([capabilities = globalConfig.general.capabilities_to_retain](dnsdist::configuration::ImmutableConfiguration& config) {
-        for (const auto& capability : capabilities) {
-          config.d_capabilitiesToRetain.emplace(std::string(capability));
-        }
-      });
+      for (const auto& capability : globalConfig.general.capabilities_to_retain) {
+        immutableConfig.d_capabilitiesToRetain.emplace(std::string(capability));
+      }
     }
 
     if (!globalConfig.general.server_id.empty()) {
-      dnsdist::configuration::updateRuntimeConfiguration([&server_id = globalConfig.general.server_id](dnsdist::configuration::RuntimeConfiguration& config) {
-        config.d_server_id = std::string(server_id);
-      });
+      runtimeConfig.d_server_id = std::string(globalConfig.general.server_id);
     }
 
     handlePacketCacheConfiguration(globalConfig.packet_caches);
@@ -1311,38 +1287,53 @@ bool loadConfigurationFromFile(const std::string& fileName, [[maybe_unused]] boo
       if (!policy) {
         throw std::runtime_error("Unable to find a load-balancing policy named " + std::string(globalConfig.load_balancing_policies.default_policy));
       }
-      dnsdist::configuration::updateRuntimeConfiguration([&policy](dnsdist::configuration::RuntimeConfiguration& config) {
-        config.d_lbPolicy = std::move(policy);
-      });
+      runtimeConfig.d_lbPolicy = std::move(policy);
     }
 
     for (const auto& pool : globalConfig.pools) {
-      dnsdist::configuration::updateRuntimeConfiguration([&context, &pool](dnsdist::configuration::RuntimeConfiguration& config) {
-        auto [poolIt, inserted] = config.d_pools.emplace(std::string(pool.name), ServerPool());
-        if (inserted) {
-          VERBOSESLOG(infolog("Creating pool %s", pool.name),
-                      context.logger->info(Logr::Info, "Creating pool", "pool", Logging::Loggable(pool.name)));
-        }
+      auto [poolIt, inserted] = runtimeConfig.d_pools.emplace(std::string(pool.name), ServerPool());
+      if (inserted) {
+        VERBOSESLOG(infolog("Creating pool %s", pool.name),
+                    context.logger->info(Logr::Info, "Creating pool", "pool", Logging::Loggable(pool.name)));
+      }
 
-        if (!pool.packet_cache.empty()) {
-          poolIt->second.packetCache = getRegisteredTypeByName<DNSDistPacketCache>(pool.packet_cache);
-          if (!poolIt->second.packetCache) {
-            throw std::runtime_error("Unable to find a cache named " + std::string(pool.packet_cache));
-          }
+      if (!pool.packet_cache.empty()) {
+        poolIt->second.packetCache = getRegisteredTypeByName<DNSDistPacketCache>(pool.packet_cache);
+        if (!poolIt->second.packetCache) {
+          throw std::runtime_error("Unable to find a cache named " + std::string(pool.packet_cache));
         }
-        if (!pool.policy.empty()) {
-          auto policy = getRegisteredTypeByName<ServerPolicy>(pool.policy);
-          if (!policy) {
-            throw std::runtime_error("Unable to find a load-balancing policy named " + std::string(pool.policy));
-          }
-          poolIt->second.policy = std::move(policy);
+      }
+      if (!pool.policy.empty()) {
+        auto policy = getRegisteredTypeByName<ServerPolicy>(pool.policy);
+        if (!policy) {
+          throw std::runtime_error("Unable to find a load-balancing policy named " + std::string(pool.policy));
         }
-        poolIt->second.setECS(pool.use_ecs);
-        poolIt->second.setZeroScope(pool.use_zero_scope);
-      });
+        poolIt->second.policy = std::move(policy);
+      }
+      poolIt->second.setECS(pool.use_ecs);
+      poolIt->second.setZeroScope(pool.use_zero_scope);
     }
 
-    loadRulesConfiguration(globalConfig);
+    loadRulesConfiguration(runtimeConfig, globalConfig);
+
+    dnsdist::webserver::setMaxConcurrentConnections(globalConfig.webserver.max_concurrent_connections);
+
+    /* we need to take the Lua lock here, take a pointer to the old Lua context,
+       set the new context, then update the configuration */
+    #warning FIXME
+    // before replacing the Lua context we need to remove/replace all hooks?
+    /* we need to hold unto the old Lua context until the existing configuration is gone (counter goes to zero, keep a weak pointer to know? */
+    dnsdist::configuration::updateRuntimeConfiguration([&runtimeConfig](dnsdist::configuration::RuntimeConfiguration& config) {
+      config = std::move(runtimeConfig);
+    });
+
+    for (auto& dbrgObj : dbrgs) {
+      dnsdist::DynamicBlocks::registerGroup(std::move(dbrgObj));
+    }
+
+    dnsdist::configuration::updateImmutableConfiguration([&immutableConfig](dnsdist::configuration::ImmutableConfiguration& config) {
+      config = std::move(immutableConfig);
+    });
 
     return true;
   }

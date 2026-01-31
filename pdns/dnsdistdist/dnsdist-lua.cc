@@ -692,14 +692,16 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
                          /* this needs to be done _AFTER_ the order has been set,
                             since the server are kept ordered inside the pool */
-                         if (!ret->d_config.pools.empty()) {
-                           for (const auto& poolName : ret->d_config.pools) {
-                             addServerToPool(poolName, ret);
+                         dnsdist::configuration::updateRuntimeConfiguration([&ret](dnsdist::configuration::RuntimeConfiguration& runtimeConfig) {
+                           if (!ret->d_config.pools.empty()) {
+                             for (const auto& poolName : ret->d_config.pools) {
+                               addServerToPool(runtimeConfig, poolName, ret);
+                             }
                            }
-                         }
-                         else {
-                           addServerToPool("", ret);
-                         }
+                           else {
+                             addServerToPool(runtimeConfig, "", ret);
+                           }
+                         });
 
                          if (ret->connected) {
                            if (dnsdist::configuration::isImmutableConfigurationDone()) {
@@ -735,19 +737,19 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                          if (!server) {
                            throw std::runtime_error("unable to locate the requested server");
                          }
-                         for (const string& poolName : server->d_config.pools) {
-                           removeServerFromPool(poolName, server);
-                         }
-
-                         try {
-                           /* the server might also be in the default pool */
-                           removeServerFromPool("", server);
-                         }
-                         catch (const std::out_of_range& exp) {
-                           /* but the default pool might not exist yet, this is fine */
-                         }
-
                          dnsdist::configuration::updateRuntimeConfiguration([&server](dnsdist::configuration::RuntimeConfiguration& config) {
+                           for (const string& poolName : server->d_config.pools) {
+                             removeServerFromPool(config, poolName, server);
+                           }
+
+                           try {
+                             /* the server might also be in the default pool */
+                             removeServerFromPool(config, "", server);
+                           }
+                           catch (const std::out_of_range& exp) {
+                             /* but the default pool might not exist yet, this is fine */
+                           }
+
                            config.d_backends.erase(std::remove(config.d_backends.begin(), config.d_backends.end(), server), config.d_backends.end());
                          });
 
@@ -2147,22 +2149,30 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("setPoolServerPolicy", [](const std::shared_ptr<ServerPolicy>& policy, const string& pool) {
     setLuaSideEffect();
-    setPoolPolicy(pool, policy);
+    dnsdist::configuration::updateRuntimeConfiguration([&pool, &policy](dnsdist::configuration::RuntimeConfiguration& config) {
+      setPoolPolicy(config, pool, policy);
+    });
   });
 
   luaCtx.writeFunction("setPoolServerPolicyLua", [](const string& name, ServerPolicy::policyfunc_t policy, const string& pool) {
     setLuaSideEffect();
-    setPoolPolicy(pool, std::make_shared<ServerPolicy>(ServerPolicy{name, std::move(policy), true}));
+    dnsdist::configuration::updateRuntimeConfiguration([&name, &pool, &policy](dnsdist::configuration::RuntimeConfiguration& config) {
+      setPoolPolicy(config, pool, std::make_shared<ServerPolicy>(ServerPolicy{name, std::move(policy), true}));
+    });
   });
 
   luaCtx.writeFunction("setPoolServerPolicyLuaFFI", [](const string& name, ServerPolicy::ffipolicyfunc_t policy, const string& pool) {
     setLuaSideEffect();
-    setPoolPolicy(pool, std::make_shared<ServerPolicy>(ServerPolicy{name, std::move(policy)}));
+    dnsdist::configuration::updateRuntimeConfiguration([&name, &pool, &policy](dnsdist::configuration::RuntimeConfiguration& config) {
+      setPoolPolicy(config, pool, std::make_shared<ServerPolicy>(ServerPolicy{name, std::move(policy)}));
+    });
   });
 
   luaCtx.writeFunction("setPoolServerPolicyLuaFFIPerThread", [](const string& name, const std::string& policyCode, const std::string& pool) {
     setLuaSideEffect();
-    setPoolPolicy(pool, std::make_shared<ServerPolicy>(ServerPolicy{name, policyCode}));
+    dnsdist::configuration::updateRuntimeConfiguration([&name, &pool, &policyCode](dnsdist::configuration::RuntimeConfiguration& config) {
+      setPoolPolicy(config, pool, std::make_shared<ServerPolicy>(ServerPolicy{name, policyCode}));
+    });
   });
 
   luaCtx.writeFunction("showPoolServerPolicy", [](const std::string& pool) {

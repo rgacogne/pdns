@@ -489,7 +489,7 @@ void setSuffixDynamicRules(SuffixDynamicRules&& rules);
 void clearClientAddressDynamicRules();
 void clearSuffixDynamicRules();
 
-void registerGroup(std::shared_ptr<DynBlockRulesGroup>& group);
+void registerGroup(std::shared_ptr<DynBlockRulesGroup>&& group);
 void runRegisteredGroups(LuaContext& luaCtx);
 }
 #endif /* DISABLE_DYNBLOCKS */

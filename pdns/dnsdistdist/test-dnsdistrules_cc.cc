@@ -219,8 +219,10 @@ BOOST_AUTO_TEST_CASE(test_poolOutstandingRule)
 
   BOOST_CHECK_EQUAL(sp.poolLoad(), 400U + 30U);
 
-  addServerToPool("test", ds1);
-  addServerToPool("test", ds2);
+  dnsdist::configuration::updateRuntimeConfiguration([&ds1, &ds2](dnsdist::configuration::RuntimeConfiguration& runtimeConfig) {
+    addServerToPool(runtimeConfig, "test", ds1);
+    addServerToPool(runtimeConfig, "test", ds2);
+  });
 
   PoolOutstandingRule pOR1("test", 10);
   BOOST_CHECK_EQUAL(pOR1.matches(&dq), true);
