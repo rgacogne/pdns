@@ -91,6 +91,11 @@ public:
     d_state.reset();
   }
 
+  bool isInUse() const
+  {
+    return d_state && d_state.use_count() > 1;
+  }
+
 private:
   std::shared_ptr<T> d_state;
   unsigned int d_generation{0};

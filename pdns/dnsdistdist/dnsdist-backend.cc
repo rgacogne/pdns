@@ -89,13 +89,16 @@ void DownstreamState::removeXSKDestination(int fd)
 
 bool DownstreamState::reconnect(bool initialAttempt)
 {
+  cerr<<"in reconnect"<<endl;
   std::unique_lock<std::mutex> lock(connectLock, std::try_to_lock);
   if (!lock.owns_lock() || isStopped()) {
     /* we are already reconnecting or stopped anyway */
+    cerr<<"stopped"<<endl;
     return false;
   }
 
   if (IsAnyAddress(d_config.remote)) {
+    cerr<<"any"<<endl;
     return true;
   }
 
@@ -343,6 +346,7 @@ DownstreamState::DownstreamState(DownstreamState::Config&& config, std::shared_p
 #endif /* HAVE_NGHTTP2 */
   }
 
+  cerr<<"in ctor "<<connect<<", TCP only: "<<isTCPOnly()<<endl;
   if (connect && !isTCPOnly()) {
     if (!IsAnyAddress(d_config.remote)) {
       connectUDPSockets();
@@ -1185,14 +1189,12 @@ bool ServerPool::shouldKeepStaleData() const
 
 namespace dnsdist::backend
 {
-void registerNewBackend(std::shared_ptr<DownstreamState>& backend)
+void registerNewBackend(dnsdist::configuration::RuntimeConfiguration& config, std::shared_ptr<DownstreamState>& backend)
 {
-  dnsdist::configuration::updateRuntimeConfiguration([&backend](dnsdist::configuration::RuntimeConfiguration& config) {
-    auto& backends = config.d_backends;
-    backends.push_back(backend);
-    std::stable_sort(backends.begin(), backends.end(), [](const std::shared_ptr<DownstreamState>& lhs, const std::shared_ptr<DownstreamState>& rhs) {
-      return lhs->d_config.order < rhs->d_config.order;
-    });
+  auto& backends = config.d_backends;
+  backends.push_back(backend);
+  std::stable_sort(backends.begin(), backends.end(), [](const std::shared_ptr<DownstreamState>& lhs, const std::shared_ptr<DownstreamState>& rhs) {
+    return lhs->d_config.order < rhs->d_config.order;
   });
 }
 }

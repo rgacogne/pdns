@@ -690,6 +690,12 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                            dnsdist::ServiceDiscovery::addUpgradeableServer(ret, upgradeInterval, std::move(upgradePool), upgradeDoHKey, keepAfterUpgrade);
                          }
 
+                         if (ret->connected) {
+                           if (dnsdist::configuration::isImmutableConfigurationDone()) {
+                             ret->start();
+                           }
+                         }
+
                          /* this needs to be done _AFTER_ the order has been set,
                             since the server are kept ordered inside the pool */
                          dnsdist::configuration::updateRuntimeConfiguration([&ret](dnsdist::configuration::RuntimeConfiguration& runtimeConfig) {
@@ -701,15 +707,8 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                            else {
                              addServerToPool(runtimeConfig, "", ret);
                            }
+                           dnsdist::backend::registerNewBackend(runtimeConfig, ret);
                          });
-
-                         if (ret->connected) {
-                           if (dnsdist::configuration::isImmutableConfigurationDone()) {
-                             ret->start();
-                           }
-                         }
-
-                         dnsdist::backend::registerNewBackend(ret);
 
                          checkAllParametersConsumed("newServer", vars);
                          return ret;

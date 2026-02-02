@@ -1200,7 +1200,7 @@ bool loadConfigurationFromFile(const std::string& fileName, [[maybe_unused]] boo
         addServerToPool(runtimeConfig, "", downstream);
       }
 
-      dnsdist::backend::registerNewBackend(downstream);
+      dnsdist::backend::registerNewBackend(runtimeConfig, downstream);
     }
 
     if (!globalConfig.proxy_protocol.acl.empty()) {

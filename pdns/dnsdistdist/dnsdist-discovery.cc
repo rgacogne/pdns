@@ -499,8 +499,7 @@ bool ServiceDiscovery::tryToUpgradeBackend(const Logr::Logger& logger, const Upg
         removeServerFromPool(runtimeConf, "", backend.d_ds);
       }
 
-      #warning check if this is OK
-      dnsdist::backend::registerNewBackend(newServer);
+      dnsdist::backend::registerNewBackend(runtimeConf, newServer);
     });
 
 

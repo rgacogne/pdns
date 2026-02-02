@@ -782,6 +782,7 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
   auto responderLogger = dnsdist::logging::getTopLogger("udp-response")->withValues("backend.address", Logging::Loggable(dss->d_config.remote));
 
   try {
+    cerr<<"in respodner thread"<<endl;
     setThreadName("dnsdist/respond");
     const size_t initialBufferSize = getInitialUDPPacketBufferSize(false);
     /* allocate one more byte so we can detect truncation */
@@ -793,10 +794,12 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
     for (;;) {
       try {
         if (dss->isStopped()) {
+          cerr<<"stopped"<<endl;
           break;
         }
 
         if (!dss->connected) {
+          cerr<<"not connected"<<endl;
           /* the sockets are not connected yet, likely because we detected a problem,
              tried to reconnect and it failed. We will try to reconnect after the next
              successful health-check (unless reconnectOnUp is false), or when trying
@@ -810,6 +813,7 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
         /* check a second time here because we might have waited quite a bit
            since the first check */
         if (dss->isStopped()) {
+          cerr<<"stopped 2"<<endl;
           break;
         }
 
@@ -818,6 +822,7 @@ void responderThread(std::shared_ptr<DownstreamState> dss)
           // NOLINTNEXTLINE(bugprone-use-after-move): resizing a vector has no preconditions so it is valid to do so after moving it
           response.resize(initialBufferSize + 1);
           ssize_t got = recv(sockDesc, response.data(), response.size(), 0);
+          cerr<<got<<endl;
 
           if (got == 0 && dss->isStopped()) {
             break;
@@ -2958,17 +2963,20 @@ static void setUpLocalBind(ClientState& cstate, const std::shared_ptr<const Logr
 
 struct CommandLineParameters
 {
-  vector<string> locals;
-  vector<string> remotes;
-  string command;
-  string config;
-  string uid;
-  string gid;
-  string structuredLoggingBackend;
+  std::vector<std::string> locals;
+  std::vector<std::string> remotes;
+  std::vector<std::string> aclAdditions;
+  std::string consoleKey;
+  std::string command;
+  std::string config;
+  std::string uid;
+  std::string gid;
+  std::string structuredLoggingBackend;
   bool checkConfig{false};
   bool beClient{false};
   bool beSupervised{false};
   bool useStructuredLogging{true};
+  bool beVerbose{false};
 };
 
 static void usage()
@@ -3203,7 +3211,6 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
                                                 {nullptr, 0, nullptr, 0}}};
   int longindex = 0;
   string optstring;
-  dnsdist::configuration::RuntimeConfiguration newConfig;
 
   while (true) {
     // NOLINTNEXTLINE(concurrency-mt-unsafe): only one thread at this point
@@ -3248,20 +3255,16 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
       break;
     case 'a':
       optstring = optarg;
-      newConfig.d_ACL.addMask(optstring);
+      cmdLine.aclAdditions.emplace_back(optstring);
       break;
     case 'k':
 #if defined HAVE_LIBSODIUM || defined(HAVE_LIBCRYPTO)
     {
-      std::string consoleKey;
-      if (B64Decode(string(optarg), consoleKey) < 0) {
+      if (B64Decode(string(optarg), cmdLine.consoleKey) < 0) {
         cerr << "Unable to decode key '" << optarg << "'." << endl;
         // NOLINTNEXTLINE(concurrency-mt-unsafe): only one thread at this point
         exit(EXIT_FAILURE);
       }
-      dnsdist::configuration::updateRuntimeConfiguration([&consoleKey](dnsdist::configuration::RuntimeConfiguration& config) {
-        config.d_consoleKey = std::move(consoleKey);
-      });
     }
 #else
       cerr << "dnsdist has been built without libsodium or libcrypto, -k/--setkey is unsupported." << endl;
@@ -3279,7 +3282,7 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
       cmdLine.uid = optarg;
       break;
     case 'v':
-      newConfig.d_verbose = true;
+      cmdLine.beVerbose = true;
       break;
     case 'V':
       reportFeatures();
@@ -3307,11 +3310,8 @@ static void parseParameters(int argc, char** argv, CommandLineParameters& cmdLin
       cmdLine.remotes.emplace_back(*ptr);
     }
   }
-
-  dnsdist::configuration::updateRuntimeConfiguration([&newConfig](dnsdist::configuration::RuntimeConfiguration& config) {
-    config = std::move(newConfig);
-  });
 }
+
 static void setupPools(const std::shared_ptr<const Logr::Logger>& logger)
 {
   bool precompute = false;
@@ -3672,7 +3672,12 @@ int main(int argc, char** argv)
       setupLogger = dnsdist::logging::getTopLogger("setup");
     }
 
-    dnsdist::configuration::updateRuntimeConfiguration([](dnsdist::configuration::RuntimeConfiguration& config) {
+    dnsdist::configuration::updateRuntimeConfiguration([&cmdLine](dnsdist::configuration::RuntimeConfiguration& config) {
+      for (const auto& acl : cmdLine.aclAdditions) {
+        config.d_ACL.addMask(acl);
+      }
+      config.d_consoleKey = cmdLine.consoleKey;
+      config.d_verbose = cmdLine.beVerbose;
       config.d_lbPolicy = std::make_shared<ServerPolicy>("leastOutstanding", leastOutstanding, false);
     });
 
@@ -3878,6 +3883,7 @@ int main(int argc, char** argv)
     }
 
     for (const auto& backend : dnsdist::configuration::getCurrentRuntimeConfiguration().d_backends) {
+      cerr<<"backend "<<backend->getName()<<" is connected: "<<backend->connected<<endl;
       if (backend->connected) {
         backend->start();
       }

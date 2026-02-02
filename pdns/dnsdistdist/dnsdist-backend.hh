@@ -25,7 +25,12 @@
 
 struct DownstreamState;
 
+namespace dnsdist::configuration
+{
+struct RuntimeConfiguration;
+}
+
 namespace dnsdist::backend
 {
-void registerNewBackend(std::shared_ptr<DownstreamState>& backend);
+void registerNewBackend(dnsdist::configuration::RuntimeConfiguration& config, std::shared_ptr<DownstreamState>& backend);
 }

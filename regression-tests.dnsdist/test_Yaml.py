@@ -232,6 +232,7 @@ query_rules:
 enableLuaConfiguration()
 addAction(QNameRule("notimp-lua.yaml-lua-mix.test.powerdns.com."), RCodeAction(DNSRCode.NOTIMP))
 """
+    _verboseMode = True
 
     def testRefusedFromYAML(self):
         """
@@ -587,10 +588,6 @@ query_rules:
 class TestYamlUnknownPolicyName(DNSDistTest):
 
     _yaml_config_template = """---
-logging:
-  structured:
-    enabled: false
-
 binds:
   - listen_address: "127.0.0.1:%d"
     protocol: Do53
@@ -605,6 +602,9 @@ pools:
 """
     _yaml_config_params = ['_dnsDistPort', '_testServerPort']
     _config_params = []
+    # we need this because the error is triggered during the parsing of the YAML configuration,
+    # so the parsed configuration never gets a change to be applied
+    _enableStructuredLoggingOnCL = False
 
     def testFailToStart(self):
         """
