@@ -288,6 +288,17 @@ cname 3600 IN CNAME a.example.
         dnstap.ParseFromString(data)
         return dnstap
 
+    def checkNoMoreDnstapFrames(self, waitSeconds=1):
+        # We don't expect anything more
+        time.sleep(waitSeconds)
+        if DNSTapServerParameters.queue.empty():
+            return
+        while not DNSTapServerParameters.queue.empty():
+            msg = self.getFirstDnstap()
+            print(msg)
+
+        self.fail()
+
 
 class DNSTapDefaultTest(TestRecursorDNSTap):
     """
@@ -344,9 +355,7 @@ dnstapFrameStreamServer({"%s"}, {logQueries=false})
         res = self.sendUDPQuery(query)
         self.assertNotEqual(res, None)
 
-        # We don't expect anything more
-        time.sleep(1)
-        self.assertTrue(DNSTapServerParameters.queue.empty())
+        self.checkNoMoreDnstapFrames()
 
 
 class DNSTapLogNODTest(TestRecursorDNSTap):
@@ -387,9 +396,7 @@ dnstapNODFrameStreamServer({"%s"})
         checkDnstapNOD(self, dnstap, dnstap_pb2.UDP, "127.0.0.1", "127.0.0.1", 5300, name)
         # We don't expect a response
         checkDnstapNoExtra(self, dnstap)
-        # We don't expect anything more
-        time.sleep(1)
-        self.assertTrue(DNSTapServerParameters.queue.empty())
+        self.checkNoMoreDnstapFrames()
 
 
 class DNSTapLogUDRTest(TestRecursorDNSTap):
@@ -424,9 +431,7 @@ dnstapNODFrameStreamServer({"%s"}, {logNODs=false, logUDRs=true})
         checkDnstapUDR(self, dnstap, dnstap_pb2.UDP, "127.0.0.1", "127.0.0.1", 5300, name)
         # We don't expect a rpasesponse
         checkDnstapNoExtra(self, dnstap)
-        # We don't expect anything more
-        time.sleep(1)
-        self.assertTrue(DNSTapServerParameters.queue.empty())
+        self.checkNoMoreDnstapFrames()
 
 
 class DNSTapLogNODUDRTest(TestRecursorDNSTap):
@@ -462,6 +467,4 @@ dnstapNODFrameStreamServer({"%s"}, {logNODs=true, logUDRs=true})
         checkDnstapNOD(self, dnstap, dnstap_pb2.UDP, "127.0.0.1", "127.0.0.1", 5300, name)
 
         checkDnstapNoExtra(self, dnstap)
-        # We don't expect anything more
-        time.sleep(1)
-        self.assertTrue(DNSTapServerParameters.queue.empty())
+        self.checkNoMoreDnstapFrames()
