@@ -25,7 +25,7 @@
 
 #include <sys/stat.h>
 
-std::vector<std::string> KeyValueLookupKeySourceIP::getKeys(const ComboAddress& addr)
+std::vector<std::string> KeyValueLookupKeySourceIP::getKeys(const ComboAddress& addr) const
 {
   std::vector<std::string> result;
   ComboAddress truncated(addr);
@@ -34,15 +34,18 @@ std::vector<std::string> KeyValueLookupKeySourceIP::getKeys(const ComboAddress& 
   if (truncated.isIPv4()) {
     truncated.truncate(d_v4Mask);
     key.reserve(sizeof(truncated.sin4.sin_addr.s_addr) + (d_includePort ? sizeof(truncated.sin4.sin_port) : 0));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     key.append(reinterpret_cast<const char*>(&truncated.sin4.sin_addr.s_addr), sizeof(truncated.sin4.sin_addr.s_addr));
   }
   else if (truncated.isIPv6()) {
     truncated.truncate(d_v6Mask);
     key.reserve(sizeof(truncated.sin6.sin6_addr.s6_addr) + (d_includePort ? sizeof(truncated.sin4.sin_port) : 0));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     key.append(reinterpret_cast<const char*>(&truncated.sin6.sin6_addr.s6_addr), sizeof(truncated.sin6.sin6_addr.s6_addr));
   }
 
   if (d_includePort) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     key.append(reinterpret_cast<const char*>(&truncated.sin4.sin_port), sizeof(truncated.sin4.sin_port));
   }
 
@@ -51,7 +54,7 @@ std::vector<std::string> KeyValueLookupKeySourceIP::getKeys(const ComboAddress& 
   return result;
 }
 
-std::vector<std::string> KeyValueLookupKeySuffix::getKeys(const DNSName& qname)
+std::vector<std::string> KeyValueLookupKeySuffix::getKeys(const DNSName& qname) const
 {
   if (qname.empty() || qname.isRoot()) {
     return {};
@@ -90,13 +93,13 @@ bool LMDBKVStore::getValue(const std::string& key, std::string& value)
 {
   try {
     auto transaction = d_env->getROTransaction();
-    MDBOutVal result;
-    int rc = transaction->get(d_dbi, MDBInVal(key), result);
-    if (rc == 0) {
+    MDBOutVal result{};
+    int returnCode = transaction->get(d_dbi, MDBInVal(key), result);
+    if (returnCode == 0) {
       value = result.get<std::string>();
       return true;
     }
-    else if (rc == MDB_NOTFOUND) {
+    if (returnCode == MDB_NOTFOUND) {
       return false;
     }
   }
@@ -111,12 +114,12 @@ bool LMDBKVStore::keyExists(const std::string& key)
 {
   try {
     auto transaction = d_env->getROTransaction();
-    MDBOutVal result;
-    int rc = transaction->get(d_dbi, MDBInVal(key), result);
-    if (rc == 0) {
+    MDBOutVal result{};
+    int returnCode = transaction->get(d_dbi, MDBInVal(key), result);
+    if (returnCode == 0) {
       return true;
     }
-    else if (rc == MDB_NOTFOUND) {
+    if (returnCode == MDB_NOTFOUND) {
       return false;
     }
   }
@@ -132,8 +135,8 @@ bool LMDBKVStore::getRangeValue(const std::string& key, std::string& value)
   try {
     auto transaction = d_env->getROTransaction();
     auto cursor = transaction->getROCursor(d_dbi);
-    MDBOutVal actualKey;
-    MDBOutVal result;
+    MDBOutVal actualKey{};
+    MDBOutVal result{};
     // for range-based lookups, we expect the data in LMDB
     // to be stored with the last value of the range as key
     // and the first value of the range as data, sometimes
@@ -143,9 +146,9 @@ bool LMDBKVStore::getRangeValue(const std::string& key, std::string& value)
     // order
 
     // retrieve the first key greater or equal to our key
-    int rc = cursor.lower_bound(MDBInVal(key), actualKey, result);
+    int returnCode = cursor.lower_bound(MDBInVal(key), actualKey, result);
 
-    if (rc == 0) {
+    if (returnCode == 0) {
       auto last = actualKey.get<std::string>();
       if (last.size() != key.size() || key > last) {
         return false;
@@ -159,13 +162,9 @@ bool LMDBKVStore::getRangeValue(const std::string& key, std::string& value)
       // take the first part of the data, which should be
       // the first address of the range
       auto first = value.substr(0, key.size());
-      if (first.size() != key.size() || key < first) {
-        return false;
-      }
-
-      return true;
+      return first.size() == key.size() && key >= first;
     }
-    else if (rc == MDB_NOTFOUND) {
+    if (returnCode == MDB_NOTFOUND) {
       return false;
     }
   }
@@ -184,8 +183,8 @@ std::shared_ptr<const Logr::Logger> CDBKVStore::getLogger() const
   return dnsdist::logging::getTopLogger("cdb-key-value-store")->withValues("path", Logging::Loggable(d_fname));
 }
 
-CDBKVStore::CDBKVStore(const std::string& fname, time_t refreshDelay) :
-  d_fname(fname), d_refreshDelay(refreshDelay)
+CDBKVStore::CDBKVStore(std::string fname, time_t refreshDelay) :
+  d_fname(std::move(fname)), d_refreshDelay(refreshDelay)
 {
   d_refreshing.clear();
 
@@ -197,32 +196,26 @@ CDBKVStore::CDBKVStore(const std::string& fname, time_t refreshDelay) :
   refreshDBIfNeeded(now);
 }
 
-CDBKVStore::~CDBKVStore()
-{
-}
-
-bool CDBKVStore::reload(const struct stat& st)
+bool CDBKVStore::reload(const struct stat& databaseStat)
 {
   auto newCDB = std::make_unique<CDB>(d_fname);
   {
     *(d_cdb.lock()) = std::move(newCDB);
   }
-  d_mtime = st.st_mtime;
+  d_mtime = databaseStat.st_mtime;
   return true;
 }
 
 bool CDBKVStore::reload()
 {
-  struct stat st{};
-  if (stat(d_fname.c_str(), &st) == 0) {
-    return reload(st);
+  struct stat statBuffer{};
+  if (stat(d_fname.c_str(), &statBuffer) == 0) {
+    return reload(statBuffer);
   }
-  else {
-    int savederrno = errno;
-    SLOG(warnlog("Error while retrieving the last modification time of CDB database '%s': %s", d_fname, stringerror(savederrno)),
-         getLogger()->error(Logr::Warning, savederrno, "Error while retrieving the last modification time of the database"));
-    return false;
-  }
+  int savederrno = errno;
+  SLOG(warnlog("Error while retrieving the last modification time of CDB database '%s': %s", d_fname, stringerror(savederrno)),
+       getLogger()->error(Logr::Warning, savederrno, "Error while retrieving the last modification time of the database"));
+  return false;
 }
 
 void CDBKVStore::refreshDBIfNeeded(time_t now)
@@ -233,10 +226,10 @@ void CDBKVStore::refreshDBIfNeeded(time_t now)
   }
 
   try {
-    struct stat st{};
-    if (stat(d_fname.c_str(), &st) == 0) {
-      if (st.st_mtime > d_mtime) {
-        reload(st);
+    struct stat statBuffer{};
+    if (stat(d_fname.c_str(), &statBuffer) == 0) {
+      if (statBuffer.st_mtime > d_mtime) {
+        reload(statBuffer);
       }
     }
     else {

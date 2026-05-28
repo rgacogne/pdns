@@ -43,7 +43,7 @@ public:
   {
   }
 
-  std::vector<std::string> getKeys(const ComboAddress& addr);
+  std::vector<std::string> getKeys(const ComboAddress& addr) const;
 
   std::vector<std::string> getKeys(const DNSQuestion& dq) override
   {
@@ -69,7 +69,7 @@ public:
   {
   }
 
-  std::vector<std::string> getKeys(const DNSName& qname)
+  [[nodiscard]] std::vector<std::string> getKeys(const DNSName& qname) const
   {
     if (d_wireFormat) {
       return {qname.toDNSStringLC()};
@@ -102,7 +102,7 @@ public:
   {
   }
 
-  std::vector<std::string> getKeys(const DNSName& qname);
+  std::vector<std::string> getKeys(const DNSName& qname) const;
 
   std::vector<std::string> getKeys(const DNSQuestion& dq) override
   {
@@ -187,13 +187,14 @@ public:
     d_env(getMDBEnv(fname.c_str(), noLock ? MDB_NOSUBDIR | MDB_RDONLY | MDB_NOLOCK : MDB_NOSUBDIR | MDB_RDONLY, 0600, 0)), d_dbi(d_env->openDB(dbName, 0)), d_fname(fname), d_dbName(dbName)
   {
   }
+  ~LMDBKVStore() override = default;
 
   bool keyExists(const std::string& key) override;
   bool getValue(const std::string& key, std::string& value) override;
   bool getRangeValue(const std::string& key, std::string& value) override;
 
 private:
-  std::shared_ptr<const Logr::Logger> getLogger() const;
+  [[nodiscard]] std::shared_ptr<const Logr::Logger> getLogger() const;
 
   std::shared_ptr<MDBEnv> d_env;
   MDBDbi d_dbi;
@@ -210,24 +211,24 @@ private:
 class CDBKVStore : public KeyValueStore
 {
 public:
-  CDBKVStore(const std::string& fname, time_t refreshDelay);
-  ~CDBKVStore();
+  CDBKVStore(std::string fname, time_t refreshDelay);
+  ~CDBKVStore() override = default;
 
   bool keyExists(const std::string& key) override;
   bool getValue(const std::string& key, std::string& value) override;
   bool reload() override;
 
 private:
-  std::shared_ptr<const Logr::Logger> getLogger() const;
+  [[nodiscard]] std::shared_ptr<const Logr::Logger> getLogger() const;
   void refreshDBIfNeeded(time_t now);
-  bool reload(const struct stat& st);
+  bool reload(const struct stat& databaseStat);
 
   LockGuarded<std::unique_ptr<CDB>> d_cdb{nullptr};
   std::string d_fname;
   time_t d_mtime{0};
   time_t d_nextCheck{0};
   time_t d_refreshDelay{0};
-  std::atomic_flag d_refreshing;
+  std::atomic_flag d_refreshing{};
 };
 
 #endif /* HAVE_LMDB */
