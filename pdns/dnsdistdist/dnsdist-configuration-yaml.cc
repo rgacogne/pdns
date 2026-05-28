@@ -82,7 +82,7 @@ static void registerType(const std::shared_ptr<T>& entry, const ::rust::string& 
     name = boost::uuids::to_string(uuid);
   }
 
-  auto [it, inserted] = s_registeredTypesMap.lock()->try_emplace(name, entry);
+  auto [mapIt, inserted] = s_registeredTypesMap.lock()->try_emplace(name, entry);
   if (!inserted) {
     throw std::runtime_error("Trying to register a type named '" + name + "' while one already exists");
   }
@@ -719,7 +719,7 @@ static void loadDynamicBlockConfiguration(const dnsdist::rust::settings::Dynamic
         for (const auto& rcode : rule.allowed_rcodes) {
           allowed.insert(strToRCode("dynamic-rules.rules.allowed_rcodes_ratio", "allowed_rcodes", rcode));
         }
-        DynBlockRulesGroup::DynBlockAllowedRCodesRatioRule ruleParams(std::move(allowed), std::string(rule.comment), rule.action_duration, rule.ratio, rule.warning_ratio, rule.seconds, rule.action.empty() ? DNSAction::Action::None : DNSAction::typeFromString(std::string(rule.action)), rule.minimum_number_of_responses);
+        DynBlockRulesGroup::DynBlockAllowedRCodesRatioRule ruleParams(allowed, std::string(rule.comment), rule.action_duration, rule.ratio, rule.warning_ratio, rule.seconds, rule.action.empty() ? DNSAction::Action::None : DNSAction::typeFromString(std::string(rule.action)), rule.minimum_number_of_responses);
         if (ruleParams.d_action == DNSAction::Action::SetTag && !rule.tag_name.empty()) {
           ruleParams.d_tagSettings = std::make_shared<DynBlock::TagSettings>();
           ruleParams.d_tagSettings->d_name = std::string(rule.tag_name);
@@ -895,7 +895,7 @@ static void loadWebServer(const Context& context, const dnsdist::rust::settings:
   dnsdist::configuration::updateRuntimeConfiguration([&context, &webConfig](dnsdist::configuration::RuntimeConfiguration& config) {
     for (const auto& address : webConfig.listen_addresses) {
       try {
-        config.d_webServerAddresses.emplace(ComboAddress(std::string(address)));
+        config.d_webServerAddresses.emplace(std::string(address));
       }
       catch (const PDNSException& exp) {
         throw std::runtime_error(std::string("Error parsing bind address for the webserver: ") + exp.reason);
@@ -903,7 +903,7 @@ static void loadWebServer(const Context& context, const dnsdist::rust::settings:
     }
     if (!webConfig.password.empty()) {
       auto holder = std::make_shared<CredentialsHolder>(std::string(webConfig.password), webConfig.hash_plaintext_credentials);
-      if (!holder->wasHashed() && holder->isHashingAvailable()) {
+      if (!holder->wasHashed() && CredentialsHolder::isHashingAvailable()) {
         SLOG(infolog("Passing a plain-text password via the 'webserver.password' parameter is not advised, please consider generating a hashed one using 'hashPassword()' instead."),
              context.logger->info(Logr::Info, "Passing a plain-text password via the 'webserver.password' parameter is not advised, please generating a hashed one using 'hashPassword()' instead"));
       }
@@ -911,7 +911,7 @@ static void loadWebServer(const Context& context, const dnsdist::rust::settings:
     }
     if (!webConfig.api_key.empty()) {
       auto holder = std::make_shared<CredentialsHolder>(std::string(webConfig.api_key), webConfig.hash_plaintext_credentials);
-      if (!holder->wasHashed() && holder->isHashingAvailable()) {
+      if (!holder->wasHashed() && CredentialsHolder::isHashingAvailable()) {
         SLOG(infolog("Passing a plain-text API key via the 'webserver.api_key' parameter is not advised, please consider generating a hashed one using 'hashPassword()' instead."),
              context.logger->info(Logr::Info, "Passing a plain-text API key via the 'webserver.api_key' parameter is not advised, please generating a hashed one using 'hashPassword()' instead"));
       }
@@ -1537,7 +1537,7 @@ std::shared_ptr<DNSActionWrapper> getSpoofPacketAction(const SpoofPacketActionCo
   if (config.response.size() < sizeof(dnsheader)) {
     throw std::runtime_error(std::string("SpoofPacketAction: given packet len is too small"));
   }
-  auto action = dnsdist::actions::getSpoofAction(PacketBuffer(config.response.data(), config.response.data() + config.response.size()));
+  auto action = dnsdist::actions::getSpoofAction(PacketBuffer(config.response.begin(), config.response.end()));
   return newDNSActionWrapper(std::move(action), config.name);
 }
 
@@ -1762,7 +1762,7 @@ std::shared_ptr<DNSActionWrapper> getDnstapLogAction([[maybe_unused]] const Dnst
   if (dnsdist::configuration::yaml::getLuaFunctionFromConfiguration(alterFunc, config.alter_function_name, config.alter_function_code, config.alter_function_file, "dnstap log action")) {
     alterFuncHolder = std::move(alterFunc);
   }
-  auto action = dnsdist::actions::getDnstapLogAction(std::string(config.identity), std::move(logger), alterFuncHolder ? std::move(*alterFuncHolder) : std::optional<dnsdist::actions::DnstapAlterFunction>());
+  auto action = dnsdist::actions::getDnstapLogAction(std::string(config.identity), std::move(logger), alterFuncHolder ? std::move(alterFuncHolder) : std::optional<dnsdist::actions::DnstapAlterFunction>());
   return newDNSActionWrapper(std::move(action), config.name);
 #endif
 }
@@ -1781,7 +1781,7 @@ std::shared_ptr<DNSResponseActionWrapper> getDnstapLogResponseAction([[maybe_unu
   if (dnsdist::configuration::yaml::getLuaFunctionFromConfiguration(alterFunc, config.alter_function_name, config.alter_function_code, config.alter_function_file, "dnstap log response action")) {
     alterFuncHolder = std::move(alterFunc);
   }
-  auto action = dnsdist::actions::getDnstapLogResponseAction(std::string(config.identity), std::move(logger), alterFuncHolder ? std::move(*alterFuncHolder) : std::optional<dnsdist::actions::DnstapAlterResponseFunction>());
+  auto action = dnsdist::actions::getDnstapLogResponseAction(std::string(config.identity), std::move(logger), alterFuncHolder ? std::move(alterFuncHolder) : std::optional<dnsdist::actions::DnstapAlterResponseFunction>());
   return newDNSResponseActionWrapper(std::move(action), config.name);
 #endif
 }
