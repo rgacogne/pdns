@@ -1184,8 +1184,10 @@ bool loadConfigurationFromFile(const std::string& fileName, [[maybe_unused]] boo
 
   try {
     auto globalConfig = dnsdist::rust::settings::from_yaml_string(*data);
-    dnsdist::configuration::RuntimeConfiguration runtimeConfig{};
-    dnsdist::configuration::ImmutableConfiguration immutableConfig{};
+    /* for now we inherit the existing runtime configuration so we preserve
+       the values set from the command-line, we might need to change that later */
+    auto runtimeConfig = dnsdist::configuration::getCurrentRuntimeConfiguration();
+    auto immutableConfig = dnsdist::configuration::getImmutableConfiguration();
 
     convertImmutableFlatSettingsFromRust(globalConfig, immutableConfig);
     convertRuntimeFlatSettingsFromRust(globalConfig, runtimeConfig);
