@@ -32,6 +32,7 @@
 #include "lock.hh"
 #include "stat_t.hh"
 #include "dnsdist-protocols.hh"
+#include "tcounters.hh"
 
 namespace dnsdist::metrics
 {
@@ -134,4 +135,26 @@ static inline void updateLatencyHistogram(T& container, uint64_t elapsed /* micr
   ++container.latencyCount;
 }
 
+// Simple counters
+enum class Counter : uint8_t
+{
+  Queries,
+
+  numberOfCounters
+};
+
+struct Counters
+{
+  // An array of simple counters
+  std::array<uint64_t, static_cast<size_t>(Counter::numberOfCounters)> d_u64Counters{};
+
+  uint64_t& at(Counter index)
+  {
+    return d_u64Counters.at(static_cast<size_t>(index));
+  }
+  Counters& merge(const Counters& data);
+};
+
+void incrementCounter(Counter counter);
+Counters getCounters();
 }

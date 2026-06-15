@@ -390,4 +390,23 @@ void doLatencyStats(dnsdist::Protocol protocol, double latencyUs)
     doAvg(dnsdist::metrics::g_stats.latencyDoH3Avg1000000, latencyUs, 1000000);
   }
 }
+
+static pdns::GlobalCounters<Counters> s_globalCounters;
+
+static thread_local pdns::TLocalCounters<Counters> t_counters(s_globalCounters);
+
+void incrementCounter(Counter counter)
+{
+  ++t_counters.at(counter);
+}
+
+Counters& Counters::merge(const Counters& data)
+{
+  // Counters are simply added
+  for (size_t idx = 0; idx < d_u64Counters.size(); idx++) {
+    d_u64Counters.at(idx) += data.d_u64Counters.at(idx);
+  }
+  return *this;
+}
+
 }
