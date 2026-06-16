@@ -29,11 +29,10 @@
 class DNSRule
 {
 public:
-  virtual ~DNSRule()
-  {
-  }
+  virtual ~DNSRule() = default;
   virtual bool matches(const DNSQuestion* dq) const = 0;
-  virtual string toString() const = 0;
+  virtual std::string toString() const = 0;
+  virtual std::string toJSON() const = 0;
 
   mutable stat_t d_matches{0};
 };
