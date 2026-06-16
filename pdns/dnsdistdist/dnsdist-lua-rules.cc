@@ -65,7 +65,7 @@ std::shared_ptr<DNSRule> makeRule(const luadnsrule_t& var, const std::string& ca
   }
 
   if (nmg.empty()) {
-    return std::make_shared<SuffixMatchNodeRule>(smn);
+    return std::make_shared<QNameSuffixRule>(smn);
   }
   if (suffixSeen) {
     SLOG(warnlog("At least one parameter to %s has been parsed as a domain name amongst network masks, and will be ignored!", calledFrom),
@@ -347,7 +347,7 @@ std::shared_ptr<DNSRule> qnameSuffixRule(const boost::variant<const SuffixMatchN
   if (names.type() == typeid(string)) {
     SuffixMatchNode smn;
     smn.add(DNSName(*boost::get<std::string>(&names)));
-    return std::shared_ptr<DNSRule>(new SuffixMatchNodeRule(smn, quiet ? *quiet : false));
+    return std::shared_ptr<DNSRule>(new QNameSuffixRule(smn, quiet ? *quiet : false));
   }
 
   if (names.type() == typeid(LuaArray<std::string>)) {
@@ -355,11 +355,11 @@ std::shared_ptr<DNSRule> qnameSuffixRule(const boost::variant<const SuffixMatchN
     for (const auto& str : *boost::get<const LuaArray<std::string>>(&names)) {
       smn.add(DNSName(str.second));
     }
-    return std::shared_ptr<DNSRule>(new SuffixMatchNodeRule(smn, quiet ? *quiet : false));
+    return std::shared_ptr<DNSRule>(new QNameSuffixRule(smn, quiet ? *quiet : false));
   }
 
   const auto& smn = *boost::get<const SuffixMatchNode&>(&names);
-  return std::shared_ptr<DNSRule>(new SuffixMatchNodeRule(smn, quiet ? *quiet : false));
+  return std::shared_ptr<DNSRule>(new QNameSuffixRule(smn, quiet ? *quiet : false));
 }
 }
 

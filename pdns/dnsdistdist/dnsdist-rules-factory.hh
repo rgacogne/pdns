@@ -619,16 +619,17 @@ public:
   {
     return "SNI == " + d_sni;
   }
+  std::string toJSON() const override;
 
 private:
   std::string d_sni;
 };
 
-class SuffixMatchNodeRule : public DNSRule
+class QNameSuffixRule : public DNSRule
 {
 public:
-  SuffixMatchNodeRule(const SuffixMatchNode& smn, bool quiet = false) :
-    d_smn(smn), d_quiet(quiet)
+  QNameSuffixRule(SuffixMatchNode smn, bool quiet = false) :
+    d_smn(std::move(smn)), d_quiet(quiet)
   {
   }
   bool matches(const DNSQuestion* dq) const override
@@ -1544,7 +1545,7 @@ std::shared_ptr<LuaRule> getLuaSelector(const dnsdist::selectors::LuaSelectorFun
 std::shared_ptr<LuaFFIRule> getLuaFFISelector(const dnsdist::selectors::LuaSelectorFFIFunction& func);
 std::shared_ptr<QNameRule> getQNameSelector(const DNSName& qname);
 std::shared_ptr<QNameSetRule> getQNameSetSelector(const DNSNameSet& qnames);
-std::shared_ptr<SuffixMatchNodeRule> getQNameSuffixSelector(const SuffixMatchNode& suffixes, bool quiet);
+std::shared_ptr<QNameSuffixRule> getQNameSuffixSelector(const SuffixMatchNode& suffixes, bool quiet);
 std::shared_ptr<QTypeRule> getQTypeSelector(const std::string& qtypeStr, uint16_t qtypeCode);
 std::shared_ptr<QClassRule> getQClassSelector(const std::string& qclassStr, uint16_t qclassCode);
 std::shared_ptr<NetmaskGroupRule> getNetmaskGroupSelector(const NetmaskGroup& nmg, bool source, bool quiet);

@@ -159,9 +159,9 @@ std::shared_ptr<QTypeRule> getQTypeSelector(const std::string& qtypeStr, uint16_
   return std::make_shared<QTypeRule>(qtype);
 }
 
-std::shared_ptr<SuffixMatchNodeRule> getQNameSuffixSelector(const SuffixMatchNode& suffixes, bool quiet)
+std::shared_ptr<QNameSuffixRule> getQNameSuffixSelector(const SuffixMatchNode& suffixes, bool quiet)
 {
-  return std::make_shared<SuffixMatchNodeRule>(suffixes, quiet);
+  return std::make_shared<QNameSuffixRule>(suffixes, quiet);
 }
 
 std::shared_ptr<QNameSetRule> getQNameSetSelector(const DNSNameSet& qnames)
