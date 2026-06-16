@@ -197,6 +197,7 @@ common_sources += files(
   src_dir / 'dnsdist-xsk.cc',
   src_dir / 'dnsname.cc',
   src_dir / 'dnsparser.cc',
+  src_dir / 'dnstap.cc',
   src_dir / 'dnswriter.cc',
   src_dir / 'dolog.cc',
   src_dir / 'doh3.cc',
@@ -205,6 +206,7 @@ common_sources += files(
   src_dir / 'ednsoptions.cc',
   src_dir / 'ednspadding.cc',
   src_dir / 'ednssubnet.cc',
+  src_dir / 'fstrm_logger.cc',
   src_dir / 'gettime.cc',
   src_dir / 'iputils.cc',
   src_dir / 'libssl.cc',
@@ -475,8 +477,6 @@ tools = {
   'dnsdist': {
     'main': src_dir / 'dnsdist.cc',
     'files-extra': [
-      src_dir / 'dnstap.cc',
-      src_dir / 'fstrm_logger.cc',
       # FFI files are directly added to the binary, because otherwise the visibility
       # is ignored and the functions that are not used in the binary are not exported
       src_dir / 'dnsdist-lua-ffi.cc',
@@ -599,7 +599,6 @@ if get_option('unit-tests')
       'dnsdist-test',
       config_h,
       test_sources,
-      selectors_actions_sources,
       dependencies: [
           dep_boost,
           dep_boost_test,

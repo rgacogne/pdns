@@ -115,13 +115,13 @@ fn get_global_configuration_from_serde(
     config.self_answered_response_rules = get_response_rules_from_serde(&serde.self_answered_response_rules)?;
     config.timeout_response_rules = get_response_rules_from_serde(&serde.timeout_response_rules)?;
     config.xfr_response_rules = get_response_rules_from_serde(&serde.xfr_response_rules)?;
-    let json = selector_to_json(&serde.selectors);
+    /*let json = selector_to_json(&serde.selectors);
     if let Err(e) = json {
         println!("Error converting selectors: {}", e.to_string());
     }
     else {
         println!("JSON selectors: {}", json.unwrap().to_string());
-    }
+    }*/
     Ok(config)
 }
 
@@ -146,9 +146,9 @@ pub fn from_yaml_string(
 }
 
 fn selector_to_json(
-    selectors_from_serde: &Vec<Selector>
+    selector_from_serde: &Selector
 ) -> Result<String, String> {
-    let json_data = serde_json::to_string(&selectors_from_serde);
+    let json_data = serde_json::to_string(&selector_from_serde);
     if let Err(e) = json_data {
        return Err(e.to_string());
     }

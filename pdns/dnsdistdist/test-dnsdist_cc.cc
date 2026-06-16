@@ -67,6 +67,11 @@ bool applyRulesToResponse(const std::vector<dnsdist::rules::ResponseRuleAction>&
   return true;
 }
 
+bool processRulesResult([[maybe_unused]] const DNSAction::Action& action, [[maybe_unused]] DNSQuestion& dnsQuestion, [[maybe_unused]] std::string& ruleresult, [[maybe_unused]] bool& drop)
+{
+  return true;
+}
+
 bool handleTimeoutResponseRules(const std::vector<dnsdist::rules::ResponseRuleAction>& rules, InternalQueryState& ids, const std::shared_ptr<DownstreamState>& d_ds, const std::shared_ptr<TCPQuerySender>& sender)
 {
   (void)rules;

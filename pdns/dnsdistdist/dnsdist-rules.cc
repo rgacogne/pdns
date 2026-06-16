@@ -138,7 +138,6 @@ string HTTPPathRegexRule::toString() const
 }
 
 #ifdef HAVE_YAML_CONFIGURATION
-#include "rust/cxx.h"
 #include "rust/lib.rs.h"
 
 #include "dnsdist-selectors-json-export-generated-body.hh"

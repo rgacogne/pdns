@@ -742,6 +742,26 @@ def generate_cpp_action_selector_functions_callable_from_rust(output, def_dir):
     output.write(output_buffer)
 
 
+def generate_rust_action_selector_functions_callable_from_cpp(output, def_dir):
+    output_buffer = """
+    /*
+     * Functions callable from C++ (actions and selectors)
+     */
+    extern "Rust" {
+"""
+    # then selectors
+    selectors_definitions = get_selectors_definitions(def_dir)
+    for selector in selectors_definitions:
+        name = get_rust_object_name(selector["name"])
+        if name in ["And", "Or", "Not"]:
+            continue
+        var = name.lower()
+        output_buffer += f"        fn get_json_from_{var}_config(config: {name}SelectorConfiguration) -> Result<String>;\n"
+
+    output_buffer += "    }\n"
+    output.write(output_buffer)
+
+
 def generate_rust_action_to_config(output, def_dir, response):
     suffix = "ResponseAction" if response else "Action"
     actions_definitions = get_actions_definitions(def_dir, response)
@@ -840,6 +860,21 @@ def generate_rust_selector_to_config(output, def_dir):
     output.write(enum_buffer)
 
 
+def generate_rust_selector_config_to_json(output, def_dir):
+    selectors_definitions = get_selectors_definitions(def_dir)
+    buffer = ""
+    for selector in selectors_definitions:
+        name = get_rust_object_name(selector["name"])
+        var = name.lower()
+        if name in ["And", "Or", "Not"]:
+            continue
+        buffer += f"""pub fn get_json_from_{var}_config(config: dnsdistsettings::{name}SelectorConfiguration) -> Result<String, String> {{
+    let enum_config = Selector::{name}(config);
+    return selector_to_json(&enum_config);
+}}\n\n"""
+
+    output.write(buffer)
+
 def handle_structures(generated_fp, definitions, default_functions, validation_functions):
     for definition_name, keys in definitions.items():
         generated_fp.write(get_rust_struct_from_definition(definition_name, keys, default_functions) + "\n")
@@ -890,6 +925,7 @@ def main():
     handle_structures(generated_fp, definitions, default_functions, validation_functions)
 
     generate_cpp_action_selector_functions_callable_from_rust(generated_fp, definitions_dir)
+    generate_rust_action_selector_functions_callable_from_cpp(generated_fp, definitions_dir)
 
     include_file(generated_fp, f"{rust_dir}/rust-middle-in.rs")
     # we are now outside of the dnsdistsettings namespace
@@ -923,6 +959,7 @@ def main():
     generate_rust_action_to_config(generated_fp, definitions_dir, False)
     generate_rust_action_to_config(generated_fp, definitions_dir, True)
     generate_rust_selector_to_config(generated_fp, definitions_dir)
+    generate_rust_selector_config_to_json(generated_fp, definitions_dir)
 
     include_file(generated_fp, rust_dir + "/rust-post-in.rs")
 

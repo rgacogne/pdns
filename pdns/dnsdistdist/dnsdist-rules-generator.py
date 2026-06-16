@@ -302,17 +302,18 @@ def generate_selectors_to_json(definitions, build_dir):
     generated_fp = get_temporary_file_for_generated_code(build_dir)
 
     for selector in definitions:
-        if selector["name"] == "ByName":
+        if selector["name"] in ["And", "ByName", "Not", "Or"]:
             continue
         name = get_cpp_object_name(selector["name"])
         output = f"std::string {name}Rule::toJSON() const\n"
         output += "{\n"
-        output += f"  std::string result;\n"
         output += f"  dnsdist::rust::settings::{name}SelectorConfiguration config{{}};\n"
         #if "parameters" in selector:
-        #    output += get_cpp_parameters_definition(selector["parameters"], False)
-        #output += ")\n{\n"
-        output += f"  return result;\n"
+        #    for parameter in selector["parameters"]:
+        #        pname = get_cpp_parameter_name(parameter["name"])
+        #        output += f"  config.{pname} = d_{pname};\n"
+        var = name.lower()
+        output += f"  return std::string(dnsdist::rust::settings::get_json_from_{var}_config(config));\n"
         output += "}\n"
         generated_fp.write(output)
 

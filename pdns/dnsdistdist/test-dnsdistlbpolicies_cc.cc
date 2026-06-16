@@ -27,12 +27,6 @@ Rings g_rings;
    and their dependencies */
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static): this is a stub, the real one is not that simple..
-bool TLSFrontend::setupTLS()
-{
-  return true;
-}
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static): this is a stub, the real one is not that simple..
 bool DNSDistSNMPAgent::sendDNSTrap(const DNSQuestion& dnsQuestion, const std::string& reason)
 {
   (void)dnsQuestion;

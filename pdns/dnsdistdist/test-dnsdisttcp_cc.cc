@@ -34,19 +34,11 @@
 #include "dnsdist-tcp-downstream.hh"
 #include "dnsdist-tcp-upstream.hh"
 
-const bool TCPIOHandler::s_disableConnectForUnitTests = true;
-
 bool checkQueryHeaders(const struct dnsheader& dnsHeader, ClientState& clientState)
 {
   (void)dnsHeader;
   (void)clientState;
   return true;
-}
-
-uint64_t uptimeOfProcess(const std::string& str)
-{
-  (void)str;
-  return 0;
 }
 
 void handleResponseSent(InternalQueryState& ids, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol protocol, bool fromBackend)
