@@ -302,21 +302,21 @@ def generate_selectors_to_json(definitions, build_dir):
     generated_fp = get_temporary_file_for_generated_code(build_dir)
 
     for selector in definitions:
+        if selector["name"] == "ByName":
+            continue
         name = get_cpp_object_name(selector["name"])
         output = f"std::string {name}Rule::toJSON() const\n"
         output += "{\n"
-        output += f"  std::string result;"
-        output += f"  {name}SelectorConfiguration config{{}};"
-        if "parameters" in selector:
-            output += get_cpp_parameters_definition(selector["parameters"], False)
-        output += ")\n{\n"
-        output += f"  return std::make_shared<{name}Rule>("
-        if "parameters" in selector:
-            output += get_cpp_parameters(selector["parameters"], False)
-        output += ");\n"
+        output += f"  std::string result;\n"
+        output += f"  dnsdist::rust::settings::{name}SelectorConfiguration config{{}};\n"
+        #if "parameters" in selector:
+        #    output += get_cpp_parameters_definition(selector["parameters"], False)
+        #output += ")\n{\n"
+        output += f"  return result;\n"
+        output += "}\n"
         generated_fp.write(output)
 
-    output_file_name = "dnsdist-selectors-json-export-generated.cc"
+    output_file_name = "dnsdist-selectors-json-export-generated-body.hh"
     handle_generated_file(generated_fp.name, output_file_name, build_dir)
 
 def main():

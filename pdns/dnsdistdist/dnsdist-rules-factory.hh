@@ -149,6 +149,8 @@ public:
     return "IP (/" + std::to_string(d_ipv4trunc) + ", /" + std::to_string(d_ipv6trunc) + ") match for QPS over " + std::to_string(d_qps) + " burst " + std::to_string(d_burst);
   }
 
+  std::string toJSON() const override;
+
   size_t getEntriesCount() const
   {
     size_t count = 0;
@@ -217,6 +219,8 @@ public:
     return "Max " + std::to_string(d_qps.getRate()) + " qps";
   }
 
+  std::string toJSON() const override;
+
 private:
   mutable QPSLimiter d_qps;
 };
@@ -249,6 +253,8 @@ public:
     }
     return ret + d_nmg.toString();
   }
+
+  std::string toJSON() const override;
 
 private:
   NetmaskGroup d_nmg;
@@ -382,6 +388,8 @@ public:
     return "Src: " + std::to_string(count) + " ips";
   }
 
+  std::string toJSON() const override;
+
 private:
   struct IPv6Hash
   {
@@ -399,7 +407,8 @@ private:
 class AllRule : public DNSRule
 {
 public:
-  AllRule() {}
+  AllRule() = default;
+
   bool matches(const DNSQuestion* dnsQuestion) const override
   {
     (void)dnsQuestion;
@@ -410,14 +419,15 @@ public:
   {
     return "All";
   }
+
+  std::string toJSON() const override;
 };
 
 class DNSSECRule : public DNSRule
 {
 public:
-  DNSSECRule()
-  {
-  }
+  DNSSECRule() = default;
+
   bool matches(const DNSQuestion* dq) const override
   {
     return dq->getHeader()->cd || (dnsdist::getEDNSZ(*dq) & EDNS_HEADER_FLAG_DO); // turns out dig sets ad by default..
@@ -427,6 +437,8 @@ public:
   {
     return "DNSSEC";
   }
+
+  std::string toJSON() const override;
 };
 
 class AndRule : public DNSRule
@@ -458,6 +470,8 @@ public:
     }
     return ret;
   }
+
+  std::string toJSON() const override;
 
 private:
   std::vector<std::shared_ptr<DNSRule>> d_rules;
@@ -493,6 +507,8 @@ public:
     return ret;
   }
 
+  std::string toJSON() const override;
+
 private:
   std::vector<std::shared_ptr<DNSRule>> d_rules;
 };
@@ -520,6 +536,8 @@ public:
     return "Regex: " + d_visual;
   }
 
+  std::string toJSON() const override;
+
 private:
   std::optional<Regex> d_regex{std::nullopt};
   string d_visual;
@@ -544,6 +562,8 @@ public:
     return "RE2 match: " + d_visual;
   }
 
+  std::string toJSON() const override;
+
 private:
   RE2 d_re2;
   string d_visual;
@@ -565,6 +585,8 @@ public:
   {
     return "Unsupported RE2";
   }
+
+  std::string toJSON() const override;
 };
 #endif /* HAVE_RE2 */
 
@@ -574,6 +596,7 @@ public:
   HTTPHeaderRule(const std::string& header, const std::string& regex);
   bool matches(const DNSQuestion* dnsQuestion) const override;
   string toString() const override;
+  std::string toJSON() const override;
 
 private:
   string d_header;
@@ -587,6 +610,7 @@ public:
   HTTPPathRule(std::string path);
   bool matches(const DNSQuestion* dnsQuestion) const override;
   string toString() const override;
+  std::string toJSON() const override;
 
 private:
   string d_path;
@@ -598,6 +622,7 @@ public:
   HTTPPathRegexRule(const std::string& regex);
   bool matches(const DNSQuestion* dnsQuestion) const override;
   string toString() const override;
+  std::string toJSON() const override;
 
 private:
   std::optional<Regex> d_regex{std::nullopt};
@@ -638,11 +663,12 @@ public:
   }
   string toString() const override
   {
-    if (d_quiet)
+    if (d_quiet) {
       return "qname==in-set";
-    else
-      return "qname in " + d_smn.toString();
+    }
+    return "qname in " + d_smn.toString();
   }
+  std::string toJSON() const override;
 
 private:
   SuffixMatchNode d_smn;
@@ -665,6 +691,7 @@ public:
   {
     return "qname==" + d_qname.toString();
   }
+  std::string toJSON() const override;
 
 private:
   DNSName d_qname;
@@ -687,6 +714,7 @@ public:
     ss << "qname in DNSNameSet(" << qname_idx.size() << " FQDNs)";
     return ss.str();
   }
+  std::string toJSON() const override;
 
 private:
   DNSNameSet qname_idx;
@@ -708,6 +736,7 @@ public:
     QType qt(d_qtype);
     return "qtype==" + qt.toString();
   }
+  std::string toJSON() const override;
 
 private:
   uint16_t d_qtype;
@@ -728,6 +757,7 @@ public:
   {
     return "qclass==" + std::to_string(d_qclass);
   }
+  std::string toJSON() const override;
 
 private:
   uint16_t d_qclass;
@@ -748,6 +778,7 @@ public:
   {
     return "opcode==" + std::to_string(d_opcode);
   }
+  std::string toJSON() const override;
 
 private:
   uint8_t d_opcode;
@@ -768,6 +799,7 @@ public:
   {
     return "dst port==" + std::to_string(d_port);
   }
+  std::string toJSON() const override;
 
 private:
   uint16_t d_port;
@@ -788,6 +820,7 @@ public:
   {
     return (d_tcp ? "TCP" : "UDP");
   }
+  std::string toJSON() const override;
 
 private:
   bool d_tcp;
@@ -808,6 +841,7 @@ public:
   {
     return "!(" + d_rule->toString() + ")";
   }
+  std::string toJSON() const override;
 
 private:
   std::shared_ptr<DNSRule> d_rule;
@@ -858,6 +892,7 @@ public:
     }
     return std::to_string(d_minCount) + " <= records in " + section + " <= " + std::to_string(d_maxCount);
   }
+  std::string toJSON() const override;
 
 private:
   uint16_t d_minCount;
@@ -914,6 +949,7 @@ public:
     }
     return std::to_string(d_minCount) + " <= " + QType(d_type).toString() + " records in " + section + " <= " + std::to_string(d_maxCount);
   }
+  std::string toJSON() const override;
 
 private:
   uint16_t d_type;
@@ -925,9 +961,7 @@ private:
 class TrailingDataRule : public DNSRule
 {
 public:
-  TrailingDataRule()
-  {
-  }
+  TrailingDataRule() = default;
   bool matches(const DNSQuestion* dq) const override
   {
     uint16_t length = getDNSPacketLength(reinterpret_cast<const char*>(dq->getData().data()), dq->getData().size());
@@ -937,6 +971,7 @@ public:
   {
     return "trailing data";
   }
+  std::string toJSON() const override;
 };
 
 class QNameLabelsCountRule : public DNSRule
@@ -955,6 +990,7 @@ public:
   {
     return "labels count < " + std::to_string(d_min) + " || labels count > " + std::to_string(d_max);
   }
+  std::string toJSON() const override;
 
 private:
   unsigned int d_min;
@@ -977,6 +1013,7 @@ public:
   {
     return "wire length < " + std::to_string(d_min) + " || wire length > " + std::to_string(d_max);
   }
+  std::string toJSON() const override;
 
 private:
   size_t d_min;
@@ -998,6 +1035,7 @@ public:
   {
     return "rcode==" + RCode::to_s(d_rcode);
   }
+  std::string toJSON() const override;
 
 private:
   uint8_t d_rcode;
@@ -1028,6 +1066,7 @@ public:
   {
     return "ercode==" + ERCode::to_s(d_rcode | (d_extrcode << 4));
   }
+  std::string toJSON() const override;
 
 private:
   uint8_t d_rcode; // plain DNS Rcode
@@ -1054,6 +1093,7 @@ public:
   {
     return "ednsversion>" + std::to_string(d_version);
   }
+  std::string toJSON() const override;
 
 private:
   uint8_t d_version;
@@ -1092,6 +1132,7 @@ public:
   {
     return "ednsoptcode==" + std::to_string(d_optcode);
   }
+  std::string toJSON() const override;
 
 private:
   uint16_t d_optcode;
@@ -1100,9 +1141,7 @@ private:
 class RDRule : public DNSRule
 {
 public:
-  RDRule()
-  {
-  }
+  RDRule() = default;
   bool matches(const DNSQuestion* dq) const override
   {
     return dq->getHeader()->rd == 1;
@@ -1111,6 +1150,7 @@ public:
   {
     return "rd==1";
   }
+  std::string toJSON() const override;
 };
 
 class ProbaRule : public DNSRule
@@ -1133,6 +1173,7 @@ public:
   {
     return "match with prob. " + (boost::format("%0.2f") % d_proba).str();
   }
+  std::string toJSON() const override;
 
 private:
   double d_proba;
@@ -1168,6 +1209,8 @@ public:
     return "tag '" + d_tag + "' is set" + ((d_value && (!d_value->empty() || !d_emptyAsWildcard)) ? (" to '" + *d_value + "'") : "");
   }
 
+  std::string toJSON() const override;
+
 private:
   std::optional<std::string> d_value;
   std::string d_tag;
@@ -1193,6 +1236,8 @@ public:
     return "pool '" + d_poolname + "' is available";
   }
 
+  std::string toJSON() const override;
+
 private:
   std::string d_poolname;
 };
@@ -1215,6 +1260,8 @@ public:
   {
     return "pool '" + d_poolname + "' outstanding > " + std::to_string(d_limit);
   }
+
+  std::string toJSON() const override;
 
 private:
   std::string d_poolname;
@@ -1246,6 +1293,8 @@ public:
     return "lookup key-value store based on '" + d_key->toString() + "'";
   }
 
+  std::string toJSON() const override;
+
 private:
   std::shared_ptr<KeyValueStore> d_kvs;
   std::shared_ptr<KeyValueLookupKey> d_key;
@@ -1276,6 +1325,8 @@ public:
   {
     return "range-based lookup key-value store based on '" + d_key->toString() + "'";
   }
+
+  std::string toJSON() const override;
 
 private:
   std::shared_ptr<KeyValueStore> d_kvs;
@@ -1311,6 +1362,8 @@ public:
     return "Lua script";
   }
 
+  std::string toJSON() const override;
+
 private:
   dnsdist::selectors::LuaSelectorFunction d_func;
 };
@@ -1344,6 +1397,8 @@ public:
   {
     return "Lua FFI script";
   }
+
+  std::string toJSON() const override;
 
 private:
   dnsdist::selectors::LuaSelectorFFIFunction d_func;
@@ -1393,6 +1448,8 @@ public:
     return "Lua FFI per-thread script";
   }
 
+  std::string toJSON() const override;
+
 private:
   struct PerThreadState
   {
@@ -1437,6 +1494,8 @@ public:
     }
     return "proxy protocol value of type " + std::to_string(d_type) + " is present";
   }
+
+  std::string toJSON() const override;
 
 private:
   std::optional<std::string> d_value;
@@ -1509,6 +1568,8 @@ public:
     return "payload size is " + comparisonStr.at(static_cast<size_t>(d_comparison)) + " " + std::to_string(d_size);
   }
 
+  std::string toJSON() const override;
+
 private:
   uint16_t d_size;
   Comparisons d_comparison;
@@ -1531,6 +1592,8 @@ public:
   {
     return "incoming protocol is " + d_protocol.toString();
   }
+
+  std::string toJSON() const override;
 
 private:
   dnsdist::Protocol d_protocol;

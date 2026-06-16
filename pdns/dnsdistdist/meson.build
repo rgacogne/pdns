@@ -367,6 +367,7 @@ selectors_actions_sources = custom_target(
     'dnsdist-response-actions-factory-generated-body.hh',
     'dnsdist-selectors-factory-generated.hh',
     'dnsdist-selectors-factory-generated-body.hh',
+    'dnsdist-selectors-json-export-generated-body.hh',
   ],
 )
 

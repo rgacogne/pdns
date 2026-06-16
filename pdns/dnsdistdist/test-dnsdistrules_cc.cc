@@ -80,6 +80,11 @@ public:
     return "";
   }
 
+  std::string toJSON() const override
+  {
+    return "";
+  }
+
 private:
   unsigned int d_qps;
   unsigned int d_burst;

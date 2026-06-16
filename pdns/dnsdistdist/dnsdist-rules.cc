@@ -137,6 +137,13 @@ string HTTPPathRegexRule::toString() const
   return d_visual;
 }
 
+#ifdef HAVE_YAML_CONFIGURATION
+#include "rust/cxx.h"
+#include "rust/lib.rs.h"
+
+#include "dnsdist-selectors-json-export-generated-body.hh"
+#endif /* HAVE_YAML_CONFIGURATION */
+
 namespace dnsdist::selectors
 {
 std::shared_ptr<QClassRule> getQClassSelector(const std::string& qclassStr, uint16_t qclassCode)
@@ -215,5 +222,4 @@ std::shared_ptr<LuaFFIRule> getLuaFFISelector(const dnsdist::selectors::LuaSelec
 }
 
 #include "dnsdist-selectors-factory-generated-body.hh"
-
 }
