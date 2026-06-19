@@ -785,7 +785,7 @@ IncomingTCPConnectionState::QueryProcessingResult IncomingTCPConnectionState::ha
 
   ++d_queriesCount;
   ++d_ci.cs->queries;
-  ++dnsdist::metrics::g_stats.queries;
+  dnsdist::metrics::incrementCounter(dnsdist::metrics::Counter::Queries);
 
   if (d_handler.isTLS()) {
     auto tlsVersion = d_handler.getTLSVersion();

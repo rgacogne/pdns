@@ -292,9 +292,7 @@ bool isUDPQueryAcceptable(ClientState& clientState, const struct msghdr* msgh, c
     dest.sin4.sin_family = 0;
   }
 
-  ++clientState.queries;
   dnsdist::metrics::incrementCounter(dnsdist::metrics::Counter::Queries);
-  ++dnsdist::metrics::g_stats.queries;
 
   return true;
 }

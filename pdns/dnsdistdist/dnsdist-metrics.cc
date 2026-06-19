@@ -31,6 +31,9 @@
 
 namespace dnsdist::metrics
 {
+static pdns::GlobalCounters<Counters> s_globalCounters;
+
+static thread_local pdns::TLocalCounters<Counters> t_counters(s_globalCounters);
 
 struct MutableCounter
 {
@@ -80,7 +83,7 @@ Stats::Stats() :
   entries{std::vector<EntryTriple>{
     {"responses", "", &responses},
     {"servfail-responses", "", &servfailResponses},
-    {"queries", "", &queries},
+    {"queries", "", []([[maybe_unused]] const std::string&) { return s_globalCounters.sum(Counter::Queries); }},
     {"frontend-nxdomain", "", &frontendNXDomain},
     {"frontend-servfail", "", &frontendServFail},
     {"frontend-noerror", "", &frontendNoError},
@@ -391,13 +394,23 @@ void doLatencyStats(dnsdist::Protocol protocol, double latencyUs)
   }
 }
 
-static pdns::GlobalCounters<Counters> s_globalCounters;
-
-static thread_local pdns::TLocalCounters<Counters> t_counters(s_globalCounters);
-
 void incrementCounter(Counter counter)
 {
   ++t_counters.at(counter);
+}
+
+uint64_t getCounter(Counter counter)
+{
+  return s_globalCounters.sum(counter);
+}
+
+void updateCounterSnapshot(const timespec& now, bool forced)
+{
+  timeval tv_now{};
+  tv_now.tv_sec = now.tv_sec;
+  tv_now.tv_usec = now.tv_nsec * 1000;
+
+  t_counters.updateSnap(tv_now, forced);
 }
 
 Counters& Counters::merge(const Counters& data)
@@ -407,6 +420,41 @@ Counters& Counters::merge(const Counters& data)
     d_u64Counters.at(idx) += data.d_u64Counters.at(idx);
   }
   return *this;
+}
+
+Stats::EntryTriple::Type Stats::EntryTriple::getType() const
+{
+  if (std::holds_alternative<pdns::stat_double_t*>(d_value)) {
+    return Stats::EntryTriple::Type::Double;
+  }
+  return Stats::EntryTriple::Type::U64;
+}
+
+std::string Stats::EntryTriple::getValueAsString() const
+{
+  if (getType() == Stats::EntryTriple::Type::Double) {
+    return std::to_string(getDouble().value_or(0));
+  }
+  return std::to_string(getU64().value_or(0));
+}
+
+std::optional<uint64_t> Stats::EntryTriple::getU64() const
+{
+  if (const auto& val = std::get_if<pdns::stat_t*>(&d_value)) {
+    return (*val)->load();
+  }
+  if (const auto& func = std::get_if<dnsdist::metrics::Stats::statfunction_t>(&d_value)) {
+    return (*func)(d_name);
+  }
+  return std::nullopt;
+}
+
+std::optional<double> Stats::EntryTriple::getDouble() const
+{
+  if (const auto& val = std::get_if<pdns::stat_double_t*>(&d_value)) {
+    return (*val)->load();
+  }
+  return std::nullopt;
 }
 
 }

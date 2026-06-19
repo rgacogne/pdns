@@ -122,6 +122,7 @@ struct ImmutableConfiguration
   bool d_snmpTrapsEnabled{false};
   bool d_structuredLogging{true};
   bool d_structuredLoggingUseServerID{false};
+  bool d_alwaysUpdatePerThreadMetrics{false};
 };
 
 /* this part of the configuration can be updated at runtime via

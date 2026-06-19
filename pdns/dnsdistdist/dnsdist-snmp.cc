@@ -98,11 +98,36 @@ static int handleCounter64Stats(netsnmp_mib_handler* handler,
   if (const auto& val = std::get_if<pdns::stat_t*>(&stIt->second)) {
     return DNSDistSNMPAgent::setCounter64Value(requests, (*val)->load());
   }
+  if (const auto& func = std::get_if<dnsdist::metrics::Stats::statfunction_t>(&stIt->second)) {
+    return DNSDistSNMPAgent::setCounter64Value(requests, (*func)(""));
+  }
 
   return SNMP_ERR_GENERR;
 }
 
 static void registerCounter64Stat(const char* name, const OIDStat& statOID, pdns::stat_t* ptr)
+{
+  if (statOID.size() != OID_LENGTH(queriesOID)) {
+    SLOG(errlog("Invalid OID for SNMP Counter64 statistic %s", name),
+         dnsdist::logging::getTopLogger("snmp-agent")->info(Logr::Error, "Invalid OID for SNMP Counter64 metric", "metric_name", Logging::Loggable(name)));
+    return;
+  }
+
+  if (s_statsMap.find(statOID.at(statOID.size() - 1)) != s_statsMap.end()) {
+    SLOG(errlog("OID for SNMP Counter64 statistic %s has already been registered", name),
+         dnsdist::logging::getTopLogger("snmp-agent")->info(Logr::Error, "OID for SNMP Counter64 metric has already been registered", "metric_name", Logging::Loggable(name)));
+    return;
+  }
+
+  s_statsMap[statOID.at(statOID.size() - 1)] = ptr;
+  netsnmp_register_scalar(netsnmp_create_handler_registration(name,
+                                                              handleCounter64Stats,
+                                                              statOID.data(),
+                                                              statOID.size(),
+                                                              HANDLER_CAN_RONLY));
+}
+
+static void registerCounter64Stat(const char* name, const OIDStat& statOID, const dnsdist::metrics::Stats::statfunction_t& ptr)
 {
   if (statOID.size() != OID_LENGTH(queriesOID)) {
     SLOG(errlog("Invalid OID for SNMP Counter64 statistic %s", name),
@@ -574,7 +599,7 @@ DNSDistSNMPAgent::DNSDistSNMPAgent(const std::string& name, const std::string& d
   SNMPAgent(name, daemonSocket)
 {
 #ifdef HAVE_NET_SNMP
-  registerCounter64Stat("queries", queriesOID, &dnsdist::metrics::g_stats.queries);
+  registerCounter64Stat("queries", queriesOID, []([[maybe_unused]]const std::string&) { return dnsdist::metrics::getCounter(dnsdist::metrics::Counter::Queries); });
   registerCounter64Stat("responses", responsesOID, &dnsdist::metrics::g_stats.responses);
   registerCounter64Stat("servfailResponses", servfailResponsesOID, &dnsdist::metrics::g_stats.servfailResponses);
   registerCounter64Stat("aclDrops", aclDropsOID, &dnsdist::metrics::g_stats.aclDrops);

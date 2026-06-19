@@ -53,7 +53,6 @@ struct Stats
 
   stat_t responses{0};
   stat_t servfailResponses{0};
-  stat_t queries{0};
   stat_t frontendNXDomain{0};
   stat_t frontendServFail{0};
   stat_t frontendNoError{0};
@@ -97,9 +96,18 @@ struct Stats
   using entry_t = std::variant<stat_t*, pdns::stat_double_t*, statfunction_t>;
   struct EntryTriple
   {
+    enum class Type : uint8_t
+    {
+      U64,
+      Double,
+    };
     std::string d_name;
     std::string d_labels;
     entry_t d_value;
+    [[nodiscard]] Type getType() const;
+    [[nodiscard]] std::string getValueAsString() const;
+    [[nodiscard]] std::optional<uint64_t> getU64() const;
+    [[nodiscard]] std::optional<double> getDouble() const;
   };
 
   SharedLockGuarded<std::vector<EntryTriple>> entries;
@@ -156,5 +164,6 @@ struct Counters
 };
 
 void incrementCounter(Counter counter);
-Counters getCounters();
+uint64_t getCounter(Counter counter);
+void updateCounterSnapshot(const timespec& now, bool forced);
 }

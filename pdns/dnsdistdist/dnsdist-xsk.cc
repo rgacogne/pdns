@@ -129,7 +129,7 @@ bool XskIsQueryAcceptable(const XskPacket& packet, ClientState& clientState, boo
     return false;
   }
   clientState.queries++;
-  ++dnsdist::metrics::g_stats.queries;
+  dnsdist::metrics::incrementCounter(dnsdist::metrics::Counter::Queries);
 
   return true;
 }

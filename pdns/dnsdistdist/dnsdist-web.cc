@@ -573,19 +573,7 @@ static void handlePrometheus(const YaHTTP::Request& req, YaHTTP::Response& resp,
         output << "# HELP " << helpName << " " << metricDetails.description << "\n";
         output << "# TYPE " << helpName << " " << prometheusTypeName << "\n";
       }
-      output << prometheusMetricName << " ";
-
-      if (const auto& val = std::get_if<pdns::stat_t*>(&entry.d_value)) {
-        output << (*val)->load();
-      }
-      else if (const auto& adval = std::get_if<pdns::stat_double_t*>(&entry.d_value)) {
-        output << (*adval)->load();
-      }
-      else if (const auto& func = std::get_if<dnsdist::metrics::Stats::statfunction_t>(&entry.d_value)) {
-        output << (*func)(entry.d_name);
-      }
-
-      output << "\n";
+      output << prometheusMetricName << " " << entry.getValueAsString() << "\n";
     }
   }
 

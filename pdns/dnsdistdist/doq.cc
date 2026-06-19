@@ -453,7 +453,7 @@ static void processDOQQuery(DOQUnitUniquePtr&& doqUnit)
     }
 
     ++clientState.queries;
-    ++dnsdist::metrics::g_stats.queries;
+    dnsdist::metrics::incrementCounter(dnsdist::metrics::Counter::Queries);
     unit->ids.queryRealTime.start();
 
     {

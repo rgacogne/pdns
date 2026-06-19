@@ -22,6 +22,7 @@
 
 #include "dnsdist-idstate.hh"
 #include "dnsdist-doh-common.hh"
+#include "dnsdist-metrics.hh"
 #include "dnsdist-opentelemetry.hh"
 #include "dnsdist-protobuf.hh"
 #include "doh3.hh"
@@ -101,6 +102,12 @@ InternalQueryState::~InternalQueryState()
        in theory the protozero code can throw */
   }
 #endif
+  try {
+    dnsdist::metrics::updateCounterSnapshot(queryRealTime.getStartTime(), dnsdist::configuration::getImmutableConfiguration().d_alwaysUpdatePerThreadMetrics);
+  }
+  catch (...) {
+    /* We don't want any uncaught exceptions in a dtor */
+  }
 }
 
 std::optional<pdns::trace::dnsdist::Tracer::Closer> InternalQueryState::getCloser([[maybe_unused]] const std::string_view& name, [[maybe_unused]] const SpanID& parentSpanID)

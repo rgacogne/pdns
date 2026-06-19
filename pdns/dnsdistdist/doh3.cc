@@ -563,7 +563,7 @@ static void processDOH3Query(DOH3UnitUniquePtr&& doh3Unit)
     }
 
     ++clientState.queries;
-    ++dnsdist::metrics::g_stats.queries;
+    dnsdist::metrics::incrementCounter(dnsdist::metrics::Counter::Queries);
     unit->ids.queryRealTime.start();
 
     {
