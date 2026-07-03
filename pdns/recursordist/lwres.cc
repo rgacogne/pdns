@@ -620,7 +620,7 @@ static std::pair<bool, LWResult::Result> incomingCookie(const OptLog& log, const
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): https://github.com/PowerDNS/pdns/issues/12791
 static LWResult::Result asyncresolve(const OptLog& log, const ComboAddress& address, const DNSName& domain, int type, bool doTCP, bool sendRDQuery, int EDNS0Level, struct timeval* now, std::optional<Netmask>& srcmask, const ResolveContext& context, const std::shared_ptr<std::vector<std::unique_ptr<RemoteLogger>>>& outgoingLoggers, [[maybe_unused]] const std::shared_ptr<std::vector<std::unique_ptr<FrameStreamLogger>>>& fstrmLoggers, const std::set<uint16_t>& exportTypes, LWResult* lwr, bool* chained, TCPOutConnectionManager::Connection& connection)
 {
-  size_t len;
+  size_t len{};
   size_t bufsize = g_outgoingEDNSBufsize;
   PacketBuffer buf;
   buf.resize(bufsize);
@@ -673,7 +673,7 @@ static LWResult::Result asyncresolve(const OptLog& log, const ComboAddress& addr
   }
   lwr->d_rcode = 0;
   lwr->d_haveEDNS = false;
-  LWResult::Result ret;
+  LWResult::Result ret{};
 
   DTime dt;
   dt.set();
@@ -704,7 +704,7 @@ static LWResult::Result asyncresolve(const OptLog& log, const ComboAddress& addr
 #endif
 
   if (!doTCP) {
-    int queryfd;
+    int queryfd{};
     try {
       ret = asendto(vpacket.data(), vpacket.size(), address, addressToBindTo, qid, domain, type, subnetOpts, &queryfd, *now);
     }
@@ -817,7 +817,8 @@ static LWResult::Result asyncresolve(const OptLog& log, const ComboAddress& addr
 
   lwr->d_records.clear();
   try {
-    lwr->d_tcbit = 0;
+    lwr->d_tcbit = false;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     MOADNSParser mdp(false, reinterpret_cast<const char*>(buf.data()), buf.size());
 
     // RFC 1035 Section 4.1.1: QR must be 1 for responses
@@ -848,7 +849,7 @@ static LWResult::Result asyncresolve(const OptLog& log, const ComboAddress& addr
                         "onwire", Logging::Loggable(mdp.d_qname));
       }
       // unexpected count has already been done @ pdns_recursor.cc
-      if (!lwr->d_rcode) {
+      if (lwr->d_rcode == 0U) {
         lwr->d_rcode = RCode::ServFail;
       }
       return LWResult::Result::PermanentError;
@@ -961,7 +962,7 @@ static LWResult::Result asyncresolve(const OptLog& log, const ComboAddress& addr
 
   t_Counters.at(rec::Counter::serverParseError)++;
 
-  if (!lwr->d_rcode) {
+  if (lwr->d_rcode == 0U) {
     lwr->d_rcode = RCode::ServFail;
   }
 
