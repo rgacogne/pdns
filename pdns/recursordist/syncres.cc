@@ -5865,10 +5865,10 @@ bool SyncRes::processAnswer(unsigned int depth, const string& prefix, LWResult& 
   fixupAnswer(prefix, lwr, qname, qtype, auth, wasForwarded, sendRDQuery);
   sanitizeRecords(prefix, lwr, qname, qtype, auth, wasForwarded, sendRDQuery);
 
+  normalizeTTLs(lwr.d_records, d_updatingRootNS, ednsmask.has_value(), s_minimumTTL, s_minimumECSTTL);
+
   auto tcache = validateSignatures(prefix, lwr, qname, qtype, auth, wasForwarded && sendRDQuery, state, depth);
   // FIXME: TODO: checkDenialOfExistence
-
-  normalizeTTLs(lwr.d_records, d_updatingRootNS, ednsmask.has_value(), s_minimumTTL, s_minimumECSTTL);
 
   bool needWildcardProof = false;
   unsigned int wildcardLabelsCount = 0;
