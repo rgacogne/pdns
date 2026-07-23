@@ -222,3 +222,57 @@ std::shared_ptr<LuaFFIRule> getLuaFFISelector(const dnsdist::selectors::LuaSelec
 
 #include "dnsdist-selectors-factory-generated-body.hh"
 }
+
+#include "ext/json11/json11.hpp"
+
+std::string NotRule::toJSON() const
+{
+  std::string error;
+  auto ruleJSON = json11::Json::parse(d_rule->toJSON(), error);
+  if (ruleJSON.is_null()) {
+    throw std::runtime_error("Error while serializing Not selector to JSON: " + error);
+  }
+  auto obj = json11::Json::object{
+    {"type", "Not"},
+    {"selector", ruleJSON},
+  };
+  return json11::Json{obj}.dump();
+}
+
+std::string OrRule::toJSON() const
+{
+  std::string error;
+  json11::Json::array selectors;
+  for (const auto& selector : d_rules) {
+    auto ruleJSON = json11::Json::parse(selector->toJSON(), error);
+    if (ruleJSON.is_null()) {
+      throw std::runtime_error("Error while serializing Or selector to JSON: " + error);
+    }
+    selectors.emplace_back(ruleJSON);
+  }
+
+  auto obj = json11::Json::object{
+    {"type", "Or"},
+    {"selectors", std::move(selectors)},
+  };
+  return json11::Json{obj}.dump();
+}
+
+std::string AndRule::toJSON() const
+{
+  std::string error;
+  json11::Json::array selectors;
+  for (const auto& selector : d_rules) {
+    auto ruleJSON = json11::Json::parse(selector->toJSON(), error);
+    if (ruleJSON.is_null()) {
+      throw std::runtime_error("Error while serializing And selector to JSON: " + error);
+    }
+    selectors.emplace_back(ruleJSON);
+  }
+
+  auto obj = json11::Json::object{
+    {"type", "And"},
+    {"selectors", std::move(selectors)},
+  };
+  return json11::Json{obj}.dump();
+}

@@ -139,6 +139,9 @@ static void showRules(IdentifierT identifier, std::optional<ruleparams_t>& vars)
   const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
   const auto& rules = dnsdist::rules::getRuleChain(chains, identifier);
   g_outputBuffer += rulesToString(rules, vars);
+  for (const auto& rule : rules) {
+    cerr<<rule.d_rule->toJSON()<<endl;
+  }
 }
 
 template <typename ChainTypeT, typename RuleTypeT>
