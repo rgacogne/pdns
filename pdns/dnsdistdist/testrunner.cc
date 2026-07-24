@@ -33,10 +33,17 @@
 #include "config.h"
 #endif
 #include <boost/test/unit_test.hpp>
+#include "dnsdist-rings.hh"
 
 // entry point:
 int main(int argc, char* argv[])
 {
   setenv("BOOST_TEST_RANDOM", "1", 1); // NOLINT(concurrency-mt-unsafe)
+  g_rings.reset();
+  Rings::RingsConfiguration config{
+    .capacity = 10000U,
+    .numberOfShards = 10U,
+  };
+  g_rings.init(config);
   return boost::unit_test::unit_test_main(&init_unit_test, argc, argv);
 }

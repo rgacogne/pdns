@@ -58,6 +58,16 @@ bool processResponse(PacketBuffer& response, DNSResponse& dnsResponse, bool mute
   return false;
 }
 
+bool sendUDPResponse([[maybe_unused]] int origFD, [[maybe_unused]] const PacketBuffer& response, [[maybe_unused]] const int delayMsec, [[maybe_unused]] const ComboAddress& origDest, [[maybe_unused]] const ComboAddress& origRemote)
+{
+  return false;
+}
+
+bool assignOutgoingUDPQueryToBackend([[maybe_unused]] std::shared_ptr<DownstreamState>& downstream, [[maybe_unused]] uint16_t queryID, [[maybe_unused]] DNSQuestion& dnsQuestion, [[maybe_unused]] PacketBuffer& query, [[maybe_unused]] bool actuallySend)
+{
+  return true;
+}
+
 BOOST_AUTO_TEST_SUITE(test_dnsdisttcp_cc)
 
 struct ExpectedStep
