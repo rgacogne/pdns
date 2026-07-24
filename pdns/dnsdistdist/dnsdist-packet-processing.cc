@@ -339,6 +339,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dnsResponse,
   return true;
 }
 
+#ifndef DNSDIST_UNIT_TESTS
 bool processResponse(PacketBuffer& response, DNSResponse& dnsResponse, bool muted)
 {
   // This is a new root span
@@ -357,6 +358,7 @@ bool processResponse(PacketBuffer& response, DNSResponse& dnsResponse, bool mute
 
   return processResponseAfterRules(response, dnsResponse, muted);
 }
+#endif /* DNSDIST_UNIT_TESTS */
 
 bool sendUDPResponse(int origFD, const PacketBuffer& response, [[maybe_unused]] const int delayMsec, const ComboAddress& origDest, const ComboAddress& origRemote)
 {
@@ -438,8 +440,6 @@ bool processResponderPacket(std::shared_ptr<DownstreamState>& dss, PacketBuffer&
   dnsdist::udp::handleResponseForUDPClient(ids, response, dss, false, false);
   return true;
 }
-
-RecursiveLockGuarded<LuaContext> g_lua{LuaContext()};
 
 static void spoofResponseFromString(DNSQuestion& dnsQuestion, const string& spoofContent, bool raw)
 {
@@ -1196,6 +1196,7 @@ bool handleTimeoutResponseRules(const std::vector<dnsdist::rules::ResponseRuleAc
   return dnsResponse.isAsynchronous();
 }
 
+#ifndef DNSDIST_UNIT_TESTS
 ProcessQueryResult processQuery(DNSQuestion& dnsQuestion, std::shared_ptr<DownstreamState>& selectedBackend)
 {
   auto closer = dnsQuestion.ids.getCloser(__func__); // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
@@ -1228,6 +1229,7 @@ ProcessQueryResult processQuery(DNSQuestion& dnsQuestion, std::shared_ptr<Downst
   }
   return ProcessQueryResult::Drop;
 }
+#endif /* DNSDIST_UNIT_TESTS */
 
 bool assignOutgoingUDPQueryToBackend(std::shared_ptr<DownstreamState>& downstream, uint16_t queryID, DNSQuestion& dnsQuestion, PacketBuffer& query, bool actuallySend)
 {

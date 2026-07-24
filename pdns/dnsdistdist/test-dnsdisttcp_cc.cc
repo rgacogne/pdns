@@ -29,51 +29,12 @@
 
 #include "dnswriter.hh"
 #include "dnsdist.hh"
+#include "dnsdist-actions-factory-generated.hh"
 #include "dnsdist-proxy-protocol.hh"
 #include "dnsdist-rings.hh"
+#include "dnsdist-rules-factory.hh"
 #include "dnsdist-tcp-downstream.hh"
 #include "dnsdist-tcp-upstream.hh"
-
-const bool TCPIOHandler::s_disableConnectForUnitTests = true;
-
-bool checkQueryHeaders(const struct dnsheader& dnsHeader, ClientState& clientState)
-{
-  (void)dnsHeader;
-  (void)clientState;
-  return true;
-}
-
-uint64_t uptimeOfProcess(const std::string& str)
-{
-  (void)str;
-  return 0;
-}
-
-void handleResponseSent(InternalQueryState& ids, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol protocol, bool fromBackend)
-{
-  (void)ids;
-  (void)udiff;
-  (void)client;
-  (void)backend;
-  (void)size;
-  (void)cleartextDH;
-  (void)protocol;
-  (void)fromBackend;
-}
-
-void handleResponseSent(DNSName&& qname, const QType& qtype, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol outgoingProtocol, dnsdist::Protocol incomingProtocol, bool fromBackend)
-{
-  (void)qname;
-  (void)qtype;
-  (void)udiff;
-  (void)client;
-  (void)backend;
-  (void)size;
-  (void)cleartextDH;
-  (void)outgoingProtocol;
-  (void)incomingProtocol;
-  (void)fromBackend;
-}
 
 std::function<ProcessQueryResult(DNSQuestion& dq, std::shared_ptr<DownstreamState>& selectedBackend)> s_processQuery;
 
@@ -84,17 +45,6 @@ ProcessQueryResult processQuery(DNSQuestion& dnsQuestion, std::shared_ptr<Downst
   }
 
   return ProcessQueryResult::Drop;
-}
-
-bool responseContentMatches(const PacketBuffer& response, const DNSName& qname, const uint16_t qtype, const uint16_t qclass, const std::shared_ptr<DownstreamState>& remote, bool allowEmptyResponse)
-{
-  (void)response;
-  (void)qname;
-  (void)qtype;
-  (void)qclass;
-  (void)remote;
-  (void)allowEmptyResponse;
-  return true;
 }
 
 static std::function<bool(PacketBuffer& response, DNSResponse& dr, bool muted)> s_processResponse;

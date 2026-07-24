@@ -19,5 +19,16 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#define CATCH_CONFIG_MAIN
-#include <catch2/catch_config.hpp>
+
+#include "dnsdist.hh"
+#include "dnsdist-udp.hh"
+
+std::shared_ptr<dnsdist::udp::UDPTCPCrossQuerySender> dnsdist::udp::UDPCrossProtocolQuery::s_sender = std::make_shared<UDPTCPCrossQuerySender>();
+
+void doExitNicely(int exitCode);
+void doExitNicely([[maybe_unused]] int exitCode) {
+};
+
+void handleServerStateChange([[maybe_unused]] const string& nameWithAddr, [[maybe_unused]] bool newResult)
+{
+}
