@@ -545,8 +545,6 @@ bool processResponderPacket(std::shared_ptr<DownstreamState>& dss, PacketBuffer&
   return true;
 }
 
-RecursiveLockGuarded<LuaContext> g_lua{LuaContext()};
-
 static void spoofResponseFromString(DNSQuestion& dnsQuestion, const string& spoofContent, bool raw)
 {
   string result;
@@ -726,7 +724,7 @@ static bool applyRulesToQuery(DNSQuestion& dnsQuestion, const timespec& now)
       string qname = dnsQuestion.ids.qname.toLogString();
       bool countQuery{true};
       if (runtimeConfig.d_queryCountConfig.d_filter) {
-        auto lock = g_lua.lock();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::QueryCounter);
         std::tie(countQuery, qname) = runtimeConfig.d_queryCountConfig.d_filter(&dnsQuestion);
       }
 
@@ -1305,8 +1303,8 @@ bool handleTimeoutResponseRules(const std::vector<dnsdist::rules::ResponseRuleAc
 void handleServerStateChange(const string& nameWithAddr, bool newResult)
 {
   try {
-    auto lua = g_lua.lock();
-    dnsdist::lua::hooks::runServerStateChangeHooks(*lua, nameWithAddr, newResult);
+    auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::ServerStateChange);
+    dnsdist::lua::hooks::runServerStateChangeHooks(luaContext.getLua(), nameWithAddr, newResult);
   }
   catch (const std::exception& exp) {
     SLOG(warnlog("Error calling the Lua hook for Server State Change: %s", exp.what()),
@@ -1455,23 +1453,23 @@ static void maintThread()
       tracer->setScopeSpanName("dnsdist/maintenance");
     }
     auto maint_closer = pdns::trace::dnsdist::getCloserForInternalSpan(tracer, "maintenanceThread");
-    auto lua = g_lua.lock();
-
-    pdns::trace::dnsdist::runWithLuaTracing(*lua, tracer, [&lua, &tracer, &secondsToWaitLog, &sLogger]() {
+    auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Maintenance);
+    auto& lua = luaContext.getLua();
+    pdns::trace::dnsdist::runWithLuaTracing(lua, tracer, [&lua, &tracer, &secondsToWaitLog, &sLogger]() {
       try {
-        auto maintenanceCallback = lua->readVariable<std::optional<std::function<void()>>>("maintenance");
+        auto maintenanceCallback = lua.readVariable<std::optional<std::function<void()>>>("maintenance");
         if (maintenanceCallback) {
           auto closer = pdns::trace::dnsdist::getCloserForInternalSpan(tracer, "maintenanceFunction");
           (*maintenanceCallback)();
         }
         {
           auto closer = pdns::trace::dnsdist::getCloserForInternalSpan(tracer, "maintenanceHooks");
-          dnsdist::lua::hooks::runMaintenanceHooks(*lua, tracer);
+          dnsdist::lua::hooks::runMaintenanceHooks(lua, tracer);
         }
 #if !defined(DISABLE_DYNBLOCKS)
         {
           auto closer = pdns::trace::dnsdist::getCloserForInternalSpan(tracer, "DynamicBlocks::runRegisteredGroups");
-          dnsdist::DynamicBlocks::runRegisteredGroups(*lua);
+          dnsdist::DynamicBlocks::runRegisteredGroups(lua);
         }
 #endif /* DISABLE_DYNBLOCKS */
         secondsToWaitLog = 0;
@@ -2047,11 +2045,11 @@ void doExitNicely(int exitCode)
 #endif
 
   {
-    auto lock = g_lua.lock();
-    dnsdist::lua::hooks::runExitCallbacks(*lock);
+    auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::ExitCallback);
+    dnsdist::lua::hooks::runExitCallbacks(luaContext.getLua());
 #if defined(COVERAGE) || (defined(__SANITIZE_ADDRESS__) && defined(HAVE_LEAK_SANITIZER_INTERFACE))
-    cleanupLuaObjects(*lock);
-    *lock = LuaContext();
+    cleanupLuaObjects(luaContext.getLua());
+    luaContext.getLua() = LuaContext();
 #endif
   }
 
@@ -2568,15 +2566,16 @@ static std::optional<std::string> lookForTentativeConfigurationFileWithExtension
 
 static bool loadConfigurationFromFile(const std::string& configurationFile, bool isClient, bool configCheck, const std::shared_ptr<const Logr::Logger>& logger)
 {
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
   if (boost::ends_with(configurationFile, ".yml")) {
     // the bindings are always needed, for example for inline Lua
-    dnsdist::lua::setupLuaBindingsOnly(*(g_lua.lock()), isClient, configCheck);
+    dnsdist::lua::setupLuaBindingsOnly(luaContext.getLua(), isClient, configCheck);
 
     if (auto tentativeLuaConfFile = lookForTentativeConfigurationFileWithExtension(configurationFile, "lua")) {
       SLOG(infolog("Loading configuration from auto-discovered Lua file %s", *tentativeLuaConfFile),
            logger->info(Logr::Info, "Loading configuration from auto-discovered Lua file", "path", Logging::Loggable(*tentativeLuaConfFile)));
 
-      dnsdist::configuration::lua::loadLuaConfigurationFile(*(g_lua.lock()), *tentativeLuaConfFile, configCheck);
+      dnsdist::configuration::lua::loadLuaConfigurationFile(luaContext.getLua(), *tentativeLuaConfFile, configCheck);
     }
 
     SLOG(infolog("Loading configuration from YAML file %s", configurationFile),
@@ -2586,17 +2585,17 @@ static bool loadConfigurationFromFile(const std::string& configurationFile, bool
       return false;
     }
     if (!isClient && !configCheck) {
-      dnsdist::lua::setupLuaConfigurationOptions(*(g_lua.lock()), false, false);
+      dnsdist::lua::setupLuaConfigurationOptions(luaContext.getLua(), false, false);
     }
     return true;
   }
 
-  dnsdist::lua::setupLua(*(g_lua.lock()), isClient, configCheck);
+  dnsdist::lua::setupLua(luaContext.getLua(), isClient, configCheck);
   if (boost::ends_with(configurationFile, ".lua")) {
     SLOG(infolog("Loading configuration from Lua file %s", configurationFile),
          logger->info(Logr::Info, "Loading configuration from Lua file", "path", Logging::Loggable(configurationFile)));
 
-    dnsdist::configuration::lua::loadLuaConfigurationFile(*(g_lua.lock()), configurationFile, configCheck);
+    dnsdist::configuration::lua::loadLuaConfigurationFile(luaContext.getLua(), configurationFile, configCheck);
     if (auto tentativeYamlConfFile = lookForTentativeConfigurationFileWithExtension(configurationFile, "yml")) {
       SLOG(infolog("Loading configuration from auto-discovered YAML file %s", *tentativeYamlConfFile),
            logger->info(Logr::Info, "Loading configuration from auto-discovered YAML file", "path", Logging::Loggable(*tentativeYamlConfFile)));
@@ -2607,7 +2606,7 @@ static bool loadConfigurationFromFile(const std::string& configurationFile, bool
     SLOG(infolog("Loading configuration from Lua file %s", configurationFile),
          logger->info(Logr::Info, "Loading configuration from Lua file", "path", Logging::Loggable(configurationFile)));
 
-    dnsdist::configuration::lua::loadLuaConfigurationFile(*(g_lua.lock()), configurationFile, configCheck);
+    dnsdist::configuration::lua::loadLuaConfigurationFile(luaContext.getLua(), configurationFile, configCheck);
   }
   return true;
 }

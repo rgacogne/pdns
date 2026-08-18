@@ -78,14 +78,15 @@ void setupLuaActions(LuaContext& luaCtx)
   luaCtx.registerFunction<void (DNSAction::*)() const>("printStats", [](const DNSAction& action) {
     setLuaNoSideEffect();
     auto stats = action.getStats();
+    auto& buffer = LuaExecutionState::getOutputBufferLocked();
     for (const auto& stat : stats) {
-      g_outputBuffer += stat.first + "\t";
+      buffer += stat.first + "\t";
       double integral = 0;
       if (std::modf(stat.second, &integral) == 0.0 && stat.second < static_cast<double>(std::numeric_limits<uint64_t>::max())) {
-        g_outputBuffer += std::to_string(static_cast<uint64_t>(stat.second)) + "\n";
+        buffer += std::to_string(static_cast<uint64_t>(stat.second)) + "\n";
       }
       else {
-        g_outputBuffer += std::to_string(stat.second) + "\n";
+        buffer += std::to_string(stat.second) + "\n";
       }
     }
   });

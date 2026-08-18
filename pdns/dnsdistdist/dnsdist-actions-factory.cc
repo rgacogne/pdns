@@ -534,7 +534,7 @@ public:
       DNSAction::Action result{};
       {
         auto& tracer = dnsquestion->ids.getTracer();
-        auto ret = pdns::trace::dnsdist::runWithLuaTracing(tracer, d_func, dnsquestion);
+        auto ret = pdns::trace::dnsdist::runWithLuaTracing(DNSDistLuaContext::Context::Action, tracer, d_func, dnsquestion);
         if (ruleresult != nullptr) {
           if (std::optional<std::string> rule = std::get<1>(ret)) {
             *ruleresult = *rule;
@@ -581,7 +581,7 @@ public:
       DNSResponseAction::Action result{};
       {
         auto& tracer = response->ids.getTracer();
-        auto ret = pdns::trace::dnsdist::runWithLuaTracing(tracer, d_func, response);
+        auto ret = pdns::trace::dnsdist::runWithLuaTracing(DNSDistLuaContext::Context::Action, tracer, d_func, response);
         if (ruleresult != nullptr) {
           if (std::optional<std::string> rule = std::get<1>(ret)) {
             *ruleresult = *rule;
@@ -631,7 +631,7 @@ public:
       DNSAction::Action result{};
       {
         auto& tracer = dnsquestion->ids.getTracer();
-        auto ret = pdns::trace::dnsdist::runWithLuaTracing(tracer, d_func, &dqffi);
+        auto ret = pdns::trace::dnsdist::runWithLuaTracing(DNSDistLuaContext::Context::Action, tracer, d_func, &dqffi);
         if (ruleresult != nullptr) {
           if (dqffi.result) {
             *ruleresult = *dqffi.result;
@@ -758,7 +758,7 @@ public:
       DNSResponseAction::Action result{};
       {
         auto& tracer = response->ids.getTracer();
-        auto ret = pdns::trace::dnsdist::runWithLuaTracing(tracer, d_func, &ffiResponse);
+        auto ret = pdns::trace::dnsdist::runWithLuaTracing(DNSDistLuaContext::Context::Action, tracer, d_func, &ffiResponse);
         if (ruleresult != nullptr) {
           if (ffiResponse.result) {
             *ruleresult = *ffiResponse.result;
@@ -1573,7 +1573,7 @@ public:
     DnstapMessage message(std::move(data), !dnsquestion->getHeader()->qr ? DnstapMessage::MessageType::client_query : DnstapMessage::MessageType::client_response, d_identity, &dnsquestion->ids.origRemote, &dnsquestion->ids.origDest, protocol, reinterpret_cast<const char*>(dnsquestion->getData().data()), dnsquestion->getData().size(), &dnsquestion->getQueryRealTime(), nullptr, DNSName(), httpProtocol);
     {
       if (d_alterFunc) {
-        auto lock = g_lua.lock();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Action);
         (*d_alterFunc)(dnsquestion, &message);
       }
     }
@@ -1723,7 +1723,7 @@ public:
     addMetaDataToProtobuf(message, *dnsquestion, d_config.metas);
 
     if (d_config.alterQueryFunc) {
-      auto lock = g_lua.lock();
+      auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Action);
       (*d_config.alterQueryFunc)(dnsquestion, &message);
     }
 
@@ -1943,7 +1943,7 @@ public:
     DnstapMessage message(std::move(data), DnstapMessage::MessageType::client_response, d_identity, &response->ids.origRemote, &response->ids.origDest, protocol, reinterpret_cast<const char*>(response->getData().data()), response->getData().size(), &response->getQueryRealTime(), &now, DNSName(), httpProtocol);
     {
       if (d_alterFunc) {
-        auto lock = g_lua.lock();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Action);
         (*d_alterFunc)(response, &message);
       }
     }
@@ -2015,7 +2015,7 @@ public:
     }
 
     if (d_config.alterResponseFunc) {
-      auto lock = g_lua.lock();
+      auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Action);
       (*d_config.alterResponseFunc)(response, &message);
     }
 

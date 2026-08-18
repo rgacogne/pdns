@@ -34,7 +34,7 @@ TEST_CASE("lua-bindings-opentelemetry")
 
   BENCHMARK("withTracer")
   {
-    return pdns::trace::dnsdist::runWithLuaTracing(tracer, [&testnum]() {
+    return pdns::trace::dnsdist::runWithLuaTracing(DNSDistLuaContext::Context::InitialConfiguration, tracer, [&testnum]() {
       return testnum++;
     });
   };
@@ -43,7 +43,7 @@ TEST_CASE("lua-bindings-opentelemetry")
   tracer = nullptr;
   BENCHMARK("withoutTracer")
   {
-    return pdns::trace::dnsdist::runWithLuaTracing(tracer, [&testnum]() {
+    return pdns::trace::dnsdist::runWithLuaTracing(DNSDistLuaContext::Context::InitialConfiguration, tracer, [&testnum]() {
       return testnum++;
     });
   };

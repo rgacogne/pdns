@@ -109,13 +109,13 @@ static const std::map<std::string, UnsignedIntegerConfigurationItems> s_unsigned
       SLOG(warnlog("setPayloadSizeOnSelfGeneratedAnswers() is set too low, using 512 instead!"),
            dnsdist::logging::getTopLogger("configuration")->info(Logr::Warning, "Value passed to setPayloadSizeOnSelfGeneratedAnswers() is set too low, using 512 instead", "value", Logging::Loggable(newValue)));
 
-      g_outputBuffer = "setPayloadSizeOnSelfGeneratedAnswers() is set too low, using 512 instead!";
+      LuaExecutionState::getOutputBufferLocked() = "setPayloadSizeOnSelfGeneratedAnswers() is set too low, using 512 instead!";
       newValue = 512;
     }
     if (newValue > dnsdist::configuration::s_udpIncomingBufferSize) {
       SLOG(warnlog("setPayloadSizeOnSelfGeneratedAnswers() is set too high, capping to %d instead!", dnsdist::configuration::s_udpIncomingBufferSize),
            dnsdist::logging::getTopLogger("configuration")->info(Logr::Warning, "Value passed to setPayloadSizeOnSelfGeneratedAnswers() is set too high, capping", "value", Logging::Loggable(newValue), "cap", Logging::Loggable(dnsdist::configuration::s_udpIncomingBufferSize)));
-      g_outputBuffer = "setPayloadSizeOnSelfGeneratedAnswers() is set too high, capping to " + std::to_string(dnsdist::configuration::s_udpIncomingBufferSize) + " instead";
+      LuaExecutionState::getOutputBufferLocked() = "setPayloadSizeOnSelfGeneratedAnswers() is set too high, capping to " + std::to_string(dnsdist::configuration::s_udpIncomingBufferSize) + " instead";
       newValue = dnsdist::configuration::s_udpIncomingBufferSize;
     }
     config.d_payloadSizeSelfGenAnswers = newValue;
@@ -191,6 +191,10 @@ static void setupOpenTelemetryConfigurationItems(LuaContext& luaCtx)
       throw std::runtime_error(kind + " is not a valid Trace kind for setOpenTelemetryInternalTrace");
     }
 
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
+
     setLuaSideEffect();
     dnsdist::configuration::updateRuntimeConfiguration([kind, remote_loggers, sample_interval](dnsdist::configuration::RuntimeConfiguration& config) {
       std::vector<std::shared_ptr<RemoteLoggerInterface>> loggers;
@@ -216,6 +220,9 @@ void setupConfigurationItems(LuaContext& luaCtx)
 {
   for (const auto& item : s_booleanConfigItems) {
     luaCtx.writeFunction(item.first, [&item = item.second](bool value) {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
       setLuaSideEffect();
       dnsdist::configuration::updateRuntimeConfiguration([value, &item](dnsdist::configuration::RuntimeConfiguration& config) {
         item.mutator(config, value);
@@ -225,8 +232,11 @@ void setupConfigurationItems(LuaContext& luaCtx)
 
   for (const auto& item : s_unsignedIntegerConfigItems) {
     luaCtx.writeFunction(item.first, [&name = item.first, &item = item.second](uint64_t value) {
-      setLuaSideEffect();
       checkParameterBound(name, value, item.maximumValue);
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
       dnsdist::configuration::updateRuntimeConfiguration([value, &item](dnsdist::configuration::RuntimeConfiguration& config) {
         item.mutator(config, value);
       });
@@ -235,6 +245,9 @@ void setupConfigurationItems(LuaContext& luaCtx)
 
   for (const auto& item : s_stringConfigItems) {
     luaCtx.writeFunction(item.first, [&item = item.second](const std::string& value) {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
       setLuaSideEffect();
       dnsdist::configuration::updateRuntimeConfiguration([value, &item](dnsdist::configuration::RuntimeConfiguration& config) {
         item.mutator(config, value);
@@ -250,7 +263,7 @@ void setupConfigurationItems(LuaContext& luaCtx)
         });
       }
       catch (const std::exception& exp) {
-        g_outputBuffer = name + " cannot be used at runtime!\n";
+        LuaExecutionState::getOutputBufferLocked() = name + " cannot be used at runtime!\n";
         SLOG(errlog("%s cannot be used at runtime!", name),
              dnsdist::logging::getTopLogger("configuration")->info(Logr::Error, "The " + name + " directive cannot be used at runtime"));
       }
@@ -266,7 +279,7 @@ void setupConfigurationItems(LuaContext& luaCtx)
         });
       }
       catch (const std::exception& exp) {
-        g_outputBuffer = name + " cannot be used at runtime!\n";
+        LuaExecutionState::getOutputBufferLocked() = name + " cannot be used at runtime!\n";
         SLOG(errlog("%s cannot be used at runtime!", name),
              dnsdist::logging::getTopLogger("configuration")->info(Logr::Error, "The " + name + " directive cannot be used at runtime"));
       }
@@ -275,7 +288,7 @@ void setupConfigurationItems(LuaContext& luaCtx)
   for (const auto& item : s_doubleImmutableConfigItems) {
     luaCtx.writeFunction(item.first, [&name = item.first, &item = item.second](double value) {
       if (value != 0 && value < item.minimumValue) {
-        g_outputBuffer = "Invalid value passed to " + name + "()!\n";
+        LuaExecutionState::getOutputBufferLocked() = "Invalid value passed to " + name + "()!\n";
         SLOG(errlog("Invalid value passed to %s()!", name),
              dnsdist::logging::getTopLogger("configuration")->info(Logr::Error, "Invalid value passed to " + name, "value", Logging::Loggable(value)));
         return;
@@ -287,7 +300,7 @@ void setupConfigurationItems(LuaContext& luaCtx)
         });
       }
       catch (const std::exception& exp) {
-        g_outputBuffer = name + " cannot be used at runtime!\n";
+        LuaExecutionState::getOutputBufferLocked() = name + " cannot be used at runtime!\n";
         SLOG(errlog("%s cannot be used at runtime!", name),
              dnsdist::logging::getTopLogger("configuration")->info(Logr::Error, "The " + name + " directive cannot be used at runtime"));
       }

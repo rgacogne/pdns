@@ -1291,7 +1291,7 @@ public:
   bool matches(const DNSQuestion* dq) const override
   {
     try {
-      auto lock = g_lua.lock();
+      auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Selector);
       return d_func(dq);
     }
     catch (const std::exception& e) {
@@ -1325,7 +1325,7 @@ public:
   {
     dnsdist_ffi_dnsquestion_t dqffi(const_cast<DNSQuestion*>(dq));
     try {
-      auto lock = g_lua.lock();
+      auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Selector);
       return d_func(&dqffi);
     }
     catch (const std::exception& e) {

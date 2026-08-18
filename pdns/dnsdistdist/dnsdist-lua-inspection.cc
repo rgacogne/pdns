@@ -278,12 +278,12 @@ static std::optional<GrepQParams> parseGrepQParams(const LuaTypeOrArrayOf<std::s
     if (getOptionalValue<std::string>(options, "outputFile", outputFileName) > 0) {
       int fileDesc = open(outputFileName.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0600);
       if (fileDesc < 0) {
-        g_outputBuffer = "Error opening dump file for writing: " + stringerror() + "\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error opening dump file for writing: " + stringerror() + "\n";
         return std::nullopt;
       }
       result.outputFile = pdns::UniqueFilePtr(fdopen(fileDesc, "w"));
       if (result.outputFile == nullptr) {
-        g_outputBuffer = "Error opening dump file for writing: " + stringerror() + "\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error opening dump file for writing: " + stringerror() + "\n";
         close(fileDesc);
         return std::nullopt;
       }
@@ -328,7 +328,7 @@ static std::optional<GrepQParams> parseGrepQParams(const LuaTypeOrArrayOf<std::s
       result.name = DNSName(filter);
     }
     catch (...) {
-      g_outputBuffer = "Could not parse '" + filter + "' as domain name or netmask";
+      LuaExecutionState::getOutputBufferLocked() = "Could not parse '" + filter + "' as domain name or netmask";
       return std::nullopt;
     }
   }
@@ -421,10 +421,10 @@ void setupLuaInspection(LuaContext& luaCtx)
         rest += entry.first;
       }
       else {
-        g_outputBuffer += (fmt % (count++) % entry.second.toString() % entry.first % (100.0 * entry.first / total)).str();
+        LuaExecutionState::getOutputBufferLocked() += (fmt % (count++) % entry.second.toString() % entry.first % (100.0 * entry.first / total)).str();
       }
     }
-    g_outputBuffer += (fmt % (count) % "Rest" % rest % (total > 0 ? 100.0 * rest / total : 100.0)).str();
+    LuaExecutionState::getOutputBufferLocked() += (fmt % (count) % "Rest" % rest % (total > 0 ? 100.0 * rest / total : 100.0)).str();
   });
 
   luaCtx.writeFunction("getTopQueries", [](uint64_t top, std::optional<int> labels) {
@@ -549,8 +549,8 @@ void setupLuaInspection(LuaContext& luaCtx)
       localtime_r(&entry.first.tv_sec, &entryTime);
       std::array<char, 80> date{};
       strftime(date.data(), date.size() - 1, "-- %a %b %d %Y %H:%M:%S %Z\n", &entryTime);
-      g_outputBuffer += date.data();
-      g_outputBuffer += entry.second + "\n";
+      LuaExecutionState::getOutputBufferLocked() += date.data();
+      LuaExecutionState::getOutputBufferLocked() += entry.second + "\n";
     }
   });
 
@@ -599,7 +599,7 @@ void setupLuaInspection(LuaContext& luaCtx)
     boost::format fmt("%-7.1f %-47s %-12s %-12s %-5d %-25s %-5s %-6.1f %-2s %-2s %-2s %-s\n");
     const auto headLine = (fmt % "Time" % "Client" % "Protocol" % "Server" % "ID" % "Name" % "Type" % "Lat." % "TC" % "RD" % "AA" % "Rcode").str();
     if (!params.outputFile) {
-      g_outputBuffer += headLine;
+      LuaExecutionState::getOutputBufferLocked() += headLine;
     }
     else {
       fprintf(params.outputFile.get(), "%s", headLine.c_str());
@@ -657,7 +657,7 @@ void setupLuaInspection(LuaContext& luaCtx)
 
     for (const auto& entry : out) {
       if (!params.outputFile) {
-        g_outputBuffer += entry.second;
+        LuaExecutionState::getOutputBufferLocked() += entry.second;
       }
       else {
         fprintf(params.outputFile.get(), "%s", entry.second.c_str());
@@ -699,18 +699,18 @@ void setupLuaInspection(LuaContext& luaCtx)
     }
 
     if (size == 0) {
-      g_outputBuffer = "No traffic yet.\n";
+      LuaExecutionState::getOutputBufferLocked() = "No traffic yet.\n";
       return;
     }
 
-    g_outputBuffer = (boost::format("Average response latency: %.02f ms\n") % (0.001 * totlat / size)).str();
+    LuaExecutionState::getOutputBufferLocked() = (boost::format("Average response latency: %.02f ms\n") % (0.001 * totlat / size)).str();
     double highest = 0;
 
     for (const auto& entry : histo) {
       highest = std::max(highest, entry.second * 1.0);
     }
     boost::format fmt("%7.2f\t%s\n");
-    g_outputBuffer += (fmt % "ms" % "").str();
+    LuaExecutionState::getOutputBufferLocked() += (fmt % "ms" % "").str();
 
     for (const auto& entry : histo) {
       int stars = static_cast<int>(70.0 * entry.second / highest);
@@ -724,7 +724,7 @@ void setupLuaInspection(LuaContext& luaCtx)
           value = '.';
         }
       }
-      g_outputBuffer += (fmt % (entry.first / 1000.0) % string(stars, value)).str();
+      LuaExecutionState::getOutputBufferLocked() += (fmt % (entry.first / 1000.0) % string(stars, value)).str();
     }
   });
 
@@ -758,7 +758,7 @@ void setupLuaInspection(LuaContext& luaCtx)
       ++counter;
     }
 
-    g_outputBuffer = ret.str();
+    LuaExecutionState::getOutputBufferLocked() = ret.str();
   });
 
   luaCtx.writeFunction("showTLSErrorCounters", [] {
@@ -789,7 +789,7 @@ void setupLuaInspection(LuaContext& luaCtx)
     }
     ret << endl;
 
-    g_outputBuffer = ret.str();
+    LuaExecutionState::getOutputBufferLocked() = ret.str();
   });
 
   luaCtx.writeFunction("requestTCPStatesDump", [] {
@@ -811,7 +811,7 @@ void setupLuaInspection(LuaContext& luaCtx)
     vector<string> rightcolumn;
 
     boost::format fmt("%-35s\t%+11s");
-    g_outputBuffer.clear();
+    LuaExecutionState::getOutputBufferLocked().clear();
     auto entries = *dnsdist::metrics::g_stats.entries.read_lock();
 
     // Filter entries to just the ones without label, for clearer output
@@ -859,7 +859,7 @@ void setupLuaInspection(LuaContext& luaCtx)
         rentry = *rightiter;
         rightiter++;
       }
-      g_outputBuffer += (clmn % lentry % rentry).str();
+      LuaExecutionState::getOutputBufferLocked() += (clmn % lentry % rentry).str();
     }
   });
 

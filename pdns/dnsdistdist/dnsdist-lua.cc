@@ -128,6 +128,59 @@ void resetLuaSideEffect()
   s_noLuaSideEffect = boost::logic::indeterminate;
 }
 
+RecursiveLockGuarded<DNSDistLuaContext> LuaExecutionState::s_context{};
+
+LuaExecutionState::LuaExecutionState(DNSDistLuaContext::Context currentContext) :
+  d_lock(s_context.lock())
+{
+  if (d_lock->d_currentContext != DNSDistLuaContext::Context::Unset) {
+    throw std::runtime_error("Lua context re-entry from " + std::to_string(static_cast<int>(d_lock->d_currentContext)));
+  }
+  d_lock->d_currentContext = currentContext;
+}
+
+LuaExecutionState::~LuaExecutionState()
+{
+  d_lock->d_currentContext = DNSDistLuaContext::Context::Unset;
+}
+
+std::string& LuaExecutionState::getOutputBufferLocked()
+{
+  auto lock = s_context.lock();
+  if (lock->d_currentContext == DNSDistLuaContext::Context::Unset) {
+    throw std::runtime_error("Trying to access the global output buffer without holding a Lua lock");
+  }
+  return lock->d_outputBuffer;
+}
+
+bool LuaExecutionState::isAllowedToAlterRuntimeConfiguration()
+{
+  static const std::unordered_set<DNSDistLuaContext::Context> allowedContexts{
+    DNSDistLuaContext::Context::InitialConfiguration,
+    DNSDistLuaContext::Context::Console,
+    DNSDistLuaContext::Context::API,
+    DNSDistLuaContext::Context::Maintenance,
+    DNSDistLuaContext::Context::BackgroundThread,
+    DNSDistLuaContext::Context::NetworkListener,
+    DNSDistLuaContext::Context::TLSTicketKeyAdded,
+    DNSDistLuaContext::Context::ServerStateChange,
+    DNSDistLuaContext::Context::ExitCallback,
+  };
+
+  auto lock = s_context.lock();
+  return allowedContexts.count(lock->d_currentContext) != 0;
+}
+
+LuaContext& LuaExecutionState::getLua() const
+{
+  return d_lock->d_lua;
+}
+
+std::string& LuaExecutionState::getOutputBuffer() const
+{
+  return d_lock->d_outputBuffer;
+}
+
 static std::shared_ptr<const Logr::Logger> getLogger(const std::string_view context)
 {
   static auto logger = dnsdist::logging::getTopLogger("configuration");
@@ -199,14 +252,14 @@ static bool loadTLSCertificateAndKeys(const std::string& context, std::vector<TL
     else {
       SLOG(errlog("Error, mismatching number of certificates and keys in call to %s()!", context),
            getLogger(context)->info(Logr::Error, "Error, mismatching number of certificates and keys"));
-      g_outputBuffer = "Error, mismatching number of certificates and keys in call to " + context + "()!";
+      LuaExecutionState::getOutputBufferLocked() = "Error, mismatching number of certificates and keys in call to " + context + "()!";
       return false;
     }
   }
   else {
     SLOG(errlog("Error, mismatching number of certificates and keys in call to %s()!", context),
          getLogger(context)->info(Logr::Error, "Error, mismatching number of certificates and keys"));
-    g_outputBuffer = "Error, mismatching number of certificates and keys in call to " + context + "()!";
+    LuaExecutionState::getOutputBufferLocked() = "Error, mismatching number of certificates and keys in call to " + context + "()!";
     return false;
   }
 
@@ -241,7 +294,7 @@ static void parseTLSConfig(TLSConfig& config, const std::string& context, std::o
     if (numberOfStoredSessions < 0) {
       SLOG(errlog("Invalid value '%d' for %s() parameter 'numberOfStoredSessions', should be >= 0, dismissing", numberOfStoredSessions, context),
            getLogger(context)->info(Logr::Error, "Invalid value for parameter 'numberOfStoredSessions', should be >= 0, discmissing", "value", Logging::Loggable(numberOfStoredSessions)));
-      g_outputBuffer = "Invalid value '" + std::to_string(numberOfStoredSessions) + "' for " + context + "() parameter 'numberOfStoredSessions', should be >= 0, dimissing";
+      LuaExecutionState::getOutputBufferLocked() = "Invalid value '" + std::to_string(numberOfStoredSessions) + "' for " + context + "() parameter 'numberOfStoredSessions', should be >= 0, dimissing";
     }
     else {
       config.d_maxStoredSessions = numberOfStoredSessions;
@@ -261,7 +314,7 @@ static void parseTLSConfig(TLSConfig& config, const std::string& context, std::o
 #else
     SLOG(errlog("TLS Key logging has been enabled using the 'keyLogFile' parameter to %s(), but this version of OpenSSL does not support it", context),
          getLogger(context)->info(Logr::Error, "TLS Key logging has been enabled using the 'keyLogFile' parameter, but this version of OpenSSL does not support it"));
-    g_outputBuffer = "TLS Key logging has been enabled using the 'keyLogFile' parameter to " + context + "(), but this version of OpenSSL does not support it";
+    LuaExecutionState::getOutputBufferLocked() = "TLS Key logging has been enabled using the 'keyLogFile' parameter to " + context + "(), but this version of OpenSSL does not support it";
 #endif
   }
 
@@ -297,9 +350,9 @@ static void LuaThread(const std::string& code, const size_t openTelemetryTraceIn
   // submitToMainThread is camelcased, threadmessage is not.
   // This follows our tradition of hooks we call being lowercased but functions the user can call being camelcased.
   context.writeFunction("submitToMainThread", [](std::string cmd, LuaAssociativeTable<std::string> data) {
-    auto lua = g_lua.lock();
+    auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::BackgroundThread);
     // maybe offer more than `void`
-    auto func = lua->readVariable<std::optional<std::function<void(std::string cmd, LuaAssociativeTable<std::string> data)>>>("threadmessage");
+    auto func = luaContext.getLua().readVariable<std::optional<std::function<void(std::string cmd, LuaAssociativeTable<std::string> data)>>>("threadmessage");
     if (func) {
       (*func)(std::move(cmd), std::move(data));
     }
@@ -351,7 +404,7 @@ static bool checkConfigurationTime(const std::string& name)
   if (!dnsdist::configuration::isImmutableConfigurationDone()) {
     return true;
   }
-  g_outputBuffer = name + " cannot be used at runtime!\n";
+  LuaExecutionState::getOutputBufferLocked() = name + " cannot be used at runtime!\n";
   SLOG(errlog("%s cannot be used at runtime!", name),
        getLogger(name)->info(Logr::Error, "The " + name + " directive cannot be used at runtime"));
   return false;
@@ -455,7 +508,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   dnsdist::lua::setupConfigurationItems(luaCtx);
 
   luaCtx.writeFunction("newServer",
-                       [client, configCheck](boost::variant<string, newserver_t> pvars, std::optional<int> qps) {
+                       [client, configCheck](boost::variant<string, newserver_t> pvars, std::optional<int> qps) -> std::shared_ptr<DownstreamState> {
+                         if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+                           return std::shared_ptr<DownstreamState>();
+                         }
                          setLuaSideEffect();
 
                          std::optional<newserver_t> vars = newserver_t();
@@ -559,7 +615,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 #else
                            SLOG(errlog("TLS Key logging has been enabled using the 'keyLogFile' parameter to newServer(), but this version of OpenSSL does not support it"),
                                 getLogger("newServer")->info(Logr::Error, "TLS Key logging has been enabled using the 'keyLogFile' parameter to newServer(), but this version of OpenSSL does not support it", "backend.address", Logging::Loggable(serverAddressStr)));
-                           g_outputBuffer = "TLS Key logging has been enabled using the 'keyLogFile' parameter to newServer(), but this version of OpenSSL does not support it";
+                           LuaExecutionState::getOutputBufferLocked() = "TLS Key logging has been enabled using the 'keyLogFile' parameter to newServer(), but this version of OpenSSL does not support it";
 #endif
                          }
 
@@ -608,20 +664,20 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                            config.remote = ComboAddress(serverAddressStr, serverPort);
                          }
                          catch (const PDNSException& e) {
-                           g_outputBuffer = "Error creating new server: " + string(e.reason);
+                           LuaExecutionState::getOutputBufferLocked() = "Error creating new server: " + string(e.reason);
                            SLOG(errlog("Error creating new server with address %s: %s", serverAddressStr, e.reason),
                                 getLogger("newServer")->error(Logr::Error, e.reason, "Error creating new backend server", "backend.address", Logging::Loggable(serverAddressStr)));
                            return std::shared_ptr<DownstreamState>();
                          }
                          catch (const std::exception& e) {
-                           g_outputBuffer = "Error creating new server: " + string(e.what());
+                           LuaExecutionState::getOutputBufferLocked() = "Error creating new server: " + string(e.what());
                            SLOG(errlog("Error creating new server with address %s: %s", serverAddressStr, e.what()),
                                 getLogger("newServer")->error(Logr::Error, e.what(), "Error creating new backend server", "backend.address", Logging::Loggable(serverAddressStr)));
                            return std::shared_ptr<DownstreamState>();
                          }
 
                          if (IsAnyAddress(config.remote)) {
-                           g_outputBuffer = "Error creating new server: invalid address for a downstream server.";
+                           LuaExecutionState::getOutputBufferLocked() = "Error creating new server: invalid address for a downstream server.";
                            SLOG(errlog("Error creating new server: %s is not a valid address for a downstream server", serverAddressStr),
                                 getLogger("newServer")->info(Logr::Error, "Error creating new backend server: not a valid address for a downstream server", "backend.address", Logging::Loggable(serverAddressStr)));
                            return std::shared_ptr<DownstreamState>();
@@ -742,6 +798,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("rmServer",
                        [client, configCheck](boost::variant<std::shared_ptr<DownstreamState>, int, std::string> var) {
+                         if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+                           return;
+                         }
                          setLuaSideEffect();
                          shared_ptr<DownstreamState> server = nullptr;
                          if (auto* rem = boost::get<shared_ptr<DownstreamState>>(&var)) {
@@ -789,6 +848,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   luaCtx.writeFunction("getVerbose", []() { return dnsdist::configuration::getCurrentRuntimeConfiguration().d_verbose; });
 
   luaCtx.writeFunction("addACL", [](const std::string& mask) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     dnsdist::configuration::updateRuntimeConfiguration([&mask](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_ACL.addMask(mask);
@@ -796,6 +858,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("rmACL", [](const std::string& netmask) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     dnsdist::configuration::updateRuntimeConfiguration([&netmask](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_ACL.deleteMask(netmask);
@@ -871,7 +936,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       });
     }
     catch (const std::exception& e) {
-      g_outputBuffer = "Error: " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error: " + string(e.what()) + "\n";
     }
   });
 
@@ -930,7 +995,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       checkAllParametersConsumed("addLocal", vars);
     }
     catch (std::exception& e) {
-      g_outputBuffer = "Error: " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error: " + string(e.what()) + "\n";
       SLOG(errlog("Error while trying to listen on %s: %s\n", addr, string(e.what())),
            getLogger("addLocal")->error(Logr::Error, e.what(), "Error while trying to listen for incoming UDP packets", "frontend.address", Logging::Loggable(addr)));
     }
@@ -938,6 +1003,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("setACL", [](LuaTypeOrArrayOf<std::string> inp) {
     setLuaSideEffect();
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     NetmaskGroup nmg;
     if (auto* str = boost::get<string>(&inp)) {
       nmg.addMask(*str);
@@ -954,6 +1022,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("setACLFromFile", [](const std::string& file) {
     setLuaSideEffect();
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     NetmaskGroup nmg;
 
     ifstream ifs(file);
@@ -986,7 +1057,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     auto aclEntries = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ACL.toStringVector();
 
     for (const auto& entry : aclEntries) {
-      g_outputBuffer += entry + "\n";
+      LuaExecutionState::getOutputBufferLocked() += entry + "\n";
     }
   });
 
@@ -1056,10 +1127,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
             << endl;
       }
 
-      g_outputBuffer = ret.str();
+      LuaExecutionState::getOutputBufferLocked() = ret.str();
     }
     catch (std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
   });
@@ -1095,17 +1166,20 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       if (*pos < states.size()) {
         return states.at(*pos);
       }
-      g_outputBuffer = "Error: trying to retrieve server " + std::to_string(*pos) + " while there is only " + std::to_string(states.size()) + "servers\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error: trying to retrieve server " + std::to_string(*pos) + " while there is only " + std::to_string(states.size()) + "servers\n";
       return std::nullopt;
     }
 
-    g_outputBuffer = "Error: no server matched\n";
+    LuaExecutionState::getOutputBufferLocked() = "Error: no server matched\n";
     return std::nullopt;
   });
 
 #ifndef DISABLE_CARBON
   luaCtx.writeFunction("carbonServer", [](const std::string& address, std::optional<string> ourName, std::optional<uint64_t> interval, std::optional<string> namespace_name, std::optional<string> instance_name) {
     setLuaSideEffect();
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     auto newEndpoint = dnsdist::Carbon::newEndpoint(address,
                                                     ourName,
                                                     (interval ? *interval : 30),
@@ -1122,6 +1196,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("webserver", [client, configCheck](const std::string& address) {
     setLuaSideEffect();
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     ComboAddress local;
     try {
       local = ComboAddress(address);
@@ -1147,7 +1224,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         thr.detach();
       }
       catch (const std::exception& e) {
-        g_outputBuffer = "Unable to bind to webserver socket on " + local.toStringWithPort() + ": " + e.what();
+        LuaExecutionState::getOutputBufferLocked() = "Unable to bind to webserver socket on " + local.toStringWithPort() + ": " + e.what();
         SLOG(errlog("Unable to bind to webserver socket on %s: %s", local.toStringWithPort(), e.what()),
              getLogger("webserver")->error(Logr::Error, e.what(), "Error while trying to bind the web server socket", "network.local.address", Logging::Loggable(local)));
         if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_webserverBindFatal) {
@@ -1160,6 +1237,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   using webserveropts_t = LuaAssociativeTable<boost::variant<bool, std::string, LuaAssociativeTable<std::string>>>;
 
   luaCtx.writeFunction("setWebserverConfig", [](std::optional<webserveropts_t> vars) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
 
     if (!vars) {
@@ -1247,6 +1327,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("controlSocket", [client, configCheck](const std::string& str) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     ComboAddress local(str, 5199);
 
@@ -1275,7 +1358,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         consoleControlThread.detach();
       }
       catch (const std::exception& exp) {
-        g_outputBuffer = "Unable to bind to control socket on " + local.toStringWithPort() + ": " + exp.what();
+        LuaExecutionState::getOutputBufferLocked() = "Unable to bind to control socket on " + local.toStringWithPort() + ": " + exp.what();
         SLOG(errlog("Unable to bind to control socket on %s: %s", local.toStringWithPort(), exp.what()),
              getLogger("controlSocket")->error(Logr::Error, exp.what(), "Unable to bind to console's control socket", "network.local.address", Logging::Loggable(local)));
         if (dnsdist::configuration::getCurrentRuntimeConfiguration().d_consoleBindFatal) {
@@ -1286,6 +1369,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("addConsoleACL", [](const std::string& netmask) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
 #if !defined(HAVE_LIBSODIUM) && !defined(HAVE_LIBCRYPTO)
     SLOG(warnlog("Allowing remote access to the console while neither libsodium not libcrypto support has been enabled is not secure, and will result in cleartext communications"),
@@ -1298,6 +1384,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("setConsoleACL", [](LuaTypeOrArrayOf<std::string> inp) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
 
 #if !defined(HAVE_LIBSODIUM) && !defined(HAVE_LIBCRYPTO)
@@ -1330,7 +1419,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     auto aclEntries = dnsdist::configuration::getCurrentRuntimeConfiguration().d_consoleACL.toStringVector();
 
     for (const auto& entry : aclEntries) {
-      g_outputBuffer += entry + "\n";
+      LuaExecutionState::getOutputBufferLocked() += entry + "\n";
     }
   });
 
@@ -1343,25 +1432,29 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     }
 
     boost::format fmt("%d records cleared from query counter buffer\n");
-    g_outputBuffer = (fmt % size).str();
+    LuaExecutionState::getOutputBufferLocked() = (fmt % size).str();
   });
 
   luaCtx.writeFunction("getQueryCounters", [](std::optional<uint64_t> optMax) {
     setLuaNoSideEffect();
     auto records = dnsdist::QueryCount::g_queryCountRecords.read_lock();
-    g_outputBuffer = "query counting is currently: ";
-    g_outputBuffer += dnsdist::configuration::getCurrentRuntimeConfiguration().d_queryCountConfig.d_enabled ? "enabled" : "disabled";
-    g_outputBuffer += (boost::format(" (%d records in buffer)\n") % records->size()).str();
+    LuaExecutionState::getOutputBufferLocked() = "query counting is currently: ";
+    LuaExecutionState::getOutputBufferLocked() += dnsdist::configuration::getCurrentRuntimeConfiguration().d_queryCountConfig.d_enabled ? "enabled" : "disabled";
+    LuaExecutionState::getOutputBufferLocked() += (boost::format(" (%d records in buffer)\n") % records->size()).str();
 
     boost::format fmt("%-3d %s: %d request(s)\n");
     uint64_t max = optMax ? *optMax : 10U;
     uint64_t index{1};
     for (auto it = records->begin(); it != records->end() && index <= max; ++it, ++index) {
-      g_outputBuffer += (fmt % index % it->first % it->second).str();
+      LuaExecutionState::getOutputBufferLocked() += (fmt % index % it->first % it->second).str();
     }
   });
 
   luaCtx.writeFunction("setQueryCountFilter", [](dnsdist::QueryCount::Configuration::Filter func) {
+    setLuaSideEffect();
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     dnsdist::configuration::updateRuntimeConfiguration([&func](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_queryCountConfig.d_filter = std::move(func);
     });
@@ -1369,10 +1462,13 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("makeKey", []() {
     setLuaNoSideEffect();
-    g_outputBuffer = "setKey(" + dnsdist::crypto::authenticated::newKey() + ")\n";
+    LuaExecutionState::getOutputBufferLocked() = "setKey(" + dnsdist::crypto::authenticated::newKey() + ")\n";
   });
 
   luaCtx.writeFunction("setKey", [](const std::string& key) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     if (!dnsdist::configuration::isImmutableConfigurationDone() && !dnsdist::configuration::getCurrentRuntimeConfiguration().d_consoleKey.empty()) { // this makes sure the commandline -k key prevails over dnsdist.conf
       return; // but later setKeys() trump the -k value again
     }
@@ -1384,8 +1480,8 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     setLuaSideEffect();
     string newKey;
     if (B64Decode(key, newKey) < 0) {
-      g_outputBuffer = string("Unable to decode ") + key + " as Base64";
-      SLOG(errlog("%s", g_outputBuffer),
+      LuaExecutionState::getOutputBufferLocked() = string("Unable to decode ") + key + " as Base64";
+      SLOG(errlog("%s", LuaExecutionState::getOutputBufferLocked()),
            getLogger("setKey")->info(Logr::Error, "Unable to decode key as base64", "key", Logging::Loggable(key)));
       return;
     }
@@ -1427,20 +1523,20 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       decrypted = dnsdist::crypto::authenticated::decryptSym(encrypted, consoleKey, nonce2);
 
       if (testmsg == decrypted) {
-        g_outputBuffer = "Everything is ok!\n";
+        LuaExecutionState::getOutputBufferLocked() = "Everything is ok!\n";
       }
       else {
-        g_outputBuffer = "Crypto failed.. (the decoded value does not match the cleartext one)\n";
+        LuaExecutionState::getOutputBufferLocked() = "Crypto failed.. (the decoded value does not match the cleartext one)\n";
       }
     }
     catch (const std::exception& e) {
-      g_outputBuffer = "Crypto failed: " + std::string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Crypto failed: " + std::string(e.what()) + "\n";
     }
     catch (...) {
-      g_outputBuffer = "Crypto failed..\n";
+      LuaExecutionState::getOutputBufferLocked() = "Crypto failed..\n";
     }
 #else
-    g_outputBuffer = "Crypto not available.\n";
+    LuaExecutionState::getOutputBufferLocked() = "Crypto not available.\n";
 #endif
   });
 
@@ -1457,14 +1553,14 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     timespec now{};
     gettime(&now);
     boost::format fmt("%-24s %8d %8d %-10s %-20s %-10s %s\n");
-    g_outputBuffer = (fmt % "What" % "Seconds" % "Blocks" % "Warning" % "Action" % "eBPF" % "Reason").str();
+    LuaExecutionState::getOutputBufferLocked() = (fmt % "What" % "Seconds" % "Blocks" % "Warning" % "Action" % "eBPF" % "Reason").str();
     for (const auto& entry : clientAddressDynamicRules) {
       if (now < entry.second.until) {
         uint64_t counter = entry.second.blocks;
         if (g_defaultBPFFilter && entry.second.bpf) {
           counter += g_defaultBPFFilter->getHits(entry.first.getNetwork());
         }
-        g_outputBuffer += (fmt % entry.first.toString() % (entry.second.until.tv_sec - now.tv_sec) % counter % (entry.second.warning ? "true" : "false") % DNSAction::typeToString(entry.second.action != DNSAction::Action::None ? entry.second.action : dynBlockDefaultAction) % (g_defaultBPFFilter && entry.second.bpf ? "*" : "") % entry.second.reason).str();
+        LuaExecutionState::getOutputBufferLocked() += (fmt % entry.first.toString() % (entry.second.until.tv_sec - now.tv_sec) % counter % (entry.second.warning ? "true" : "false") % DNSAction::typeToString(entry.second.action != DNSAction::Action::None ? entry.second.action : dynBlockDefaultAction) % (g_defaultBPFFilter && entry.second.bpf ? "*" : "") % entry.second.reason).str();
       }
     }
     const auto& suffixDynamicRules = dnsdist::DynamicBlocks::getSuffixDynamicRules();
@@ -1474,7 +1570,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         if (!node.d_value.domain.empty()) {
           dom = node.d_value.domain.toString();
         }
-        g_outputBuffer += (fmt % dom % (node.d_value.until.tv_sec - now.tv_sec) % node.d_value.blocks % (node.d_value.warning ? "true" : "false") % DNSAction::typeToString(node.d_value.action != DNSAction::Action::None ? node.d_value.action : dynBlockDefaultAction) % "" % node.d_value.reason).str();
+        LuaExecutionState::getOutputBufferLocked() += (fmt % dom % (node.d_value.until.tv_sec - now.tv_sec) % node.d_value.blocks % (node.d_value.warning ? "true" : "false") % DNSAction::typeToString(node.d_value.action != DNSAction::Action::None ? node.d_value.action : dynBlockDefaultAction) % "" % node.d_value.reason).str();
       }
     });
   });
@@ -1579,6 +1675,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
                        });
 
   luaCtx.writeFunction("setDynBlocksAction", [](DNSAction::Action action) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     if (action == DNSAction::Action::Drop || action == DNSAction::Action::NoOp || action == DNSAction::Action::Nxdomain || action == DNSAction::Action::Refused || action == DNSAction::Action::Truncate || action == DNSAction::Action::NoRecurse) {
       dnsdist::configuration::updateRuntimeConfiguration([action](dnsdist::configuration::RuntimeConfiguration& config) {
         config.d_dynBlockAction = action;
@@ -1587,7 +1686,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     else {
       SLOG(errlog("Dynamic blocks action can only be Drop, NoOp, NXDomain, Refused, Truncate or NoRecurse!"),
            getLogger("setDynBlocksAction")->info(Logr::Error, "Dynamic blocks action can only be Drop, NoOp, NXDomain, Refused, Truncate or NoRecurse!", "action", Logging::Loggable(static_cast<int>(action))));
-      g_outputBuffer = "Dynamic blocks action can only be Drop, NoOp, NXDomain, Refused, Truncate or NoRecurse!\n";
+      LuaExecutionState::getOutputBufferLocked() = "Dynamic blocks action can only be Drop, NoOp, NXDomain, Refused, Truncate or NoRecurse!\n";
     }
   });
 #endif /* DISABLE_DEPRECATED_DYNBLOCK */
@@ -1627,14 +1726,14 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       else {
         SLOG(errlog("Error, mismatching number of certificates and keys in call to addDNSCryptBind!"),
              getLogger("addDNSCryptBind")->info(Logr::Error, "Error, mismatching number of certificates and keys"));
-        g_outputBuffer = "Error, mismatching number of certificates and keys in call to addDNSCryptBind()!";
+        LuaExecutionState::getOutputBufferLocked() = "Error, mismatching number of certificates and keys in call to addDNSCryptBind()!";
         return;
       }
     }
     else {
       SLOG(errlog("Error, mismatching number of certificates and keys in call to addDNSCryptBind()!"),
            getLogger("addDNSCryptBind")->info(Logr::Error, "Error, mismatching number of certificates and keys"));
-      g_outputBuffer = "Error, mismatching number of certificates and keys in call to addDNSCryptBind()!";
+      LuaExecutionState::getOutputBufferLocked() = "Error, mismatching number of certificates and keys in call to addDNSCryptBind()!";
       return;
     }
 
@@ -1669,7 +1768,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     catch (const std::exception& e) {
       SLOG(errlog("Error during addDNSCryptBind() processing: %s", e.what()),
            getLogger("addDNSCryptBind")->error(Logr::Error, e.what(), "Error adding DNSCrypt frontend"));
-      g_outputBuffer = "Error during addDNSCryptBind() processing: " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error during addDNSCryptBind() processing: " + string(e.what()) + "\n";
     }
   });
 
@@ -1691,7 +1790,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       idx++;
     }
 
-    g_outputBuffer = ret.str();
+    LuaExecutionState::getOutputBufferLocked() = ret.str();
   });
 
   luaCtx.writeFunction("getDNSCryptBind", [](uint64_t idx) {
@@ -1753,10 +1852,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
         ret << (fmt % name % cache % policy % servers) << endl;
       }
-      g_outputBuffer = ret.str();
+      LuaExecutionState::getOutputBufferLocked() = ret.str();
     }
     catch (std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
   });
@@ -1786,6 +1885,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       }
     }
 
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      throw std::runtime_error("Trying to create a new pool from a read-only Lua context");
+    }
     /* yes, we just checked, but there is room for a race where a different thread created it */
     bool created = false;
     dnsdist::configuration::updateRuntimeConfiguration([&poolName, &created](dnsdist::configuration::RuntimeConfiguration& config) {
@@ -1862,10 +1964,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         ret << (fmt % counter % front->local.toStringWithPort() % front->getType() % front->queries) << endl;
         counter++;
       }
-      g_outputBuffer = ret.str();
+      LuaExecutionState::getOutputBufferLocked() = ret.str();
     }
     catch (std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
   });
@@ -1887,26 +1989,26 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("help", [](std::optional<std::string> command) {
     setLuaNoSideEffect();
-    g_outputBuffer = "";
+    LuaExecutionState::getOutputBufferLocked() = "";
 #ifndef DISABLE_COMPLETION
     for (const auto& keyword : dnsdist::console::completion::getConsoleKeywords()) {
       if (!command) {
-        g_outputBuffer += keyword.toString() + "\n";
+        LuaExecutionState::getOutputBufferLocked() += keyword.toString() + "\n";
       }
       else if (keyword.name == command) {
-        g_outputBuffer = keyword.toString() + "\n";
+        LuaExecutionState::getOutputBufferLocked() = keyword.toString() + "\n";
         return;
       }
     }
 #endif /* DISABLE_COMPLETION */
     if (command) {
-      g_outputBuffer = "Nothing found for " + *command + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Nothing found for " + *command + "\n";
     }
   });
 
   luaCtx.writeFunction("showVersion", []() {
     setLuaNoSideEffect();
-    g_outputBuffer = "dnsdist " + std::string(VERSION) + "\n";
+    LuaExecutionState::getOutputBufferLocked() = "dnsdist " + std::string(VERSION) + "\n";
   });
 
 #ifdef HAVE_EBPF
@@ -1982,7 +2084,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (s_included) {
       SLOG(errlog("includeDirectory() cannot be used recursively!"),
            getLogger("includeDirectory")->info(Logr::Error, "includeDirectory cannot be used recursively", "path", Logging::Loggable(dirname)));
-      g_outputBuffer = "includeDirectory() cannot be used recursively!\n";
+      LuaExecutionState::getOutputBufferLocked() = "includeDirectory() cannot be used recursively!\n";
       return;
     }
 
@@ -1990,14 +2092,14 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (stat(dirname.c_str(), &dirStat) != 0) {
       SLOG(errlog("The included directory %s does not exist!", dirname),
            getLogger("includeDirectory")->info(Logr::Error, "The included directory does not exist", "path", Logging::Loggable(dirname)));
-      g_outputBuffer = "The included directory " + dirname + " does not exist!";
+      LuaExecutionState::getOutputBufferLocked() = "The included directory " + dirname + " does not exist!";
       return;
     }
 
     if (!S_ISDIR(dirStat.st_mode)) {
       SLOG(errlog("The included directory %s is not a directory!", dirname),
            getLogger("includeDirectory")->info(Logr::Error, "The included directory is not a directory", "path", Logging::Loggable(dirname)));
-      g_outputBuffer = "The included directory " + dirname + " is not a directory!";
+      LuaExecutionState::getOutputBufferLocked() = "The included directory " + dirname + " is not a directory!";
       return;
     }
 
@@ -2020,7 +2122,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (directoryError) {
       SLOG(errlog("Error opening included directory: %s!", *directoryError),
            getLogger("includeDirectory")->error(Logr::Error, *directoryError, "Error opening included directory", "path", Logging::Loggable(dirname)));
-      g_outputBuffer = "Error opening included directory: " + *directoryError + "!";
+      LuaExecutionState::getOutputBufferLocked() = "Error opening included directory: " + *directoryError + "!";
       return;
     }
 
@@ -2057,7 +2159,10 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     if (apiConfigDir && apiConfigDir->empty()) {
       SLOG(errlog("The API configuration directory value cannot be empty!"),
            getLogger("setAPIWritable")->info(Logr::Error, "The API configuration directory value cannot be empty"));
-      g_outputBuffer = "The API configuration directory value cannot be empty!";
+      LuaExecutionState::getOutputBufferLocked() = "The API configuration directory value cannot be empty!";
+      return;
+    }
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
       return;
     }
     dnsdist::configuration::updateRuntimeConfiguration([writable, &apiConfigDir](dnsdist::configuration::RuntimeConfiguration& config) {
@@ -2083,7 +2188,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       });
     }
     catch (const std::exception& exp) {
-      g_outputBuffer = "setRingBuffersSize cannot be used at runtime!\n";
+      LuaExecutionState::getOutputBufferLocked() = "setRingBuffersSize cannot be used at runtime!\n";
       SLOG(errlog("setRingBuffersSize cannot be used at runtime!"),
            getLogger("setRingBuffersSize")->info(Logr::Error, "setRingBuffersSize cannot be used at runtime"));
     }
@@ -2111,7 +2216,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       });
     }
     catch (const std::exception& exp) {
-      g_outputBuffer = "setRingBuffersOption cannot be used at runtime!\n";
+      LuaExecutionState::getOutputBufferLocked() = "setRingBuffersOption cannot be used at runtime!\n";
       SLOG(errlog("setRingBuffersOption cannot be used at runtime!"),
            getLogger("setRingBuffersOption")->info(Logr::Error, "setRingBuffersOption cannot be used at runtime"));
     }
@@ -2121,7 +2226,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     std::vector<uint32_t> key(4);
     auto ret = sscanf(keyString.c_str(), "%" SCNx32 "-%" SCNx32 "-%" SCNx32 "-%" SCNx32, &key.at(0), &key.at(1), &key.at(2), &key.at(3));
     if (ret < 0 || static_cast<size_t>(ret) != key.size()) {
-      g_outputBuffer = "Invalid value passed to setTCPFastOpenKey()!\n";
+      LuaExecutionState::getOutputBufferLocked() = "Invalid value passed to setTCPFastOpenKey()!\n";
       return;
     }
     dnsdist::configuration::updateImmutableConfiguration([&key](dnsdist::configuration::ImmutableConfiguration& config) {
@@ -2153,6 +2258,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
 #ifndef DISABLE_POLICIES_BINDINGS
   luaCtx.writeFunction("setServerPolicy", [](const std::shared_ptr<ServerPolicy>& policy) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     dnsdist::configuration::updateRuntimeConfiguration([&policy](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = policy;
@@ -2160,6 +2268,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("setServerPolicyLua", [](const string& name, ServerPolicy::policyfunc_t policy) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     auto pol = std::make_shared<ServerPolicy>(name, std::move(policy), true);
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
@@ -2168,6 +2279,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("setServerPolicyLuaFFI", [](const string& name, ServerPolicy::ffipolicyfunc_t policy) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     auto pol = std::make_shared<ServerPolicy>(name, std::move(policy));
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
@@ -2176,6 +2290,9 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.writeFunction("setServerPolicyLuaFFIPerThread", [](const string& name, const std::string& policyCode) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     auto policy = std::make_shared<ServerPolicy>(name, policyCode);
     dnsdist::configuration::updateRuntimeConfiguration([&policy](dnsdist::configuration::RuntimeConfiguration& config) {
@@ -2185,25 +2302,37 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
   luaCtx.writeFunction("showServerPolicy", []() {
     setLuaSideEffect();
-    g_outputBuffer = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy->getName() + "\n";
+    LuaExecutionState::getOutputBufferLocked() = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy->getName() + "\n";
   });
 
   luaCtx.writeFunction("setPoolServerPolicy", [](const std::shared_ptr<ServerPolicy>& policy, const string& pool) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     setPoolPolicy(pool, policy);
   });
 
   luaCtx.writeFunction("setPoolServerPolicyLua", [](const string& name, ServerPolicy::policyfunc_t policy, const string& pool) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     setPoolPolicy(pool, std::make_shared<ServerPolicy>(ServerPolicy{name, std::move(policy), true}));
   });
 
   luaCtx.writeFunction("setPoolServerPolicyLuaFFI", [](const string& name, ServerPolicy::ffipolicyfunc_t policy, const string& pool) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     setPoolPolicy(pool, std::make_shared<ServerPolicy>(ServerPolicy{name, std::move(policy)}));
   });
 
   luaCtx.writeFunction("setPoolServerPolicyLuaFFIPerThread", [](const string& name, const std::string& policyCode, const std::string& pool) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     setPoolPolicy(pool, std::make_shared<ServerPolicy>(ServerPolicy{name, policyCode}));
   });
@@ -2212,15 +2341,18 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     setLuaSideEffect();
     const auto& poolObj = getPool(pool);
     if (poolObj.policy == nullptr) {
-      g_outputBuffer = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy->getName() + "\n";
+      LuaExecutionState::getOutputBufferLocked() = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy->getName() + "\n";
     }
     else {
-      g_outputBuffer = poolObj.policy->getName() + "\n";
+      LuaExecutionState::getOutputBufferLocked() = poolObj.policy->getName() + "\n";
     }
   });
 #endif /* DISABLE_POLICIES_BINDINGS */
 
   luaCtx.writeFunction("setProxyProtocolACL", [](LuaTypeOrArrayOf<std::string> inp) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     setLuaSideEffect();
     NetmaskGroup nmg;
     if (auto* str = boost::get<string>(&inp)) {
@@ -2239,7 +2371,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 #ifndef DISABLE_SECPOLL
   luaCtx.writeFunction("showSecurityStatus", []() {
     setLuaNoSideEffect();
-    g_outputBuffer = std::to_string(dnsdist::metrics::g_stats.securityStatus) + "\n";
+    LuaExecutionState::getOutputBufferLocked() = std::to_string(dnsdist::metrics::g_stats.securityStatus) + "\n";
   });
 #endif /* DISABLE_SECPOLL */
 
@@ -2252,7 +2384,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       const auto& facilityStr = boost::get<std::string>(facility);
       auto facilityLevel = logFacilityFromString(facilityStr);
       if (!facilityLevel) {
-        g_outputBuffer = "Unknown facility '" + facilityStr + "' passed to setSyslogFacility()!\n";
+        LuaExecutionState::getOutputBufferLocked() = "Unknown facility '" + facilityStr + "' passed to setSyslogFacility()!\n";
         return;
       }
       setSyslogFacility(*facilityLevel);
@@ -2615,14 +2747,14 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         ret << (fmt % counter % ctx->d_local.toStringWithPort() % ctx->d_doqUnsupportedVersionErrors % ctx->d_doqInvalidTokensReceived % ctx->d_errorResponses % ctx->d_validResponses) << endl;
         counter++;
       }
-      g_outputBuffer = ret.str();
+      LuaExecutionState::getOutputBufferLocked() = ret.str();
     }
     catch (const std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
 #else
-    g_outputBuffer = "DNS over QUIC support is not present!\n";
+    LuaExecutionState::getOutputBufferLocked() = "DNS over QUIC support is not present!\n";
 #endif
   });
 
@@ -2641,11 +2773,11 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       else {
         SLOG(errlog("Error: trying to get DOQ frontend with index %d but we only have %d frontend(s)\n", index, doqFrontends.size()),
              getLogger("getDOQFrontend")->info(Logr::Error, "Error: trying to get DOQ frontend with an invalid index", "index", Logging::Loggable(index), "frontends_count", Logging::Loggable(doqFrontends.size())));
-        g_outputBuffer = "Error: trying to get DOQ frontend with index " + std::to_string(index) + " but we only have " + std::to_string(doqFrontends.size()) + " frontend(s)\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error: trying to get DOQ frontend with index " + std::to_string(index) + " but we only have " + std::to_string(doqFrontends.size()) + " frontend(s)\n";
       }
     }
     catch (const std::exception& e) {
-      g_outputBuffer = "Error while trying to get DOQ frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error while trying to get DOQ frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
       SLOG(errlog("Error while trying to get DOQ frontend with index %d: %s\n", index, e.what()),
            getLogger("getDOQFrontend")->error(Logr::Error, e.what(), "Error while trying to get DOQ frontend", "index", Logging::Loggable(index)));
     }
@@ -2676,14 +2808,14 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         ret << (fmt % counter % ctx->d_tlsContext->d_addr.toStringWithPort() % ctx->d_httpconnects % ctx->d_http1Stats.d_nbQueries % ctx->d_http2Stats.d_nbQueries % ctx->d_getqueries % ctx->d_postqueries % ctx->d_badrequests % ctx->d_errorresponses % ctx->d_redirectresponses % ctx->d_validresponses % ctx->getTicketsKeysCount() % ctx->getTicketsKeyRotationDelay() % ctx->getNextTicketsKeyRotation()) << endl;
         counter++;
       }
-      g_outputBuffer = ret.str();
+      LuaExecutionState::getOutputBufferLocked() = ret.str();
     }
     catch (const std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
 #else
-    g_outputBuffer = "DNS over HTTPS support is not present!\n";
+    LuaExecutionState::getOutputBufferLocked() = "DNS over HTTPS support is not present!\n";
 #endif
   });
 
@@ -2699,14 +2831,14 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         ret << (fmt % counter % ctx->d_local.toStringWithPort() % ctx->d_doh3UnsupportedVersionErrors % ctx->d_doh3InvalidTokensReceived % ctx->d_errorResponses % ctx->d_validResponses) << endl;
         counter++;
       }
-      g_outputBuffer = ret.str();
+      LuaExecutionState::getOutputBufferLocked() = ret.str();
     }
     catch (const std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
 #else
-    g_outputBuffer = "DNS over HTTP3 support is not present!\n";
+    LuaExecutionState::getOutputBufferLocked() = "DNS over HTTP3 support is not present!\n";
 #endif
   });
 
@@ -2725,11 +2857,11 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       else {
         SLOG(errlog("Error: trying to get DOH3 frontend with index %d but we only have %d frontend(s)\n", index, doh3Frontends.size()),
              getLogger("getDOH3Frontend")->info(Logr::Error, "Error: trying to get DOH3 frontend with an invalid index", "index", Logging::Loggable(index), "frontends_count", Logging::Loggable(doh3Frontends.size())));
-        g_outputBuffer = "Error: trying to get DOH3 frontend with index " + std::to_string(index) + " but we only have " + std::to_string(doh3Frontends.size()) + " frontend(s)\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error: trying to get DOH3 frontend with index " + std::to_string(index) + " but we only have " + std::to_string(doh3Frontends.size()) + " frontend(s)\n";
       }
     }
     catch (const std::exception& e) {
-      g_outputBuffer = "Error while trying to get DOH3 frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error while trying to get DOH3 frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
       SLOG(errlog("Error while trying to get DOH3 frontend with index %d: %s\n", index, e.what()),
            getLogger("getDOH3Frontend")->error(Logr::Error, e.what(), "Error while trying to get DOH3 frontend", "index", Logging::Loggable(index)));
     }
@@ -2767,31 +2899,31 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     try {
       ostringstream ret;
       boost::format fmt("%-3d %-20.20s %-15d %-15d %-15d %-15d %-15d %-15d");
-      g_outputBuffer = "\n- HTTP/1:\n\n";
+      LuaExecutionState::getOutputBufferLocked() = "\n- HTTP/1:\n\n";
       ret << (fmt % "#" % "Address" % "200" % "400" % "403" % "500" % "502" % "Others") << endl;
       size_t counter = 0;
       for (const auto& ctx : dnsdist::getDoHFrontends()) {
         ret << (fmt % counter % ctx->d_tlsContext->d_addr.toStringWithPort() % ctx->d_http1Stats.d_nb200Responses % ctx->d_http1Stats.d_nb400Responses % ctx->d_http1Stats.d_nb403Responses % ctx->d_http1Stats.d_nb500Responses % ctx->d_http1Stats.d_nb502Responses % ctx->d_http1Stats.d_nbOtherResponses) << endl;
         counter++;
       }
-      g_outputBuffer += ret.str();
+      LuaExecutionState::getOutputBufferLocked() += ret.str();
       ret.str("");
 
-      g_outputBuffer += "\n- HTTP/2:\n\n";
+      LuaExecutionState::getOutputBufferLocked() += "\n- HTTP/2:\n\n";
       ret << (fmt % "#" % "Address" % "200" % "400" % "403" % "500" % "502" % "Others") << endl;
       counter = 0;
       for (const auto& ctx : dnsdist::getDoHFrontends()) {
         ret << (fmt % counter % ctx->d_tlsContext->d_addr.toStringWithPort() % ctx->d_http2Stats.d_nb200Responses % ctx->d_http2Stats.d_nb400Responses % ctx->d_http2Stats.d_nb403Responses % ctx->d_http2Stats.d_nb500Responses % ctx->d_http2Stats.d_nb502Responses % ctx->d_http2Stats.d_nbOtherResponses) << endl;
         counter++;
       }
-      g_outputBuffer += ret.str();
+      LuaExecutionState::getOutputBufferLocked() += ret.str();
     }
     catch (const std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
 #else
-    g_outputBuffer = "DNS over HTTPS support is not present!\n";
+    LuaExecutionState::getOutputBufferLocked() = "DNS over HTTPS support is not present!\n";
 #endif
   });
 
@@ -2810,16 +2942,16 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       else {
         SLOG(errlog("Error: trying to get DOH frontend with index %d but we only have %d frontend(s)\n", index, dohFrontends.size()),
              getLogger("getDOHFrontend")->info(Logr::Error, "Error: trying to get DOH frontend with an invalid index", "index", Logging::Loggable(index), "frontends_count", Logging::Loggable(dohFrontends.size())));
-        g_outputBuffer = "Error: trying to get DOH frontend with index " + std::to_string(index) + " but we only have " + std::to_string(dohFrontends.size()) + " frontend(s)\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error: trying to get DOH frontend with index " + std::to_string(index) + " but we only have " + std::to_string(dohFrontends.size()) + " frontend(s)\n";
       }
     }
     catch (const std::exception& e) {
-      g_outputBuffer = "Error while trying to get DOH frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error while trying to get DOH frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
       SLOG(errlog("Error while trying to get DOH frontend with index %d: %s\n", index, e.what()),
            getLogger("getDOHFrontend")->error(Logr::Error, e.what(), "Error while trying to get DOH frontend", "index", Logging::Loggable(index)));
     }
 #else
-        g_outputBuffer="DNS over HTTPS support is not present!\n";
+        LuaExecutionState::getOutputBufferLocked() = "DNS over HTTPS support is not present!\n";
 #endif
     return result;
   });
@@ -3003,7 +3135,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       });
     }
     catch (const std::exception& e) {
-      g_outputBuffer = "Error: " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error: " + string(e.what()) + "\n";
     }
 #else
     throw std::runtime_error("addTLSLocal() called but DNS over TLS support is not present!");
@@ -3023,14 +3155,14 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
         ret << (fmt % counter % ctx->d_addr.toStringWithPort() % ctx->getTicketsKeysCount() % ctx->getTicketsKeyRotationDelay() % ctx->getNextTicketsKeyRotation()) << endl;
         counter++;
       }
-      g_outputBuffer = ret.str();
+      LuaExecutionState::getOutputBufferLocked() = ret.str();
     }
     catch (const std::exception& e) {
-      g_outputBuffer = e.what();
+      LuaExecutionState::getOutputBufferLocked() = e.what();
       throw;
     }
 #else
-    g_outputBuffer = "DNS over TLS support is not present!\n";
+    LuaExecutionState::getOutputBufferLocked() = "DNS over TLS support is not present!\n";
 #endif
   });
 
@@ -3049,16 +3181,16 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       else {
         SLOG(errlog("Error: trying to get TLS frontend with index %d but we only have %d frontends\n", index, tlsFrontends.size()),
              getLogger("getTLSFrontend")->info(Logr::Error, "Error: trying to get DOT frontend with an invalid index", "index", Logging::Loggable(index), "frontends_count", Logging::Loggable(tlsFrontends.size())));
-        g_outputBuffer = "Error: trying to get TLS frontend with index " + std::to_string(index) + " but we only have " + std::to_string(tlsFrontends.size()) + " frontend(s)\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error: trying to get TLS frontend with index " + std::to_string(index) + " but we only have " + std::to_string(tlsFrontends.size()) + " frontend(s)\n";
       }
     }
     catch (const std::exception& e) {
-      g_outputBuffer = "Error while trying to get TLS frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error while trying to get TLS frontend with index " + std::to_string(index) + ": " + string(e.what()) + "\n";
       SLOG(errlog("Error while trying to get TLS frontend with index %d: %s\n", index, e.what()),
            getLogger("getTLSFrontend")->error(Logr::Error, e.what(), "Error while trying to get DOT frontend", "index", Logging::Loggable(index)));
     }
 #else
-        g_outputBuffer="DNS over TLS support is not present!\n";
+        LuaExecutionState::getOutputBufferLocked() = "DNS over TLS support is not present!\n";
 #endif
     return result;
   });
@@ -3184,7 +3316,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       setLuaSideEffect();
     }
     catch (const std::exception& exp) {
-      g_outputBuffer = "addCapabilitiesToRetain cannot be used at runtime!\n";
+      LuaExecutionState::getOutputBufferLocked() = "addCapabilitiesToRetain cannot be used at runtime!\n";
       SLOG(errlog("addCapabilitiesToRetain cannot be used at runtime!"),
            getLogger("addCapabilitiesToRetain")->info(Logr::Error, "addCapabilitiesToRetain cannot be used at runtime"));
     }
@@ -3205,7 +3337,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       setLuaSideEffect();
     }
     catch (const std::exception& exp) {
-      g_outputBuffer = "setUDPSocketBufferSizes cannot be used at runtime!\n";
+      LuaExecutionState::getOutputBufferLocked() = "setUDPSocketBufferSizes cannot be used at runtime!\n";
       SLOG(errlog("setUDPSocketBufferSizes cannot be used at runtime!"),
            getLogger("setUDPSocketBufferSizes")->info(Logr::Error, "setUDPSocketBufferSizes cannot be used at runtime"));
     }
@@ -3219,7 +3351,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
     auto [success, error] = libssl_load_engine(engineName, defaultString ? std::optional<std::string>(*defaultString) : std::nullopt);
     if (!success) {
-      g_outputBuffer = "Error while trying to load TLS engine '" + engineName + "': " + error + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error while trying to load TLS engine '" + engineName + "': " + error + "\n";
       SLOG(errlog("Error while trying to load TLS engine '%s': %s", engineName, error),
            getLogger("loadTLSEngine")->error(Logr::Error, error, "Error while trying to load TLS engine", "tls.engine", Logging::Loggable(engineName), "default_string", Logging::Loggable(defaultString ? *defaultString : "")));
     }
@@ -3234,7 +3366,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
 
     auto [success, error] = libssl_load_provider(providerName);
     if (!success) {
-      g_outputBuffer = "Error while trying to load TLS provider '" + providerName + "': " + error + "\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error while trying to load TLS provider '" + providerName + "': " + error + "\n";
       SLOG(errlog("Error while trying to load TLS provider '%s': %s", providerName, error),
            getLogger("loadTLSProvider")->error(Logr::Error, error, "Error while trying to load TLS provider", "tls.provider", Logging::Loggable(providerName)));
     }
@@ -3285,7 +3417,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     }
     auto result = dnsdist::metrics::declareCustomMetric(name, type, description, std::move(customName), withLabels);
     if (result) {
-      g_outputBuffer += *result + "\n";
+      LuaExecutionState::getOutputBufferLocked() += *result + "\n";
       SLOG(errlog("Error in declareMetric: %s", *result),
            getLogger("declareMetric")->error(Logr::Error, *result, "Error while declaring a custom metric", "dnsdist.metric.name", Logging::Loggable(name)));
       return false;
@@ -3308,7 +3440,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     }
     auto result = dnsdist::metrics::incrementCustomCounter(name, step, labels);
     if (const auto* errorStr = std::get_if<dnsdist::metrics::Error>(&result)) {
-      g_outputBuffer = *errorStr + "'\n";
+      LuaExecutionState::getOutputBufferLocked() = *errorStr + "'\n";
       SLOG(errlog("Error in incMetric: %s", *errorStr),
            getLogger("incMetric")->error(Logr::Error, *errorStr, "Error while incrementing a custom metric", "dnsdist.metric.name", Logging::Loggable(name)));
       return static_cast<uint64_t>(0);
@@ -3331,7 +3463,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     }
     auto result = dnsdist::metrics::decrementCustomCounter(name, step, labels);
     if (const auto* errorStr = std::get_if<dnsdist::metrics::Error>(&result)) {
-      g_outputBuffer = *errorStr + "'\n";
+      LuaExecutionState::getOutputBufferLocked() = *errorStr + "'\n";
       SLOG(errlog("Error in decMetric: %s", *errorStr),
            getLogger("decMetric")->error(Logr::Error, *errorStr, "Error while decrementing a custom metric", "dnsdist.metric.name", Logging::Loggable(name)));
       return static_cast<uint64_t>(0);
@@ -3346,7 +3478,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     checkAllParametersConsumed("setMetric", opts);
     auto result = dnsdist::metrics::setCustomGauge(name, value, labels);
     if (const auto* errorStr = std::get_if<dnsdist::metrics::Error>(&result)) {
-      g_outputBuffer = *errorStr + "'\n";
+      LuaExecutionState::getOutputBufferLocked() = *errorStr + "'\n";
       SLOG(errlog("Error in setMetric: %s", *errorStr),
            getLogger("setMetric")->error(Logr::Error, *errorStr, "Error while setting a custom metric", "dnsdist.metric.name", Logging::Loggable(name)));
       return 0.;
@@ -3361,7 +3493,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
     checkAllParametersConsumed("getMetric", opts);
     auto result = dnsdist::metrics::getCustomMetric(name, labels);
     if (const auto* errorStr = std::get_if<dnsdist::metrics::Error>(&result)) {
-      g_outputBuffer = *errorStr + "'\n";
+      LuaExecutionState::getOutputBufferLocked() = *errorStr + "'\n";
       SLOG(errlog("Error in getMetric: %s", *errorStr),
            getLogger("getMetric")->error(Logr::Error, *errorStr, "Error while getting a custom metric", "dnsdist.metric.name", Logging::Loggable(name)));
       return 0.;

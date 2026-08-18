@@ -43,12 +43,6 @@ bool checkQueryHeaders(const struct dnsheader& dnsHeader, ClientState& clientSta
   return true;
 }
 
-uint64_t uptimeOfProcess(const std::string& str)
-{
-  (void)str;
-  return 0;
-}
-
 void handleResponseSent(InternalQueryState& ids, double udiff, const ComboAddress& client, const ComboAddress& backend, unsigned int size, const dnsheader& cleartextDH, dnsdist::Protocol protocol, bool fromBackend)
 {
   (void)ids;

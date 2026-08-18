@@ -46,10 +46,10 @@ auto runWithLuaTracing(LuaContext& luaCtx, std::shared_ptr<Tracer>& tracer, Func
 }
 
 template <typename Func, typename... Args>
-auto runWithLuaTracing(std::shared_ptr<Tracer>& tracer, Func&& func, Args&&... args)
+auto runWithLuaTracing(DNSDistLuaContext::Context context, std::shared_ptr<Tracer>& tracer, Func&& func, Args&&... args)
 {
-  auto luaCtx = g_lua.lock();
-  return runWithLuaTracing(*luaCtx, tracer, func, args...);
+  auto luaContext = LuaExecutionState(context);
+  return runWithLuaTracing(luaContext.getLua(), tracer, func, args...);
 }
 
 } // namespace pdns::trace::dnsdist

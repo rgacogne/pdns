@@ -1986,7 +1986,7 @@ static void connectionThread(WebClientConnection&& conn)
 
       if (handler) {
         if (const auto* luaHandler = std::get_if<LuaWebHandler>(&*handler)) {
-          auto lua = g_lua.lock();
+          auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::API);
           (*luaHandler)(req, resp);
         }
         else if (const auto* builtinHandler = std::get_if<BuiltinWebHandler>(&*handler)) {

@@ -135,8 +135,9 @@ static T checkedConversionFromStr(const std::string& context, const std::string&
 template <class T>
 static bool getOptionalLuaFunction(T& destination, const ::rust::string& functionName)
 {
-  auto lua = g_lua.lock();
-  auto function = lua->readVariable<std::optional<T>>(std::string(functionName));
+#warning we should wrap the function in a object that is 1/ taking a shared_ptr of the Lua context, 2/ ensure that the lock is always held when the function is invoked 3/ set up some meta data like if we are in a Lua selector/action/LB policy?
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  auto function = luaContext.getLua().readVariable<std::optional<T>>(std::string(functionName));
   if (!function) {
     return false;
   }

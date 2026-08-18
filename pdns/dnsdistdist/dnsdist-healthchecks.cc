@@ -103,7 +103,7 @@ static bool validateHealthCheckResponseWithCallback(const std::shared_ptr<const 
   PacketBuffer buffer{data->d_buffer};
   DNSResponse response(ids, buffer, downstream);
   {
-    auto lock = g_lua.lock();
+    auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Healthcheck);
     return downstream->d_config.d_healthCheckResponseValidationCallback(&response);
   }
 }
@@ -411,7 +411,7 @@ bool queueHealthCheck(std::unique_ptr<FDMultiplexer>& mplexer, const std::shared
     }
 
     if (downstream->d_config.d_healthCheckGenerationFunction) {
-      auto lock = g_lua.lock();
+      auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Healthcheck);
       auto ret = downstream->d_config.d_healthCheckGenerationFunction(checkName, checkType, checkClass, &checkHeader);
       checkName = std::get<0>(ret);
       checkType = std::get<1>(ret);

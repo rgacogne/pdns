@@ -91,7 +91,7 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
     if (maxEntries < settings.d_shardCount) {
       SLOG(warnlog("The number of entries (%d) in the packet cache is smaller than the number of shards (%d), decreasing the number of shards to %d", maxEntries, settings.d_shardCount, maxEntries),
            dnsdist::logging::getTopLogger("configuration")->info(Logr::Warning, "The number of entries in the packet cache is smaller than the number of shards, decreasing the number of shards to the number of entries", "number_of_entries", Logging::Loggable(maxEntries), "number_of_shards", Logging::Loggable(settings.d_shardCount)));
-      g_outputBuffer += "The number of entries (" + std::to_string(maxEntries) + " in the packet cache is smaller than the number of shards (" + std::to_string(settings.d_shardCount) + "), decreasing the number of shards to " + std::to_string(maxEntries);
+      LuaExecutionState::getOutputBufferLocked() += "The number of entries (" + std::to_string(maxEntries) + " in the packet cache is smaller than the number of shards (" + std::to_string(settings.d_shardCount) + "), decreasing the number of shards to " + std::to_string(maxEntries);
       settings.d_shardCount = maxEntries;
     }
 
@@ -157,23 +157,24 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
       }
     }
     if (qnames.empty()) {
-      g_outputBuffer += "Expunged " + std::to_string(cache->expungeByName(qname, qtype ? *qtype : QType(QType::ANY).getCode(), suffixMatch ? *suffixMatch : false)) + " records\n";
+      LuaExecutionState::getOutputBufferLocked() += "Expunged " + std::to_string(cache->expungeByName(qname, qtype ? *qtype : QType(QType::ANY).getCode(), suffixMatch ? *suffixMatch : false)) + " records\n";
     }
     else {
-      g_outputBuffer += "Expunged " + std::to_string(cache->expungeByName(qnames, qtype ? *qtype : QType(QType::ANY).getCode(), suffixMatch ? *suffixMatch : false)) + " records\n";
+      LuaExecutionState::getOutputBufferLocked() += "Expunged " + std::to_string(cache->expungeByName(qnames, qtype ? *qtype : QType(QType::ANY).getCode(), suffixMatch ? *suffixMatch : false)) + " records\n";
     }
   });
   luaCtx.registerFunction<void (std::shared_ptr<DNSDistPacketCache>::*)() const>("printStats", [](const std::shared_ptr<DNSDistPacketCache>& cache) {
     if (cache) {
-      g_outputBuffer = "Entries: " + std::to_string(cache->getEntriesCount()) + "/" + std::to_string(cache->getMaxEntries()) + "\n";
-      g_outputBuffer += "Hits: " + std::to_string(cache->getHits()) + "\n";
-      g_outputBuffer += "Misses: " + std::to_string(cache->getMisses()) + "\n";
-      g_outputBuffer += "Deferred inserts: " + std::to_string(cache->getDeferredInserts()) + "\n";
-      g_outputBuffer += "Deferred lookups: " + std::to_string(cache->getDeferredLookups()) + "\n";
-      g_outputBuffer += "Lookup Collisions: " + std::to_string(cache->getLookupCollisions()) + "\n";
-      g_outputBuffer += "Insert Collisions: " + std::to_string(cache->getInsertCollisions()) + "\n";
-      g_outputBuffer += "TTL Too Shorts: " + std::to_string(cache->getTTLTooShorts()) + "\n";
-      g_outputBuffer += "Cleanup Count: " + std::to_string(cache->getCleanupCount()) + "\n";
+      auto& buffer = LuaExecutionState::getOutputBufferLocked();
+      buffer = "Entries: " + std::to_string(cache->getEntriesCount()) + "/" + std::to_string(cache->getMaxEntries()) + "\n";
+      buffer += "Hits: " + std::to_string(cache->getHits()) + "\n";
+      buffer += "Misses: " + std::to_string(cache->getMisses()) + "\n";
+      buffer += "Deferred inserts: " + std::to_string(cache->getDeferredInserts()) + "\n";
+      buffer += "Deferred lookups: " + std::to_string(cache->getDeferredLookups()) + "\n";
+      buffer += "Lookup Collisions: " + std::to_string(cache->getLookupCollisions()) + "\n";
+      buffer += "Insert Collisions: " + std::to_string(cache->getInsertCollisions()) + "\n";
+      buffer += "TTL Too Shorts: " + std::to_string(cache->getTTLTooShorts()) + "\n";
+      buffer += "Cleanup Count: " + std::to_string(cache->getCleanupCount()) + "\n";
     }
   });
   luaCtx.registerFunction<LuaAssociativeTable<uint64_t> (std::shared_ptr<DNSDistPacketCache>::*)() const>("getStats", [](const std::shared_ptr<DNSDistPacketCache>& cache) {
@@ -230,7 +231,7 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
 
       int fd = open(fname.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0660);
       if (fd < 0) {
-        g_outputBuffer = "Error opening dump file for writing: " + stringerror() + "\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error opening dump file for writing: " + stringerror() + "\n";
         return;
       }
 
@@ -245,7 +246,7 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
 
       close(fd);
 
-      g_outputBuffer += "Dumped " + std::to_string(records) + " records\n";
+      LuaExecutionState::getOutputBufferLocked() += "Dumped " + std::to_string(records) + " records\n";
     }
   });
 #endif /* DISABLE_PACKETCACHE_BINDINGS */

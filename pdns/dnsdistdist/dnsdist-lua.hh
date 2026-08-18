@@ -27,8 +27,54 @@
 
 #include "ext/luawrapper/include/LuaContext.hpp"
 
-extern RecursiveLockGuarded<LuaContext> g_lua;
-extern std::string g_outputBuffer; // locking for this is ok, as locked by g_luamutex
+struct DNSDistLuaContext
+{
+  enum class Context : uint8_t
+  {
+    Unset = 0,
+    InitialConfiguration,
+    Console,
+    API,
+    Healthcheck,
+    Selector,
+    Action,
+    LBPolicy,
+    BackgroundThread,
+    NetworkListener,
+    Maintenance,
+    TLSTicketKeyAdded,
+    GetAddressInfo,
+    QueryCounter,
+    ServerStateChange,
+    ExitCallback,
+  };
+
+  LuaContext d_lua;
+  std::string d_outputBuffer;
+  Context d_currentContext{Context::Unset};
+};
+
+class LuaExecutionState
+{
+public:
+  explicit LuaExecutionState(DNSDistLuaContext::Context currentContext);
+  LuaExecutionState(const LuaExecutionState&) = delete;
+  LuaExecutionState(LuaExecutionState&&) = delete;
+  LuaExecutionState& operator=(const LuaExecutionState&) = delete;
+  LuaExecutionState& operator=(LuaExecutionState&&) = delete;
+  ~LuaExecutionState();
+
+  // inefficient version, when we are in a Lua lambda without access to the execution state,
+  // but you HAVE to be holding the lock via an existing execution state
+  static std::string& getOutputBufferLocked();
+  static bool isAllowedToAlterRuntimeConfiguration();
+  [[nodiscard]] LuaContext& getLua() const;
+  [[nodiscard]] std::string& getOutputBuffer() const;
+
+private:
+  static RecursiveLockGuarded<DNSDistLuaContext> s_context;
+  RecursiveLockGuardedHolder<DNSDistLuaContext> d_lock;
+};
 
 using luaruleparams_t = LuaAssociativeTable<std::string>;
 
@@ -69,7 +115,8 @@ template <class FunctionType>
 std::optional<FunctionType> getFunctionFromLuaCode(const std::string& code, const std::string& context)
 {
   try {
-    auto function = g_lua.lock()->executeCode<FunctionType>(code);
+    auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+    auto function = luaContext.getLua().executeCode<FunctionType>(code);
     if (!function) {
       return std::nullopt;
     }

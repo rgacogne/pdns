@@ -449,7 +449,7 @@ ServerPolicy::SelectedBackend ServerPolicy::getSelectedBackend(const ServerPolic
     if (!d_isFFI) {
       std::optional<SelectedServerPosition> position;
       {
-        auto lock = g_lua.lock();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::LBPolicy);
         position = d_policy(servers, &dnsQuestion);
       }
       if (position && *position > 0 && *position <= servers.size()) {
@@ -463,7 +463,7 @@ ServerPolicy::SelectedBackend ServerPolicy::getSelectedBackend(const ServerPolic
     ServerPolicy::SelectedServerPosition selected = 0;
 
     if (!d_isPerThread) {
-      auto lock = g_lua.lock();
+      auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::LBPolicy);
       selected = d_ffipolicy(&serversList, &dnsq);
     }
     else {

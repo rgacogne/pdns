@@ -112,12 +112,6 @@ std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dnsQuest
 }
 }
 
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static): only a stub
-bool DNSDistSNMPAgent::sendBackendStatusChangeTrap([[maybe_unused]] DownstreamState const& backend)
-{
-  return false;
-}
-
 bool processResponderPacket(std::shared_ptr<DownstreamState>& dss, PacketBuffer& response, InternalQueryState&& ids)
 {
   (void)dss;

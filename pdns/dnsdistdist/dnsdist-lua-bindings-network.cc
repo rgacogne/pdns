@@ -70,7 +70,7 @@ void setupLuaBindingsNetwork(LuaContext& luaCtx, bool client, bool configCheck)
 
     return listener->addUnixListeningEndpoint(path, endpointID, [cb = std::move(cb)](dnsdist::NetworkListener::EndpointID endpoint, std::string&& dgram, const std::string& from) {
       {
-        auto lock = g_lua.lock();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::NetworkListener);
         cb(endpoint, dgram, from);
       }
       dnsdist::handleQueuedAsynchronousEvents();
@@ -85,7 +85,7 @@ void setupLuaBindingsNetwork(LuaContext& luaCtx, bool client, bool configCheck)
 
     return listener->addUnixListeningEndpoint(path, endpointID, [cb = std::move(cb)](dnsdist::NetworkListener::EndpointID endpoint, std::string&& dgram, const std::string& from) {
       {
-        auto lock = g_lua.lock();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::NetworkListener);
         dnsdist_ffi_network_message_t msg(dgram, from, endpoint);
         cb(&msg);
       }

@@ -138,7 +138,7 @@ static void showRules(IdentifierT identifier, std::optional<ruleparams_t>& vars)
 
   const auto& chains = dnsdist::configuration::getCurrentRuntimeConfiguration().d_ruleChains;
   const auto& rules = dnsdist::rules::getRuleChain(chains, identifier);
-  g_outputBuffer += rulesToString(rules, vars);
+  LuaExecutionState::getOutputBufferLocked() += rulesToString(rules, vars);
 }
 
 template <typename ChainTypeT, typename RuleTypeT>
@@ -148,7 +148,7 @@ static bool removeRuleFromChain(ChainTypeT& rules, const std::function<bool(cons
                                  rules.end(),
                                  matchFunction);
   if (removeIt == rules.end()) {
-    g_outputBuffer = "Error: no rule matched\n";
+    LuaExecutionState::getOutputBufferLocked() = "Error: no rule matched\n";
     return false;
   }
   rules.erase(removeIt,
@@ -196,7 +196,7 @@ static void rmRule(ChainIdentifierT chainIdentifier, const boost::variant<unsign
     dnsdist::configuration::updateRuntimeConfiguration([chainIdentifier, pos](dnsdist::configuration::RuntimeConfiguration& config) {
       auto& rules = dnsdist::rules::getRuleChain(config.d_ruleChains, chainIdentifier);
       if (*pos >= rules.size()) {
-        g_outputBuffer = "Error: attempt to delete non-existing rule\n";
+        LuaExecutionState::getOutputBufferLocked() = "Error: attempt to delete non-existing rule\n";
         return;
       }
       rules.erase(rules.begin() + *pos);
@@ -228,7 +228,7 @@ static void mvRule(IdentifierTypeT chainIdentifier, unsigned int from, unsigned 
   dnsdist::configuration::updateRuntimeConfiguration([chainIdentifier, from, &destination](dnsdist::configuration::RuntimeConfiguration& config) {
     auto& rules = dnsdist::rules::getRuleChain(config.d_ruleChains, chainIdentifier);
     if (from >= rules.size() || destination > rules.size()) {
-      g_outputBuffer = "Error: attempt to move rules from/to invalid index\n";
+      LuaExecutionState::getOutputBufferLocked() = "Error: attempt to move rules from/to invalid index\n";
       return;
     }
     // coverity[auto_causes_copy]
@@ -370,12 +370,24 @@ void setupLuaRuleChainsManagement(LuaContext& luaCtx)
       showRules(chain.identifier, vars);
     });
     luaCtx.writeFunction("rm" + chain.prefix + "ResponseRule", [&chain](const boost::variant<unsigned int, std::string>& identifier) {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
       rmRule(chain.identifier, identifier);
     });
     luaCtx.writeFunction("mv" + chain.prefix + "ResponseRuleToTop", [&chain]() {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
       moveRuleToTop(chain.identifier);
     });
     luaCtx.writeFunction("mv" + chain.prefix + "ResponseRule", [&chain](unsigned int from, unsigned int dest) {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
       mvRule(chain.identifier, from, dest);
     });
     luaCtx.writeFunction("get" + chain.prefix + "ResponseRule", [&chain](const boost::variant<unsigned int, std::string>& selector) -> std::optional<dnsdist::rules::ResponseRuleAction> {
@@ -399,6 +411,9 @@ void setupLuaRuleChainsManagement(LuaContext& luaCtx)
     });
 
     luaCtx.writeFunction("clear" + chain.prefix + "ResponseRules", [&chain]() {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
       setLuaSideEffect();
       dnsdist::configuration::updateRuntimeConfiguration([&chain](dnsdist::configuration::RuntimeConfiguration& config) {
         auto& rules = dnsdist::rules::getRuleChain(config.d_ruleChains, chain.identifier);
@@ -412,12 +427,24 @@ void setupLuaRuleChainsManagement(LuaContext& luaCtx)
       showRules(chain.identifier, vars);
     });
     luaCtx.writeFunction("rm" + chain.prefix + "Rule", [&chain](const boost::variant<unsigned int, std::string>& identifier) {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
       rmRule(chain.identifier, identifier);
     });
     luaCtx.writeFunction("mv" + chain.prefix + "RuleToTop", [&chain]() {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
       moveRuleToTop(chain.identifier);
     });
     luaCtx.writeFunction("mv" + chain.prefix + "Rule", [&chain](unsigned int from, unsigned int dest) {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
       mvRule(chain.identifier, from, dest);
     });
     luaCtx.writeFunction("get" + chain.prefix + "Rule", [&chain](const boost::variant<int, std::string>& selector) -> std::optional<dnsdist::rules::RuleAction> {
@@ -442,6 +469,9 @@ void setupLuaRuleChainsManagement(LuaContext& luaCtx)
     });
 
     luaCtx.writeFunction("clear" + chain.prefix + "Rules", [&chain]() {
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
       setLuaSideEffect();
       dnsdist::configuration::updateRuntimeConfiguration([&chain](dnsdist::configuration::RuntimeConfiguration& config) {
         auto& rules = dnsdist::rules::getRuleChain(config.d_ruleChains, chain.identifier);
@@ -471,6 +501,10 @@ void setupLuaRuleChainsManagement(LuaContext& luaCtx)
       if (era.type() != typeid(std::shared_ptr<DNSAction>)) {
         throw std::runtime_error(fullName + "() can only be called with query-related actions, not response-related ones. Are you looking for addResponseAction()?");
       }
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
 
       addRule(chain.identifier, fullName, var, boost::get<std::shared_ptr<DNSAction>>(era), params);
     });
@@ -493,6 +527,10 @@ void setupLuaRuleChainsManagement(LuaContext& luaCtx)
       if (era.type() != typeid(std::shared_ptr<DNSResponseAction>)) {
         throw std::runtime_error(fullName + "() can only be called with response-related actions, not query-related ones. Are you looking for addAction()?");
       }
+      if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+        return;
+      }
+      setLuaSideEffect();
 
       addRule(chain.identifier, fullName, var, boost::get<std::shared_ptr<DNSResponseAction>>(era), params);
     });
@@ -537,7 +575,7 @@ void setupLuaRuleChainsManagement(LuaContext& luaCtx)
       }
     }
     double udiff = swatch.udiff();
-    g_outputBuffer = (boost::format("Had %d matches out of %d, %.1f qps, in %.1f us\n") % matches % times % (1000000 * (1.0 * times / udiff)) % udiff).str();
+    LuaExecutionState::getOutputBufferLocked() = (boost::format("Had %d matches out of %d, %.1f qps, in %.1f us\n") % matches % times % (1000000 * (1.0 * times / udiff)) % udiff).str();
   });
 }
 

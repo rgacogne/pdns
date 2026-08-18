@@ -61,7 +61,7 @@ static void setTicketsKeyAddedHook(const LuaContext& context, const TicketsKeyAd
   (void)context;
   TLSCtx::setTicketsKeyAddedHook([hook](const std::string& key) {
     try {
-      auto lua = g_lua.lock();
+      auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::TLSTicketKeyAdded);
       hook(key, key.size());
     }
     catch (const std::exception& exp) {

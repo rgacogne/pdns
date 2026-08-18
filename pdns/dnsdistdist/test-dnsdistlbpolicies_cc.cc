@@ -14,9 +14,6 @@
 #include "dolog.hh"
 
 #include "ext/luawrapper/include/LuaContext.hpp"
-RecursiveLockGuarded<LuaContext> g_lua{LuaContext()};
-
-std::unique_ptr<DNSDistSNMPAgent> g_snmpAgent{nullptr};
 
 #if BENCH_POLICIES
 #include "dnsdist-rings.hh"
@@ -26,31 +23,11 @@ Rings g_rings;
 /* add stub implementations, we don't want to include the corresponding object files
    and their dependencies */
 
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static): this is a stub, the real one is not that simple..
-bool TLSFrontend::setupTLS()
-{
-  return true;
-}
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static): this is a stub, the real one is not that simple..
-bool DNSDistSNMPAgent::sendDNSTrap(const DNSQuestion& dnsQuestion, const std::string& reason)
-{
-  (void)dnsQuestion;
-  (void)reason;
-  return false;
-}
-
-void setLuaNoSideEffect()
-{
-}
-
 bool setupDoTProtocolNegotiation(std::shared_ptr<TLSCtx>& tlsCtx)
 {
   (void)tlsCtx;
   return true;
 }
-
-string g_outputBuffer;
 
 static DNSQuestion getDQ(const DNSName* providedName = nullptr)
 {
@@ -110,7 +87,8 @@ static void resetLuaContext()
   });
   /* we actually need this line to clear the cached state for this thread */
   BOOST_REQUIRE_EQUAL(dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy->getName(), "leastOutstanding");
-  *(g_lua.lock()) = LuaContext();
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  luaContext.getLua() = LuaContext();
 }
 
 BOOST_AUTO_TEST_SUITE(dnsdistlbpolicies)
@@ -553,13 +531,15 @@ BOOST_AUTO_TEST_CASE(test_lua)
     setServerPolicyLua("luaroundrobin", luaroundrobin)
   )foo";
   resetLuaContext();
-  g_lua.lock()->writeFunction("setServerPolicyLua", [](const string& name, const ServerPolicy::policyfunc_t& policy) {
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  auto& lua = luaContext.getLua();
+  lua.writeFunction("setServerPolicyLua", [](const string& name, const ServerPolicy::policyfunc_t& policy) {
     auto pol = std::make_shared<ServerPolicy>(name, policy, true);
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = std::move(pol);
     });
   });
-  g_lua.lock()->executeCode(policySetupStr);
+  lua.executeCode(policySetupStr);
 
   {
     const auto& pol = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy;
@@ -620,14 +600,16 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi_rr)
     setServerPolicyLuaFFI("FFI round-robin", ffilb)
   )foo";
   resetLuaContext();
-  g_lua.lock()->executeCode(getLuaFFIWrappers());
-  g_lua.lock()->writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  auto& lua = luaContext.getLua();
+  lua.executeCode(getLuaFFIWrappers());
+  lua.writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
     auto pol = std::make_shared<ServerPolicy>(name, std::move(policy));
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = std::move(pol);
     });
   });
-  g_lua.lock()->executeCode(policySetupStr);
+  lua.executeCode(policySetupStr);
 
   {
     const auto& pol = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy;
@@ -678,14 +660,16 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi_no_server_available)
     setServerPolicyLuaFFI("FFI policy", ffipolicy)
   )foo";
   resetLuaContext();
-  g_lua.lock()->executeCode(getLuaFFIWrappers());
-  g_lua.lock()->writeFunction("setServerPolicyLuaFFI", [](const string& policyName, ServerPolicy::ffipolicyfunc_t policy) {
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  auto& lua = luaContext.getLua();
+  lua.executeCode(getLuaFFIWrappers());
+  lua.writeFunction("setServerPolicyLuaFFI", [](const string& policyName, ServerPolicy::ffipolicyfunc_t policy) {
     auto pol = std::make_shared<ServerPolicy>(policyName, std::move(policy));
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = std::move(pol);
     });
   });
-  g_lua.lock()->executeCode(policySetupStr);
+  lua.executeCode(policySetupStr);
 
   {
     const auto& pol = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy;
@@ -724,14 +708,16 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi_hashed)
     setServerPolicyLuaFFI("FFI hashed", ffilb)
   )foo";
   resetLuaContext();
-  g_lua.lock()->executeCode(getLuaFFIWrappers());
-  g_lua.lock()->writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  auto& lua = luaContext.getLua();
+  lua.executeCode(getLuaFFIWrappers());
+  lua.writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
     auto pol = std::make_shared<ServerPolicy>(name, std::move(policy));
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = std::move(pol);
     });
   });
-  g_lua.lock()->executeCode(policySetupStr);
+  lua.executeCode(policySetupStr);
 
   {
     const auto& pol = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy;
@@ -784,14 +770,16 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi_whashed)
     setServerPolicyLuaFFI("FFI whashed", ffilb)
   )foo";
   resetLuaContext();
-  g_lua.lock()->executeCode(getLuaFFIWrappers());
-  g_lua.lock()->writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  auto& lua = luaContext.getLua();
+  lua.executeCode(getLuaFFIWrappers());
+  lua.writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
     auto pol = std::make_shared<ServerPolicy>(name, std::move(policy));
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = std::move(pol);
     });
   });
-  g_lua.lock()->executeCode(policySetupStr);
+  lua.executeCode(policySetupStr);
 
   {
     const auto& pol = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy;
@@ -844,14 +832,16 @@ BOOST_AUTO_TEST_CASE(test_lua_ffi_chashed)
     setServerPolicyLuaFFI("FFI chashed", ffilb)
   )foo";
   resetLuaContext();
-  g_lua.lock()->executeCode(getLuaFFIWrappers());
-  g_lua.lock()->writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
+  auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::InitialConfiguration);
+  auto& lua = luaContext.getLua();
+  lua.executeCode(getLuaFFIWrappers());
+  lua.writeFunction("setServerPolicyLuaFFI", [](const string& name, const ServerPolicy::ffipolicyfunc_t& policy) {
     auto pol = std::make_shared<ServerPolicy>(name, std::move(policy));
     dnsdist::configuration::updateRuntimeConfiguration([&pol](dnsdist::configuration::RuntimeConfiguration& config) {
       config.d_lbPolicy = std::move(pol);
     });
   });
-  g_lua.lock()->executeCode(policySetupStr);
+  lua.executeCode(policySetupStr);
 
   {
     const auto& pol = dnsdist::configuration::getCurrentRuntimeConfiguration().d_lbPolicy;

@@ -396,10 +396,10 @@ void doConsole()
       bool withReturn = true;
     retry:;
       try {
-        auto lua = g_lua.lock();
-        g_outputBuffer.clear();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Console);
+        luaContext.getOutputBuffer().clear();
         resetLuaSideEffect();
-        auto ret = lua->executeCode<
+        auto ret = luaContext.getLua().executeCode<
           std::optional<
             boost::variant<
               string,
@@ -431,7 +431,7 @@ void doConsole()
           }
         }
         else {
-          cout << g_outputBuffer << std::flush;
+          cout << luaContext.getOutputBuffer() << std::flush;
         }
 
         if (!getLuaNoSideEffect()) {
@@ -536,11 +536,10 @@ static void controlClientThread(ConsoleConnection&& conn, std::shared_ptr<Logr::
         bool withReturn = true;
       retry:;
         try {
-          auto lua = g_lua.lock();
-
-          g_outputBuffer.clear();
+          auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::Console);
+          luaContext.getOutputBuffer().clear();
           resetLuaSideEffect();
-          auto ret = lua->executeCode<
+          auto ret = luaContext.getLua().executeCode<
             std::optional<
               boost::variant<
                 string,
@@ -579,7 +578,7 @@ static void controlClientThread(ConsoleConnection&& conn, std::shared_ptr<Logr::
             }
           }
           else {
-            response = g_outputBuffer;
+            response = luaContext.getOutputBuffer();
           }
           if (!getLuaNoSideEffect()) {
             feedConfigDelta(line);

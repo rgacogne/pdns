@@ -33,10 +33,8 @@
 // link. In the future, all these functions and declarations should go away and be put into their
 // own hh/cc files.
 
-RecursiveLockGuarded<LuaContext> g_lua{LuaContext()};
 shared_ptr<BPFFilter> g_defaultBPFFilter{nullptr};
 Rings g_rings;
-string g_outputBuffer;
 std::shared_ptr<dnsdist::udp::UDPTCPCrossQuerySender> dnsdist::udp::UDPCrossProtocolQuery::s_sender = std::make_shared<UDPTCPCrossQuerySender>();
 
 void handleResponseSent([[maybe_unused]] InternalQueryState& ids, [[maybe_unused]] double udiff, [[maybe_unused]] const ComboAddress& client, [[maybe_unused]] const ComboAddress& backend, [[maybe_unused]] unsigned int size, [[maybe_unused]] const dnsheader& cleartextDH, [[maybe_unused]] dnsdist::Protocol protocol, [[maybe_unused]] bool fromBackend)
@@ -107,19 +105,9 @@ bool processResponderPacket([[maybe_unused]] std::shared_ptr<DownstreamState>& d
   return false;
 }
 
-// NOLINTNEXTLINE(performance-unnecessary-value-param): this is a stub, the real one is not that simple and the performance does not matter
-void responderThread([[maybe_unused]] std::shared_ptr<DownstreamState> dss)
-{
-}
-
 bool checkQueryHeaders([[maybe_unused]] const struct dnsheader& dnsHeader, [[maybe_unused]] ClientState& clientState)
 {
   return true;
-}
-
-bool checkDNSCryptQuery([[maybe_unused]] const ClientState& clientState, [[maybe_unused]] PacketBuffer& query, [[maybe_unused]] std::unique_ptr<DNSCryptQuery>& dnsCryptQuery, [[maybe_unused]] time_t now, [[maybe_unused]] bool tcp)
-{
-  return false;
 }
 
 bool responseContentMatches([[maybe_unused]] const PacketBuffer& response, [[maybe_unused]] const DNSName& qname, [[maybe_unused]] const uint16_t qtype, [[maybe_unused]] const uint16_t qclass, [[maybe_unused]] const std::shared_ptr<DownstreamState>& remote, [[maybe_unused]] bool allowEmptyResponse)

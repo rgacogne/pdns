@@ -55,8 +55,9 @@ void setupLuaBindingsLogging(LuaContext& luaCtx)
          dnsdist::logging::getTopLogger("lua-message")->info(Logr::Warning, arg));
   });
   luaCtx.writeFunction("show", [](const string& arg) {
-    g_outputBuffer += arg;
-    g_outputBuffer += "\n";
+    auto& buffer = LuaExecutionState::getOutputBufferLocked();
+    buffer += arg;
+    buffer += "\n";
   });
 }
 
@@ -101,6 +102,9 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
 
   /* ServerPool */
   luaCtx.registerFunction<void (std::shared_ptr<dnsdist::lua::LuaServerPoolObject>::*)(std::shared_ptr<DNSDistPacketCache>)>("setCache", [](const std::shared_ptr<dnsdist::lua::LuaServerPoolObject>& pool, std::shared_ptr<DNSDistPacketCache> cache) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     if (pool) {
       dnsdist::configuration::updateRuntimeConfiguration([&pool, &cache](dnsdist::configuration::RuntimeConfiguration& config) {
         auto poolIt = config.d_pools.find(pool->poolName);
@@ -125,6 +129,9 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
     return cache;
   });
   luaCtx.registerFunction<void (std::shared_ptr<dnsdist::lua::LuaServerPoolObject>::*)()>("unsetCache", [](const std::shared_ptr<dnsdist::lua::LuaServerPoolObject>& pool) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     if (pool) {
       dnsdist::configuration::updateRuntimeConfiguration([&pool](dnsdist::configuration::RuntimeConfiguration& config) {
         auto poolIt = config.d_pools.find(pool->poolName);
@@ -149,6 +156,9 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
     return ecs;
   });
   luaCtx.registerFunction<void (std::shared_ptr<dnsdist::lua::LuaServerPoolObject>::*)(bool ecs)>("setECS", [](std::shared_ptr<dnsdist::lua::LuaServerPoolObject>& pool, bool ecs) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     if (pool) {
       dnsdist::configuration::updateRuntimeConfiguration([&pool, ecs](dnsdist::configuration::RuntimeConfiguration& config) {
         auto poolIt = config.d_pools.find(pool->poolName);
@@ -173,6 +183,9 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
     return zeroScope;
   });
   luaCtx.registerFunction<void (std::shared_ptr<dnsdist::lua::LuaServerPoolObject>::*)(bool enabled)>("setZeroScope", [](std::shared_ptr<dnsdist::lua::LuaServerPoolObject>& pool, bool enabled) {
+    if (!LuaExecutionState::isAllowedToAlterRuntimeConfiguration()) {
+      return;
+    }
     if (pool) {
       dnsdist::configuration::updateRuntimeConfiguration([&pool, enabled](dnsdist::configuration::RuntimeConfiguration& config) {
         auto poolIt = config.d_pools.find(pool->poolName);
@@ -1114,7 +1127,7 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
         result.emplace_back(result.size() + 1, entry);
       }
       {
-        auto lua = g_lua.lock();
+        auto luaContext = LuaExecutionState(DNSDistLuaContext::Context::GetAddressInfo);
         try {
           callback(resolvedHostname, result);
         }
