@@ -1005,6 +1005,7 @@ static std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)> getNewServerContext(con
   if (config.d_asyncMode) {
 #ifdef SSL_MODE_ASYNC
     mode |= SSL_MODE_ASYNC;
+    cerr<<"enabling async"<<endl;
 #else
     warnings.push_back("Warning: TLS async mode requested but not supported");
 #endif

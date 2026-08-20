@@ -246,38 +246,34 @@ public:
     return results;
   }
 
-  IOState convertIORequestToIOState(int res) const
+  [[nodiscard]] IOState convertIORequestToIOState(int res) const
   {
     int error = SSL_get_error(d_conn.get(), res);
     if (error == SSL_ERROR_WANT_READ) {
       return IOState::NeedRead;
     }
-    else if (error == SSL_ERROR_WANT_WRITE) {
+    if (error == SSL_ERROR_WANT_WRITE) {
       return IOState::NeedWrite;
     }
-    else if (error == SSL_ERROR_SYSCALL) {
+    if (error == SSL_ERROR_SYSCALL) {
       if (errno == 0) {
         throw std::runtime_error("TLS connection closed by remote end");
       }
-      else {
-        throw std::runtime_error("Syscall error while processing TLS connection: " + std::string(strerror(errno)));
-      }
+      throw std::runtime_error("Syscall error while processing TLS connection: " + stringerror(errno));
     }
-    else if (error == SSL_ERROR_ZERO_RETURN) {
+    if (error == SSL_ERROR_ZERO_RETURN) {
       throw std::runtime_error("TLS connection closed by remote end");
     }
 #ifdef SSL_MODE_ASYNC
-    else if (error == SSL_ERROR_WANT_ASYNC) {
+    if (error == SSL_ERROR_WANT_ASYNC) {
+      std::cerr<<"want async!"<<endl;
       return IOState::Async;
     }
 #endif
-    else {
-      if (shouldDoVerboseLogging()) {
-        throw std::runtime_error("Error while processing TLS connection: (" + std::to_string(error) + ") " + libssl_get_error_string());
-      } else {
-        throw std::runtime_error("Error while processing TLS connection: " + std::to_string(error));
-      }
+    if (shouldDoVerboseLogging()) {
+      throw std::runtime_error("Error while processing TLS connection: (" + std::to_string(error) + ") " + libssl_get_error_string());
     }
+    throw std::runtime_error("Error while processing TLS connection: " + std::to_string(error));
   }
 
   void handleIORequest(int res, const struct timeval& timeout)
@@ -288,7 +284,7 @@ public:
       if (res == 0) {
         throw std::runtime_error("Timeout while reading from TLS connection");
       }
-      else if (res < 0) {
+      if (res < 0) {
         throw std::runtime_error("Error waiting to read from TLS connection");
       }
     }
@@ -297,7 +293,7 @@ public:
       if (res == 0) {
         throw std::runtime_error("Timeout while writing to TLS connection");
       }
-      else if (res < 0) {
+      if (res < 0) {
         throw std::runtime_error("Error waiting to write to TLS connection");
       }
     }
@@ -313,7 +309,7 @@ public:
     if (res == 1) {
       return IOState::Done;
     }
-    else if (res < 0) {
+    if (res < 0) {
       return convertIORequestToIOState(res);
     }
 
@@ -374,7 +370,7 @@ public:
     if (res == 1) {
       return IOState::Done;
     }
-    else if (res < 0) {
+    if (res < 0) {
       return convertIORequestToIOState(res);
     }
 
@@ -416,9 +412,7 @@ public:
       if (res <= 0) {
         return convertIORequestToIOState(res);
       }
-      else {
-        pos += static_cast<size_t>(res);
-      }
+      pos += static_cast<size_t>(res);
     }
     while (pos < toWrite);
 
@@ -436,11 +430,9 @@ public:
       if (res <= 0) {
         return convertIORequestToIOState(res);
       }
-      else {
-        pos += static_cast<size_t>(res);
-        if (allowIncomplete) {
-          break;
-        }
+      pos += static_cast<size_t>(res);
+      if (allowIncomplete) {
+        break;
       }
     }
     while (pos < toRead);
@@ -507,13 +499,13 @@ public:
       return false;
     }
 
-    char buf;
+    char buf{};
     int res = SSL_peek(d_conn.get(), &buf, sizeof(buf));
     if (res > 0) {
       return true;
     }
     try {
-      convertIORequestToIOState(res);
+      (void)convertIORequestToIOState(res);
       return true;
     }
     catch (...) {

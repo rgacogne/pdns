@@ -558,6 +558,7 @@ void IncomingTCPConnectionState::queueResponse(std::shared_ptr<IncomingTCPConnec
 
 void IncomingTCPConnectionState::handleAsyncReady([[maybe_unused]] int desc, FDMultiplexer::funcparam_t& param)
 {
+  cerr<<__PRETTY_FUNCTION__<<endl;
   auto state = boost::any_cast<std::shared_ptr<IncomingTCPConnectionState>>(param);
 
   /* If we are here, the async jobs for this SSL* are finished
@@ -584,6 +585,7 @@ void IncomingTCPConnectionState::handleAsyncReady([[maybe_unused]] int desc, FDM
 
 void IncomingTCPConnectionState::updateIOForAsync(std::shared_ptr<IncomingTCPConnectionState>& conn)
 {
+  cerr<<__PRETTY_FUNCTION__<<endl;
   auto fds = conn->d_handler.getAsyncFDs();
   for (const auto desc : fds) {
     conn->d_threadData.mplexer->addReadFD(desc, handleAsyncReady, conn);
