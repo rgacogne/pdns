@@ -473,6 +473,10 @@ void IncomingHTTP2Connection::handleIO()
       - if we have NeedRead, or nghttp2_session_want_read, wait until the socket
         becomes readable and call handleReadableIOCallback
     */
+    if (iostate == IOState::Async) {
+      /* the callback will be ignored in that specific case */
+      updateIO(iostate, handleReadableIOCallback);
+    }
     if (hasPendingWrite()) {
       updateIO(IOState::NeedWrite, handleWritableIOCallback);
     }
