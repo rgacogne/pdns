@@ -1118,6 +1118,7 @@ void IncomingTCPConnectionState::handleIO()
 
     if (maxConnectionDurationReached(g_maxTCPConnectionDuration, now)) {
       vinfolog("Terminating TCP connection from %s because it reached the maximum TCP connection duration", d_ci.remote.toStringWithPort());
+      ++d_ci.cs->tcpMaxDurationReached;
       // will be handled by the ioGuard
       // handleNewIOState(state, IOState::Done, fd, handleIOCallback);
       return;
@@ -1155,6 +1156,7 @@ void IncomingTCPConnectionState::handleIO()
           }
         }
         else if (status == ProxyProtocolResult::Error) {
+          ++d_ci.cs->tcpBadProxyProtocol;
           iostate = IOState::Done;
         }
         else {
