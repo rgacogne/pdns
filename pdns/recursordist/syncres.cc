@@ -5008,7 +5008,7 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, const string&
     if (tCacheEntry->first.type != QType::NSEC3 && (tCacheEntry->first.type == QType::DS || tCacheEntry->first.type == QType::NS || tCacheEntry->first.type == QType::A || tCacheEntry->first.type == QType::AAAA || tCacheEntry->second.isAuth || wasForwardRecurse)) {
 
       bool doCache = true;
-      if (!tCacheEntry->second.isAuth && seenBogusRRSet) {
+      if (!tCacheEntry->second.isAuth && seenBogusRRSet && (tCacheEntry->first.type != QType::NS && tCacheEntry->first.type != QType::A && tCacheEntry->first.type != QType::AAAA)) {
         LOG(prefix << qname << ": Not caching non-authoritative rrsets received with Bogus answer" << endl);
         doCache = false;
       }
