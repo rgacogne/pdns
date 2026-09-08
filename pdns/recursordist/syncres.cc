@@ -4793,7 +4793,7 @@ void SyncRes::rememberParentSetIfNeeded(const DNSName& domain, const vector<DNSR
   }
 }
 
-RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, const string& prefix, LWResult& lwr, const DNSName& qname, const QType qtype, const DNSName& auth, bool wasForwarded, const std::optional<Netmask>& ednsmask, bool rdQuery, const ComboAddress& remoteIP, bool overTCP, tcache_t& tcache) // NOLINT(readability-function-cognitive-complexity)
+RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, const string& prefix, LWResult& lwr, const DNSName& qname, const QType qtype, const DNSName& auth, bool wasForwarded, const std::optional<Netmask>& ednsmask, bool rdQuery, const ComboAddress& remoteIP, bool overTCP, tcache_t& tcache, vState state) // NOLINT(readability-function-cognitive-complexity)
 {
   bool wasForwardRecurse = wasForwarded && rdQuery;
 
@@ -4982,6 +4982,9 @@ RCode::rcodes_ SyncRes::updateCacheFromRecords(unsigned int depth, const string&
     }
 
     vState recordState = tCacheEntry->second.validationState;
+    if (!vStateIsBogus(recordState) && vStateIsBogus(state)) {
+      recordState = state;
+    }
 
     if (vStateIsBogus(recordState)) {
       seenBogusRRSet = recordState;
