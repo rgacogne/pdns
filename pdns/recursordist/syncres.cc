@@ -6171,7 +6171,7 @@ bool SyncRes::processAnswer(unsigned int depth, const string& prefix, LWResult& 
   // will also update the negative cache
   checkDenialOfExistence(depth, prefix, lwr, qname, qtype, auth, tcache, state);
 
-  *rcode = updateCacheFromRecords(depth, prefix, lwr, qname, qtype, auth, wasForwarded, ednsmask, sendRDQuery, remoteIP, overTCP, tcache);
+  *rcode = updateCacheFromRecords(depth, prefix, lwr, qname, qtype, auth, wasForwarded, ednsmask, sendRDQuery, remoteIP, overTCP, tcache, state);
   if (*rcode != RCode::NoError) {
     return true;
   }
