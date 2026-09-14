@@ -66,11 +66,13 @@ std::atomic<uint64_t> g_tcpStatesDumpRequested{0};
 
 IncomingTCPConnectionState::~IncomingTCPConnectionState()
 {
-  try {
-    dnsdist::IncomingConcurrentTCPConnectionsManager::accountClosedTCPConnection(d_ci.remote);
-  }
-  catch (...) {
-    /* in theory it might raise an exception, and we cannot allow it to be uncaught in a dtor */
+  if (d_ci.d_tcpAccountingDone) {
+    try {
+      dnsdist::IncomingConcurrentTCPConnectionsManager::accountClosedTCPConnection(d_proxiedRemote);
+    }
+    catch (...) {
+      /* in theory it might raise an exception, and we cannot allow it to be uncaught in a dtor */
+    }
   }
 
   if (d_ci.cs != nullptr) {
@@ -1037,11 +1039,11 @@ void IncomingTCPConnectionState::handleHandshakeDone(const struct timeval& now)
   if (d_handler.isTLS()) {
     if (!d_handler.hasTLSSessionBeenResumed()) {
       ++d_ci.cs->tlsNewSessions;
-      dnsdist::IncomingConcurrentTCPConnectionsManager::accountTLSNewSession(d_ci.remote);
+      dnsdist::IncomingConcurrentTCPConnectionsManager::accountTLSNewSession(d_proxiedRemote);
     }
     else {
       ++d_ci.cs->tlsResumptions;
-      dnsdist::IncomingConcurrentTCPConnectionsManager::accountTLSResumedSession(d_ci.remote);
+      dnsdist::IncomingConcurrentTCPConnectionsManager::accountTLSResumedSession(d_proxiedRemote);
     }
     if (d_handler.getResumedFromInactiveTicketKey()) {
       ++d_ci.cs->tlsInactiveTicketKey;
@@ -1084,6 +1086,15 @@ IncomingTCPConnectionState::ProxyProtocolResult IncomingTCPConnectionState::hand
 
         if (!proxyProtocolValues.empty()) {
           d_proxyProtocolValues = make_unique<std::vector<ProxyProtocolValue>>(std::move(proxyProtocolValues));
+        }
+
+        auto connectionResult = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(d_proxiedRemote, d_ci.cs->hasTLS());
+        if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Denied) {
+          return ProxyProtocolResult::Error;
+        }
+        d_ci.d_tcpAccountingDone = true;
+        if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Restricted) {
+          d_ci.d_restricted = true;
         }
 
         d_currentPos = 0;
@@ -1794,7 +1805,6 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
   ComboAddress remote;
   remote.sin4.sin_family = param.local.sin4.sin_family;
 
-  tcpClientCountIncremented = false;
   try {
     socklen_t remlen = remote.getSocklen();
     ConnectionInfo connInfo(&clientState);
@@ -1844,13 +1854,16 @@ static void acceptNewConnection(const TCPAcceptorParam& param, TCPClientThreadDa
       return;
     }
 
-    auto connectionResult = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote, connInfo.cs->hasTLS());
-    if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Denied) {
-      return;
-    }
-    tcpClientCountIncremented = true;
-    if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Restricted) {
-      connInfo.d_restricted = true;
+    if (clientState.d_enableProxyProtocol && expectProxyProtocolFrom(remote)) {
+      auto connectionResult = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(remote, connInfo.cs->hasTLS());
+      if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Denied) {
+        return;
+      }
+      connInfo.d_tcpAccountingDone = true;
+      tcpClientCountIncremented = true;
+      if (connectionResult == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Restricted) {
+        connInfo.d_restricted = true;
+      }
     }
 
     VERBOSESLOG(infolog("Got TCP connection from %s", remote.toStringWithPort()),

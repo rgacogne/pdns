@@ -75,6 +75,7 @@ struct ConnectionInfo
   ClientState* cs{nullptr};
   int fd{-1};
   bool d_restricted{false};
+  bool d_tcpAccountingDone{false};
 };
 
 class InternalQuery
