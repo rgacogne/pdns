@@ -294,7 +294,8 @@ BOOST_FIXTURE_TEST_CASE(test_Above_Max_Connection_Rate, TestFixture)
   const uint64_t maxTCPConnectionsRatePerClient = 10U;
   const uint64_t tcpConnectionsRatePerClientInterval = 5U;
   const uint64_t maxTCPConnectionsPerClient = 1U;
-  const uint32_t banDuration = 10U;
+  /* very long ban time, to check that we do not remove a ban entry while the ban is still active */
+  const uint32_t banDuration = 600U;
   initConfiguration(maxTCPConnectionsRatePerClient, tcpConnectionsRatePerClientInterval, maxTCPConnectionsPerClient, banDuration);
 
   dnsdist::IncomingConcurrentTCPConnectionsManager::clear();
@@ -312,8 +313,12 @@ BOOST_FIXTURE_TEST_CASE(test_Above_Max_Connection_Rate, TestFixture)
   auto result = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(client, false, false, now);
   BOOST_REQUIRE(result == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Denied);
 
+  /* now we should be after interval * 60s, entries should no longer be valid */
+  dnsdist::IncomingConcurrentTCPConnectionsManager::cleanup(now + (tcpConnectionsRatePerClientInterval * 60U + 1U));
+  BOOST_REQUIRE_EQUAL(dnsdist::IncomingConcurrentTCPConnectionsManager::getNumberOfEntries(), 1U);
+
   /* check that the ban properly expires (takes a while to go below the rate) */
-  result = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(client, false, false, now + std::max(60U, banDuration) + 1U);
+  result = dnsdist::IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(client, false, false, now + banDuration + 1U);
   BOOST_REQUIRE(result == dnsdist::IncomingConcurrentTCPConnectionsManager::NewConnectionResult::Allowed);
 }
 

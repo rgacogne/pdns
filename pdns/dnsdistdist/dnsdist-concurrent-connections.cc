@@ -168,6 +168,12 @@ void IncomingConcurrentTCPConnectionsManager::cleanup(time_t now)
         ++entry;
         continue;
       }
+
+      if (entry->d_bannedUntil >= now) {
+        ++entry;
+        continue;
+      }
+
       if (entry->d_lastSeen >= cutOff) {
         /* this index is ordered on timestamps,
            so the first valid entry we see means we are done */
@@ -207,6 +213,15 @@ static ClientActivity& getCurrentClientActivity(const ClientEntry& entry, time_t
   return activity.front();
 }
 
+static bool accountingNeeded(const dnsdist::configuration::ImmutableConfiguration& immutable)
+{
+  const auto maxConnsPerClient = immutable.d_maxTCPConnectionsPerClient;
+  const auto tcpRate = immutable.d_maxTCPConnectionsRatePerClient;
+  const auto tlsNewRate = immutable.d_maxTLSNewSessionsRatePerClient;
+  const auto tlsResumedRate = immutable.d_maxTLSResumedSessionsRatePerClient;
+  return !(maxConnsPerClient == 0 && tcpRate == 0 && tlsResumedRate == 0 && tlsNewRate == 0 && immutable.d_maxTCPReadIOsPerQuery == 0);
+}
+
 IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentTCPConnectionsManager::accountNewTCPConnection(const ComboAddress& from, bool isTLS, bool isQUIC, time_t now)
 {
   const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
@@ -216,7 +231,7 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
   const auto tlsNewRate = immutable.d_maxTLSNewSessionsRatePerClient;
   const auto tlsResumedRate = immutable.d_maxTLSResumedSessionsRatePerClient;
   const auto interval = immutable.d_tcpConnectionsRatePerClientInterval;
-  if (maxConnsPerClient == 0 && tcpRate == 0 && tlsResumedRate == 0 && tlsNewRate == 0 && immutable.d_maxTCPReadIOsPerQuery == 0) {
+  if (!accountingNeeded(immutable)) {
     return NewConnectionResult::Allowed;
   }
 
@@ -348,10 +363,11 @@ static void editEntryIfPresent(const ComboAddress& from, const std::function<voi
 
 void IncomingConcurrentTCPConnectionsManager::accountClosedTCPConnection(const ComboAddress& from)
 {
-  const auto maxConnsPerClient = dnsdist::configuration::getImmutableConfiguration().d_maxTCPConnectionsPerClient;
-  if (maxConnsPerClient == 0) {
+  const auto& immutable = dnsdist::configuration::getImmutableConfiguration();
+  if (!accountingNeeded(immutable)) {
     return;
   }
+
   editEntryIfPresent(from, [](const ClientEntry& entry) {
     auto& count = entry.d_concurrentConnections;
     if (count > 0) {
