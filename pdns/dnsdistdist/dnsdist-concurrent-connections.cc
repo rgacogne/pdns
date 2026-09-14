@@ -226,6 +226,9 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
     auto& activity = getCurrentClientActivity(entry, now);
     ++activity.tcpConnections;
   };
+  auto updateLastSeenOnly = [now](ClientEntry& entry) {
+    entry.d_lastSeen = now;
+  };
 
   auto getProtocol = [isQUIC]() -> std::string {
     return isQUIC ? "QUIC" : "TCP";
@@ -278,6 +281,9 @@ IncomingConcurrentTCPConnectionsManager::NewConnectionResult IncomingConcurrentT
     auto result = checkConnectionAllowed(*entry);
     if (result != NewConnectionResult::Denied) {
       clients->modify(entry, updateActivity);
+    }
+    else {
+      clients->modify(entry, updateLastSeenOnly);
     }
     return result;
   }
