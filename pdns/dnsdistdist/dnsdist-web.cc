@@ -1826,8 +1826,8 @@ static void handleRings(const YaHTTP::Request& req, YaHTTP::Response& resp, cons
   }
   doc.emplace("queries", std::move(queries));
   doc.emplace("responses", std::move(responses));
-  Json my_json = doc;
-  resp.body = my_json.dump();
+  Json my_json{std::move(doc)};
+  my_json.dump(resp.body);
   resp.headers["Content-Type"] = "application/json";
 }
 
