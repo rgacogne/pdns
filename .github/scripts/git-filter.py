@@ -43,6 +43,10 @@ def main():
     compdb = helpers.load_compdb(compdb_path)
     compdb = helpers.index_compdb(compdb)
 
+    print("Compilation DB contains:", file=sys.stderr)
+    for path in compdb:
+        print(f'- {path}', file=sys.stderr)
+
     cwd = Path(os.getcwd())
 
     diff = sys.stdin.read()
