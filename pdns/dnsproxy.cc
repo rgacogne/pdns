@@ -45,7 +45,7 @@
 extern StatBag S;
 
 DNSProxy::DNSProxy(Logr::log_t slog, const string& remote, const string& udpPortRange) :
-  d_xor(dns_random_uint16())
+  d_sock(-1), d_xor(dns_random_uint16())
 {
   d_slog = slog;
   d_resanswers = S.getPointer("recursing-answers");
@@ -70,8 +70,11 @@ DNSProxy::DNSProxy(Logr::log_t slog, const string& remote, const string& udpPort
     throw PDNSException("DNS Proxy UDP port range upper bound " + std::to_string(portRangeHigh) + " must be higher than lower bound (" + std::to_string(portRangeLow) + ")");
   }
 
-  if ((d_sock = socket(d_remote.sin4.sin_family, SOCK_DGRAM, 0)) < 0) {
-    throw PDNSException(string("socket: ") + stringerror());
+  try {
+    d_sock = Socket(d_remote.sin4.sin_family, SOCK_DGRAM, 0);
+  }
+  catch (const std::exception& exp) {
+    throw PDNSException(string("socket: ") + exp.what());
   }
 
   ComboAddress local;
@@ -86,17 +89,15 @@ DNSProxy::DNSProxy(Logr::log_t slog, const string& remote, const string& udpPort
   for (; attempts < 10; attempts++) {
     local.sin4.sin_port = htons(portRangeLow + dns_random(portRangeHigh - portRangeLow));
 
-    if (::bind(d_sock, (struct sockaddr*)&local, local.getSocklen()) >= 0) { // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    if (::bind(d_sock.getHandle(), (struct sockaddr*)&local, local.getSocklen()) >= 0) { // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       break;
     }
   }
   if (attempts == 10) {
-    closesocket(d_sock);
-    d_sock = -1;
     throw PDNSException(string("binding dnsproxy socket: ") + stringerror());
   }
 
-  if (connect(d_sock, (sockaddr*)&d_remote, d_remote.getSocklen()) < 0) { // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  if (connect(d_sock.getHandle(), (sockaddr*)&d_remote, d_remote.getSocklen()) < 0) { // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
     throw PDNSException("Unable to UDP connect to remote nameserver " + d_remote.toStringWithPort() + ": " + stringerror());
   }
 
@@ -201,7 +202,7 @@ bool DNSProxy::completePacket(std::unique_ptr<DNSPacket>& reply, const DNSName& 
     pw.commit();
   }
 
-  if (send(d_sock, packet.data(), packet.size(), 0) < 0) { // zoom
+  if (send(d_sock.getHandle(), packet.data(), packet.size(), 0) < 0) { // zoom
     SLOG(g_log << Logger::Error << "Unable to send a packet to our recursing backend: " << stringerror() << endl,
          d_slog->error(Logr::Error, errno, "Unable to send a packet to our recursing backend"));
   }
@@ -244,7 +245,7 @@ void DNSProxy::mainloop()
 
     for (;;) {
       socklen_t fromaddrSize = sizeof(fromaddr);
-      len = recvfrom(d_sock, &buffer[0], sizeof(buffer), 0, (struct sockaddr*)&fromaddr, &fromaddrSize); // answer from our backend  NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      len = recvfrom(d_sock.getHandle(), &buffer[0], sizeof(buffer), 0, (struct sockaddr*)&fromaddr, &fromaddrSize); // answer from our backend  NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       if (len < (ssize_t)sizeof(dnsheader)) {
         if (len < 0) {
           SLOG(g_log << Logger::Error << "Error receiving packet from recursor backend: " << stringerror() << endl,
@@ -369,17 +370,4 @@ void DNSProxy::mainloop()
   SLOG(g_log << Logger::Error << "Exiting because DNS proxy failed" << endl,
        d_slog->info(Logr::Error, "Exiting because DNS proxy failed"));
   _exit(1);
-}
-
-DNSProxy::~DNSProxy()
-{
-  if (d_sock > -1) {
-    try {
-      closesocket(d_sock);
-    }
-    catch (const PDNSException& e) {
-    }
-  }
-
-  d_sock = -1;
 }

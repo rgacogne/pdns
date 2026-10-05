@@ -31,6 +31,7 @@
 #include "iputils.hh"
 
 #include "namespaces.hh"
+#include "sstuff.hh"
 
 /**
 
@@ -52,7 +53,6 @@ class DNSProxy
 {
 public:
   DNSProxy(Logr::log_t slog, const string& remote, const string& udpPortRange); //!< creates socket
-  ~DNSProxy(); //<! dtor for DNSProxy
   void go(); //!< launches the actual thread
   bool completePacket(std::unique_ptr<DNSPacket>& reply, const DNSName& target, const DNSName& aname, uint8_t scopeMask);
 
@@ -80,7 +80,7 @@ private:
   AtomicCounter* d_udpanswers;
   AtomicCounter* d_resquestions;
   LockGuarded<map_t> d_conntrack;
-  int d_sock;
+  Socket d_sock;
   const uint16_t d_xor;
   std::shared_ptr<Logr::Logger> d_slog;
 
