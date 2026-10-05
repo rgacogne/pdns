@@ -72,7 +72,7 @@ public:
   Socket& operator=(Socket&& rhs) noexcept
   {
     if (d_socket != -1) {
-      close(d_socket);
+      ::close(d_socket);
     }
     d_socket = rhs.d_socket;
     rhs.d_socket = -1;
@@ -393,6 +393,20 @@ public:
     int ret = d_socket;
     d_socket = -1;
     return ret;
+  }
+
+  void close()
+  {
+    d_buffer.clear();
+    if (d_socket != -1) {
+      try {
+        closesocket(d_socket);
+      }
+      catch (...) {
+        d_socket = -1;
+        throw;
+      }
+    }
   }
 
 private:
