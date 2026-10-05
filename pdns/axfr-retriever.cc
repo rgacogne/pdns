@@ -34,7 +34,7 @@ AXFRRetriever::AXFRRetriever(Logr::log_t slog,
                              const ComboAddress* laddr,
                              size_t maxReceivedBytes,
                              uint16_t timeout) :
-  d_slog(slog), d_tsigVerifier(slog, tsigConf, remote, d_trc), d_buf(65536), d_maxReceivedBytes(maxReceivedBytes)
+  d_slog(slog), d_tsigVerifier(slog, tsigConf, remote, d_trc), d_buf(65536), d_sock(-1), d_maxReceivedBytes(maxReceivedBytes)
 {
   ComboAddress local;
   if (laddr != nullptr) {
@@ -46,10 +46,10 @@ AXFRRetriever::AXFRRetriever(Logr::log_t slog,
     }
     local = pdns::getQueryLocalAddress(remote.sin4.sin_family, 0).d_address;
   }
-  d_sock = -1;
+
   try {
-    d_sock = makeQuerySocket(local, false); // make a TCP socket
-    if (d_sock < 0) {
+    d_sock = Socket(makeQuerySocket(local, false)); // make a TCP socket
+    if (d_sock.getHandle() < 0) {
       throw ResolverException("Error creating socket for AXFR request to " + d_remote.toStringWithPort());
     }
     d_remote = remote; // mostly for error reporting
@@ -81,7 +81,7 @@ AXFRRetriever::AXFRRetriever(Logr::log_t slog,
     iov[1].iov_base = packet.data();
     iov[1].iov_len = packet.size();
 
-    auto ret = writev(d_sock, iov.data(), iov.size());
+    auto ret = writev(d_sock.getHandle(), iov.data(), iov.size());
     if (ret < 0) {
       throw ResolverException("Error sending question to " + d_remote.toStringWithPort() + ": " + stringerror());
     }
@@ -89,7 +89,7 @@ AXFRRetriever::AXFRRetriever(Logr::log_t slog,
       throw ResolverException("Partial write on AXFR request to " + d_remote.toStringWithPort());
     }
 
-    int res = waitForData(d_sock, timeout, 0);
+    int res = waitForData(d_sock.getHandle(), timeout, 0);
 
     if (res == 0) {
       throw ResolverException("Timeout waiting for answer from " + d_remote.toStringWithPort() + " during AXFR");
@@ -99,18 +99,7 @@ AXFRRetriever::AXFRRetriever(Logr::log_t slog,
     }
   }
   catch (...) {
-    if (d_sock >= 0) {
-      close(d_sock);
-    }
-    d_sock = -1;
     throw;
-  }
-}
-
-AXFRRetriever::~AXFRRetriever()
-{
-  if (d_sock != -1) {
-    close(d_sock);
   }
 }
 
@@ -189,7 +178,7 @@ void AXFRRetriever::timeoutReadn(uint16_t bytes, uint16_t timeoutsec)
     if (elapsed > timeoutsec) {
       throw ResolverException("Timeout while reading data from remote nameserver over TCP");
     }
-    auto res = waitForData(d_sock, static_cast<int>(timeoutsec - elapsed));
+    auto res = waitForData(d_sock.getHandle(), static_cast<int>(timeoutsec - elapsed));
     if (res < 0) {
       throw ResolverException("Reading data from remote nameserver over TCP: " + stringerror());
     }
@@ -197,7 +186,7 @@ void AXFRRetriever::timeoutReadn(uint16_t bytes, uint16_t timeoutsec)
       throw ResolverException("Timeout while reading data from remote nameserver over TCP");
     }
 
-    auto received = recv(d_sock, &d_buf.at(bytesRead), bytes - bytesRead, 0);
+    auto received = recv(d_sock.getHandle(), &d_buf.at(bytesRead), bytes - bytesRead, 0);
     if (received < 0) {
       throw ResolverException("Reading data from remote nameserver over TCP: " + stringerror());
     }
@@ -210,38 +199,34 @@ void AXFRRetriever::timeoutReadn(uint16_t bytes, uint16_t timeoutsec)
 
 void AXFRRetriever::connect(uint16_t timeout)
 {
-  setNonBlocking(d_sock);
+  d_sock.setNonBlocking();
 
-  int ret = ::connect(d_sock, reinterpret_cast<struct sockaddr*>(&d_remote), d_remote.getSocklen()); //NOLINT(cppcoreguidelines-pro-type-reinterpret-cast) it's the API
+  int ret = ::connect(d_sock.getHandle(), reinterpret_cast<struct sockaddr*>(&d_remote), d_remote.getSocklen()); //NOLINT(cppcoreguidelines-pro-type-reinterpret-cast) it's the API
 
   if (ret < 0 && errno != EINPROGRESS) {
     int err = errno;
     try {
-      closesocket(d_sock);
+      d_sock.close();
     }
     catch (const PDNSException& e) {
-      d_sock = -1;
       throw ResolverException("Error closing AXFR socket after connect() failed: " + e.reason);
     }
 
-    d_sock = -1;
     throw ResolverException("connect: " + stringerror(err));
   }
 
   if (ret != 0) {
 
-    ret = waitForRWData(d_sock, false, timeout, 0); // wait for writeability
+    ret = waitForRWData(d_sock.getHandle(), false, timeout, 0); // wait for writeability
 
     if (ret == 0) {
       try {
-        closesocket(d_sock); // timeout
+        d_sock.close(); // timeout
       }
       catch (const PDNSException& e) {
-        d_sock = -1;
         throw ResolverException("Error closing AXFR socket after timeout: " + e.reason);
       }
 
-      d_sock = -1;
       errno = ETIMEDOUT;
 
       throw ResolverException("Timeout connecting to server");
@@ -251,7 +236,7 @@ void AXFRRetriever::connect(uint16_t timeout)
       throw ResolverException("Error connecting: " + stringerror(err));
     }
     socklen_t len = sizeof(ret);
-    if (getsockopt(d_sock, SOL_SOCKET, SO_ERROR, &ret, &len) < 0) {
+    if (getsockopt(d_sock.getHandle(), SOL_SOCKET, SO_ERROR, &ret, &len) < 0) {
       int err = errno;
       throw ResolverException("Error connecting: " + stringerror(err)); // Solaris
     }
@@ -261,7 +246,7 @@ void AXFRRetriever::connect(uint16_t timeout)
     }
   }
 
-  setBlocking(d_sock);
+  d_sock.setBlocking();
   // d_sock now connected
 }
 

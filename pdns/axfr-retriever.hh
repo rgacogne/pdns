@@ -25,6 +25,7 @@
 #include "dnsname.hh"
 #include "logr.hh"
 #include "resolver.hh"
+#include "sstuff.hh"
 
 class AXFRRetriever
 {
@@ -36,7 +37,7 @@ public:
                 const ComboAddress* laddr = nullptr,
                 size_t maxReceivedBytes = 0,
                 uint16_t timeout = 10);
-  ~AXFRRetriever();
+  ~AXFRRetriever() = default;
   AXFRRetriever(const AXFRRetriever&) = delete;
   AXFRRetriever(AXFRRetriever&&) = delete;
   AXFRRetriever& operator=(const AXFRRetriever&) = delete;
@@ -52,7 +53,7 @@ private:
   TSIGTCPVerifier d_tsigVerifier;
   std::vector<char> d_buf;
   string d_domain;
-  int d_sock;
+  Socket d_sock;
   int d_soacount;
   ComboAddress d_remote;
   TSIGRecordContent d_trc;
