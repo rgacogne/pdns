@@ -1,13 +1,6 @@
 #ifndef __XDP_H__
 #define __XDP_H__
 
-#include <net/sock.h>
-#include <uapi/linux/udp.h>
-#include <uapi/linux/ip.h>
-#include <uapi/linux/ipv6.h>
-
-#define DNS_PORT      53
-
 // do not use libc includes because this causes clang
 // to include 32bit headers on 64bit ( only ) systems.
 typedef __u8  uint8_t;

@@ -1,3 +1,10 @@
+#include <net/sock.h>
+#include <uapi/linux/udp.h>
+#include <uapi/linux/ip.h>
+#include <uapi/linux/ipv6.h>
+
+#define DNS_PORT      53
+
 #include "xdp.h"
 
 #define DISABLE_LOGGING 1
