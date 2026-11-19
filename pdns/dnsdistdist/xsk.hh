@@ -130,7 +130,7 @@ public:
   }
   // list of free umem entries that can be reused
   std::shared_ptr<LockGuarded<vector<uint64_t>>> sharedEmptyFrameOffset;
-  XskSocket(size_t frameNum, std::string ifName, uint32_t queue_id, const std::string& xskMapPath);
+  XskSocket(size_t frameNum, std::string ifName, uint32_t queue_id, const std::string& xskMapPath, bool forceGenericMode);
   [[nodiscard]] int xskFd() const noexcept;
   // wait until one event has occurred
   [[nodiscard]] int wait(int timeout);

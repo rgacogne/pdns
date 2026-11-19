@@ -1269,7 +1269,7 @@ bool loadConfigurationFromFile(const std::string& fileName, [[maybe_unused]] boo
     for (const auto& xskEntry : globalConfig.xsk) {
       auto map = std::make_shared<XSKMap>();
       for (size_t counter = 0; counter < xskEntry.queues; ++counter) {
-        auto socket = std::make_shared<XskSocket>(xskEntry.frames, std::string(xskEntry.interface), counter, std::string(xskEntry.map_path));
+        auto socket = std::make_shared<XskSocket>(xskEntry.frames, std::string(xskEntry.interface), counter, std::string(xskEntry.map_path), xskEntry.force_generic);
         dnsdist::xsk::g_xsk.push_back(socket);
         map->push_back(std::move(socket));
       }

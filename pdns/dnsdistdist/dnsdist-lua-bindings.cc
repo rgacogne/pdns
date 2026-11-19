@@ -984,7 +984,7 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
   });
 #endif /* HAVE_EBPF */
 #ifdef HAVE_XSK
-  using xskopt_t = LuaAssociativeTable<boost::variant<uint32_t, std::string>>;
+  using xskopt_t = LuaAssociativeTable<boost::variant<bool, uint32_t, std::string>>;
   luaCtx.writeFunction("newXsk", [client](xskopt_t opts) {
     if (dnsdist::configuration::isImmutableConfigurationDone()) {
       throw std::runtime_error("newXsk() only can be used at configuration time!");
@@ -996,6 +996,7 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
     uint32_t frameNums{65536};
     std::string ifName;
     std::string path("/sys/fs/bpf/dnsdist/xskmap");
+    bool forceGeneric{false};
     if (opts.count("ifName") == 1) {
       ifName = boost::get<std::string>(opts.at("ifName"));
     }
@@ -1014,7 +1015,10 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
     if (opts.count("xskMapPath") == 1) {
       path = boost::get<std::string>(opts.at("xskMapPath"));
     }
-    auto socket = std::make_shared<XskSocket>(frameNums, ifName, queue_id, path);
+    if (opts.count("forceGeneric") == 1) {
+      path = boost::get<bool>(opts.at("forceGeneric"));
+    }
+    auto socket = std::make_shared<XskSocket>(frameNums, ifName, queue_id, path, forceGeneric);
     dnsdist::xsk::g_xsk.push_back(socket);
     return socket;
   });

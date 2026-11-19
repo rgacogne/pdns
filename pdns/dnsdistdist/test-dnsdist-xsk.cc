@@ -50,18 +50,18 @@ BOOST_AUTO_TEST_CASE(test_XskSocket)
 
   {
     /* not a power of two, should throw */
-    BOOST_CHECK_THROW(XskSocket(1000U, itfName, queueId, path), std::runtime_error);
+    BOOST_CHECK_THROW(XskSocket(1000U, itfName, queueId, path, false), std::runtime_error);
   }
 
   {
     /* not a valid interface name, should throw */
-    BOOST_CHECK_THROW(XskSocket(1024U, "not-an-interface-name", queueId, path), std::runtime_error);
+    BOOST_CHECK_THROW(XskSocket(1024U, "not-an-interface-name", queueId, path, false), std::runtime_error);
   }
 
   {
     /* not enough privileges, should throw */
     const size_t numberOfFrames = 1024U;
-    BOOST_CHECK_THROW(XskSocket(numberOfFrames, itfName, queueId, path), std::runtime_error);
+    BOOST_CHECK_THROW(XskSocket(numberOfFrames, itfName, queueId, path, false), std::runtime_error);
   }
 }
 

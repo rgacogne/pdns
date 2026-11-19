@@ -121,7 +121,7 @@ int XskSocket::firstTimeout()
   return res;
 }
 
-XskSocket::XskSocket(size_t frameNum_, std::string ifName_, uint32_t queue_id, const std::string& xskMapPath) :
+XskSocket::XskSocket(size_t frameNum_, std::string ifName_, uint32_t queue_id, const std::string& xskMapPath, bool forceGenericMode) :
   frameNum(frameNum_), ifName(std::move(ifName_)), socket(nullptr, xsk_socket__delete), sharedEmptyFrameOffset(std::make_shared<LockGuarded<vector<uint64_t>>>())
 {
   if (!isPowOfTwo(frameNum_) || !isPowOfTwo(frameSize)
@@ -148,7 +148,14 @@ XskSocket::XskSocket(size_t frameNum_, std::string ifName_, uint32_t queue_id, c
     socketCfg.rx_size = rxCapacity;
     socketCfg.tx_size = txCapacity;
     socketCfg.bind_flags = XDP_USE_NEED_WAKEUP;
-    socketCfg.xdp_flags = XDP_FLAGS_SKB_MODE;
+    /* "If the driver does not have support for XDP,
+       or XDP_SKB is explicitly chosen when loading the XDP program,
+       XDP_SKB mode is employed that uses SKBs together with the generic XDP support
+       and copies out the data to user space. A fallback mode that works for any network device.
+       On the other hand, if the driver has support for XDP, it will be used by the AF_XDP code
+       to provide better performance, but there is still a copy of the data into user space."
+    */
+    socketCfg.xdp_flags = forceGenericMode ? XDP_FLAGS_SKB_MODE : 0;
     socketCfg.libxdp_flags = XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD;
     xsk_socket* tmp = nullptr;
     auto ret = xsk_socket__create(&tmp, ifName.c_str(), queue_id, umem.umem, &rx, &tx, &socketCfg);

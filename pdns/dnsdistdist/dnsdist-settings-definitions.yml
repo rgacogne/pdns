@@ -2484,3 +2484,8 @@ xsk:
       type: "String"
       default: "/sys/fs/bpf/dnsdist/xskmap"
       descripton: "The filesystem path this map will be pinned to, which allows the external ``XDP`` program to communicate with :program:`dnsdist`"
+    - name: "force_generic"
+      type: "bool"
+      default: "false"
+      description: "Whether the kernel should use the generic ``XDP_XSK`` mode (``true``) rather that automatically determine if the hardware or driver support ``AF_XDP`` (``false``, the default). The ``XDP_XSK`` mode is slower but might be useful to work around faulty implementations in hardware or device drivers. Before 2.2.0 the generic ``XDP_XSK`` mode was always used."
+      version_added: 2.2.0
