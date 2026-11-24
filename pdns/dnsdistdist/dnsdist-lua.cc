@@ -3215,7 +3215,7 @@ static void setupLuaConfig(LuaContext& luaCtx, bool client, bool configCheck)
       return;
     }
 
-    auto [success, error] = libssl_load_engine(engineName, defaultString ? std::optional<std::string>(*defaultString) : std::nullopt);
+    auto [success, error] = libssl_load_engine(engineName, defaultString);
     if (!success) {
       g_outputBuffer = "Error while trying to load TLS engine '" + engineName + "': " + error + "\n";
       SLOG(errlog("Error while trying to load TLS engine '%s': %s", engineName, error),

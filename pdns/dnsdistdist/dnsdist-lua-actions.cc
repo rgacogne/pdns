@@ -456,11 +456,11 @@ void setupLuaActions(LuaContext& luaCtx)
   });
 
   luaCtx.writeFunction("DnstapLogAction", [](const std::string& identity, std::shared_ptr<RemoteLoggerInterface> logger, std::optional<dnsdist::actions::DnstapAlterFunction> alterFunc) {
-    return dnsdist::actions::getDnstapLogAction(identity, std::move(logger), alterFunc ? std::move(*alterFunc) : std::optional<dnsdist::actions::DnstapAlterFunction>());
+    return dnsdist::actions::getDnstapLogAction(identity, std::move(logger), std::move(alterFunc));
   });
 
   luaCtx.writeFunction("DnstapLogResponseAction", [](const std::string& identity, std::shared_ptr<RemoteLoggerInterface> logger, std::optional<dnsdist::actions::DnstapAlterResponseFunction> alterFunc) {
-    return dnsdist::actions::getDnstapLogResponseAction(identity, std::move(logger), alterFunc ? std::move(*alterFunc) : std::optional<dnsdist::actions::DnstapAlterResponseFunction>());
+    return dnsdist::actions::getDnstapLogResponseAction(identity, std::move(logger), std::move(alterFunc));
   });
 #endif /* DISABLE_PROTOBUF */
 

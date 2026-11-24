@@ -328,7 +328,7 @@ void setupLuaBindingsDNSQuestion([[maybe_unused]] LuaContext& luaCtx)
       for (const auto& resp : responses) {
         data.push_back(resp.second);
       }
-      dnsdist::self_answers::generateAnswerFromRDataEntries(dnsQuestion, data, typeForAny ? *typeForAny : std::optional<uint16_t>(), responseConfig);
+      dnsdist::self_answers::generateAnswerFromRDataEntries(dnsQuestion, data, typeForAny, responseConfig);
       return;
     }
   });
