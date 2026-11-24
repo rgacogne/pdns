@@ -441,8 +441,6 @@ bool processResponderPacket(std::shared_ptr<DownstreamState>& dss, PacketBuffer&
 
 static void spoofResponseFromString(DNSQuestion& dnsQuestion, const string& spoofContent, bool raw)
 {
-  string result;
-
   if (raw) {
     dnsdist::ResponseConfig config;
     std::vector<std::string> raws;

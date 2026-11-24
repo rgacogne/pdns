@@ -391,7 +391,6 @@ void doConsole()
       line = "help()";
     }
 
-    string response;
     try {
       bool withReturn = true;
     retry:;

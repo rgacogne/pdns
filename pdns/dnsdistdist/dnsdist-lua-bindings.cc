@@ -917,7 +917,6 @@ void setupLuaBindings(LuaContext& luaCtx, bool client, bool configCheck)
   });
 
   luaCtx.registerFunction<void (std::shared_ptr<BPFFilter>::*)()>("attachToAllBinds", [](std::shared_ptr<BPFFilter>& bpf) {
-    std::string res;
     if (!dnsdist::configuration::isImmutableConfigurationDone()) {
       throw std::runtime_error("attachToAllBinds() cannot be used at configuration time!");
       return;
