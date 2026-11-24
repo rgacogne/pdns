@@ -11,7 +11,6 @@ FormatStyle: none
 #  - cpp
 WarningsAsErrors: ''
 HeaderFilterRegex: ''
-IgnoredVariableNames: 'ip'
 Checks: |
   clang-diagnostic-*,clang-analyzer-*,bugprone-*,concurrency-*,-modernize-use-trailing-return-type,-readability-magic-numbers,-cppcoreguidelines-avoid-magic-numbers,-performance-avoid-endl
 # yamllint disable rule:line-length
@@ -45,7 +44,7 @@ CheckOptions:
   - key: cppcoreguidelines-explicit-virtual-functions.IgnoreDestructors
     value: 'true'
   - key: bugprone-easily-swappable-parameters.MinimumLength
-    value: '2'
+    value: '3'
   - key: bugprone-sizeof-expression.WarnOnSizeOfConstant
     value: 'true'
   - key: bugprone-argument-comment.CommentBoolLiterals
