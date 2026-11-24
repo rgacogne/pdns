@@ -1214,6 +1214,7 @@ private:
     nfp = nullptr;
 
     if (!d_buffered) {
+      // NOLINTNEXTLINE(bugprone-unsafe-functions)
       setbuf(filepointer.get(), nullptr);
     }
 
