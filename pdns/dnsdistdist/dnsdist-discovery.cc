@@ -582,7 +582,7 @@ void ServiceDiscovery::worker()
     /* we could sleep until the next check but a new backend
        could be added in the meantime, so let's just check every
        minute if we have something to do */
-    sleep(60);
+    std::this_thread::sleep_for(std::chrono::seconds(60));
   }
 }
 
