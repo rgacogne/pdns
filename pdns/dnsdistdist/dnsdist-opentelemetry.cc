@@ -398,7 +398,7 @@ bool addTraceparentEdnsOptionToPacketBuffer([[maybe_unused]] PacketBuffer& origB
   auto opt = pdns::trace::dnsdist::makeEDNSTraceParentOption(tracer);
   bool ednsAdded{false};
   bool optionAdded{false};
-  uint16_t maxEdnsSize = queryHadEdns ? static_cast<uint16_t>(buf.at(optRDPosition - 6) << 8) + buf.at(optRDPosition - 5) : 512;
+  uint16_t maxEdnsSize = queryHadEdns ? static_cast<uint16_t>(buf.at(optRDPosition - 6) << 8U) + buf.at(optRDPosition - 5) : 512U;
   setEDNSOption(buf, traceparentOptionCode, std::string(opt.begin(), opt.end()), isTCP ? std::numeric_limits<uint16_t>::max() : maxEdnsSize, ednsAdded, optionAdded);
 
   if (isTCP) {

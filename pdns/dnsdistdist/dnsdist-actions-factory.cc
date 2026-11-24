@@ -425,12 +425,12 @@ public:
   DNSAction::Action operator()(DNSQuestion* dnsquestion, std::string* ruleresult) const override
   {
     (void)ruleresult;
-    dnsdist::self_answers::removeRecordsAndSetRCode(*dnsquestion, (d_rcode & 0xF));
+    dnsdist::self_answers::removeRecordsAndSetRCode(*dnsquestion, (d_rcode & 0xFU));
     dnsdist::PacketMangling::editDNSHeaderFromPacket(dnsquestion->getMutableData(), [this](dnsheader& header) {
       setResponseHeadersFromConfig(header, d_responseConfig);
       return true;
     });
-    dnsquestion->ednsRCode = ((d_rcode & 0xFFF0) >> 4);
+    dnsquestion->ednsRCode = ((d_rcode & 0xFFF0U) >> 4U);
     return Action::HeaderModify;
   }
   [[nodiscard]] std::string toString() const override

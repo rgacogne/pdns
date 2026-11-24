@@ -237,7 +237,7 @@ void DoHConnectionToBackend::handleTimeout(const struct timeval& now, bool write
 
 bool DoHConnectionToBackend::reachedMaxStreamID() const
 {
-  const uint32_t maximumStreamID = (static_cast<uint32_t>(1) << 31) - 1;
+  const uint32_t maximumStreamID = (static_cast<uint32_t>(1U) << 31U) - 1U;
   return d_highestStreamID >= maximumStreamID;
 }
 
@@ -318,7 +318,7 @@ void DoHConnectionToBackend::queueQuery(std::shared_ptr<TCPQuerySender>& sender,
   pending.d_sender = sender;
 
   uint32_t tentativeStreamId = nghttp2_session_get_next_stream_id(d_session.get());
-  if (tentativeStreamId == static_cast<uint32_t>(1 << 31)) {
+  if (tentativeStreamId == static_cast<uint32_t>(1U << 31U)) {
     /* running out of stream IDs */
     d_connectionDied = true;
     nghttp2_session_terminate_session(d_session.get(), NGHTTP2_NO_ERROR);

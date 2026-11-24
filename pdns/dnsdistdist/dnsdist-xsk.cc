@@ -50,6 +50,7 @@ void XskResponderThread(std::shared_ptr<DownstreamState> dss, std::shared_ptr<Xs
       poll(pollfds.data(), pollfds.size(), -1);
       dnsdist::configuration::refreshLocalRuntimeConfiguration();
       bool needNotify = false;
+      // NOLINTNEXTLINE(bugprone-signed-bitwise)
       if ((pollfds[0].revents & POLLIN) != 0) {
         needNotify = true;
         xskInfo->cleanSocketNotification();
@@ -153,6 +154,7 @@ void XskRouter(std::shared_ptr<XskSocket> xsk)
       auto ready = xsk->wait(-1);
       dnsdist::configuration::refreshLocalRuntimeConfiguration();
       // descriptor 0 gets incoming AF_XDP packets
+      // NOLINTNEXTLINE(bugprone-signed-bitwise)
       if ((fds.at(0).revents & POLLIN) != 0) {
         xsk->recv(packets, 64, &failed);
         dnsdist::metrics::g_stats.nonCompliantQueries += failed;
@@ -179,6 +181,7 @@ void XskRouter(std::shared_ptr<XskSocket> xsk)
         ready--;
       }
       for (size_t fdIndex = 1; fdIndex < fds.size() && ready > 0; fdIndex++) {
+        // NOLINTNEXTLINE(bugprone-signed-bitwise)
         if ((fds.at(fdIndex).revents & POLLIN) != 0) {
           ready--;
           const auto& info = xsk->getWorkerByDescriptor(fds.at(fdIndex).fd);

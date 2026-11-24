@@ -975,10 +975,10 @@ public:
   [[nodiscard]] std::shared_ptr<const Logr::Logger> getLogger() const;
 };
 
-enum ednsHeaderFlags
+enum ednsHeaderFlags : uint16_t
 {
-  EDNS_HEADER_FLAG_NONE = 0,
-  EDNS_HEADER_FLAG_DO = 32768
+  EDNS_HEADER_FLAG_NONE = 0U,
+  EDNS_HEADER_FLAG_DO = 32768U,
 };
 
 void tcpAcceptorThread(const std::vector<ClientState*>& states);

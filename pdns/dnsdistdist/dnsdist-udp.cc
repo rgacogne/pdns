@@ -237,6 +237,7 @@ void queueResponse(const PacketBuffer& response, const ComboAddress& dest, const
 
 bool isUDPQueryAcceptable(ClientState& clientState, const struct msghdr* msgh, const ComboAddress& remote, ComboAddress& dest, bool& expectProxyProtocol)
 {
+  // NOLINTNEXTLINE(bugprone-signed-bitwise)
   if ((msgh->msg_flags & MSG_TRUNC) != 0) {
     /* message was too large for our buffer */
     VERBOSESLOG(infolog("Dropping message too large for our buffer"),
@@ -591,6 +592,7 @@ static void MultipleMessagesUDPClientThread(ClientState* clientState)
         continue;
       }
 
+      // NOLINTNEXTLINE(bugprone-signed-bitwise)
       if ((msgh->msg_flags & MSG_TRUNC) != 0) {
         /* message was too large for our buffer */
         ++dnsdist::metrics::g_stats.nonCompliantQueries;
@@ -715,6 +717,7 @@ static void MultipleMessagesUDPResponseFromBackendThread(std::shared_ptr<Downstr
             auto& msg = msgVec.at(msgIdx);
             unsigned int got = msg.msg_len;
             const struct msghdr* msgh = &msg.msg_hdr;
+            // NOLINTNEXTLINE(bugprone-signed-bitwise)
             if ((msgh->msg_flags & MSG_TRUNC) != 0) {
               continue;
             }
