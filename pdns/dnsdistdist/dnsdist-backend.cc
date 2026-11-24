@@ -288,11 +288,12 @@ void DownstreamState::stop()
 void DownstreamState::hash()
 {
   const auto hashPerturbation = dnsdist::configuration::getImmutableConfiguration().d_hashPerturbation;
-  VERBOSESLOG(infolog("Computing hashes for id=%s and weight=%d, hash_perturbation=%d", *d_config.id, d_config.d_weight, hashPerturbation),
-              dnsdist::logging::getTopLogger("backend")->info(Logr::Info, "Computing hashes for backend", "backend.id", Logging::Loggable(*d_config.id), "backend.weight", Logging::Loggable(d_config.d_weight), "backend.hash_perturbation", Logging::Loggable(hashPerturbation)));
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ID is always set in the constructor
+  const auto idStr = boost::str(boost::format("%s") % *d_config.id);
+  VERBOSESLOG(infolog("Computing hashes for id=%s and weight=%d, hash_perturbation=%d", idStr, d_config.d_weight, hashPerturbation),
+              dnsdist::logging::getTopLogger("backend")->info(Logr::Info, "Computing hashes for backend", "backend.id", Logging::Loggable(idStr), "backend.weight", Logging::Loggable(d_config.d_weight), "backend.hash_perturbation", Logging::Loggable(hashPerturbation)));
 
   auto weight = d_config.d_weight;
-  auto idStr = boost::str(boost::format("%s") % *d_config.id);
   auto lockedHashes = hashes.write_lock();
   lockedHashes->clear();
   lockedHashes->reserve(weight);

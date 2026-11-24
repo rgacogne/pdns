@@ -259,7 +259,7 @@ static void parseTLSConfig(TLSConfig& config, const std::string& context, std::o
     }
   }
 
-  if (vars->count("keyLogFile") > 0) {
+  if (vars && vars->count("keyLogFile") > 0) {
 #ifdef HAVE_SSL_CTX_SET_KEYLOG_CALLBACK
     getOptionalValue<std::string>(vars, "keyLogFile", config.d_keyLogFile);
 #else

@@ -42,7 +42,7 @@ HTTPHeaderRule::HTTPHeaderRule(const std::string& header, const std::string& reg
 bool HTTPHeaderRule::matches([[maybe_unused]] const DNSQuestion* dnsQuestion) const
 {
 #if defined(HAVE_DNS_OVER_HTTPS)
-  if (dnsQuestion->ids.du) {
+  if (dnsQuestion->ids.du && d_regex.has_value()) {
     const auto& headers = dnsQuestion->ids.du->getHTTPHeaders();
     for (const auto& header : headers) {
       if (header.first == d_header) {
@@ -53,7 +53,7 @@ bool HTTPHeaderRule::matches([[maybe_unused]] const DNSQuestion* dnsQuestion) co
   }
 #endif /* HAVE_DNS_OVER_HTTPS */
 #if defined(HAVE_DNS_OVER_HTTP3)
-  if (dnsQuestion->ids.doh3u) {
+  if (dnsQuestion->ids.doh3u && d_regex.has_value()) {
     const auto& headers = dnsQuestion->ids.doh3u->getHTTPHeaders();
     for (const auto& header : headers) {
       if (header.first == d_header) {
@@ -118,13 +118,13 @@ HTTPPathRegexRule::HTTPPathRegexRule(const std::string& regex) :
 bool HTTPPathRegexRule::matches([[maybe_unused]] const DNSQuestion* dnsQuestion) const
 {
 #if defined(HAVE_DNS_OVER_HTTPS)
-  if (dnsQuestion->ids.du) {
+  if (dnsQuestion->ids.du && d_regex.has_value()) {
     const auto path = dnsQuestion->ids.du->getHTTPPath();
     return d_regex->match(path);
   }
 #endif /* HAVE_DNS_OVER_HTTPS */
 #if defined(HAVE_DNS_OVER_HTTP3)
-  if (dnsQuestion->ids.doh3u) {
+  if (dnsQuestion->ids.doh3u && d_regex.has_value()) {
     return d_regex->match(dnsQuestion->ids.doh3u->getHTTPPath());
   }
   return false;
