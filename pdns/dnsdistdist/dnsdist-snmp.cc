@@ -399,6 +399,8 @@ static int backendStatTable_handler(netsnmp_mib_handler* handler,
       }
     }
     break;
+  default:
+    break;
   }
   return SNMP_ERR_NOERROR;
 }

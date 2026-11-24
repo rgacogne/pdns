@@ -398,6 +398,8 @@ void handleResponseSent(DNSName&& qname, const QType& qtype, double latencyUs, c
   case RCode::NoError:
     ++dnsdist::metrics::g_stats.frontendNoError;
     break;
+  default:
+    break;
   }
 
   dnsdist::metrics::doLatencyStats(incomingProtocol, latencyUs);

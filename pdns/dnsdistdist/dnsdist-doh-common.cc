@@ -102,6 +102,8 @@ std::optional<PacketBuffer> getPayloadFromPath(const std::string_view& path)
     case 3:
       neededPadding = 1;
       break;
+    default:
+      break;
     }
     sdns.reserve(payloadSize + neededPadding);
     sdns = path.substr(pos + 5);
@@ -112,6 +114,8 @@ std::optional<PacketBuffer> getPayloadFromPath(const std::string_view& path)
         break;
       case '_':
         entry = '/';
+        break;
+      default:
         break;
       }
     }
