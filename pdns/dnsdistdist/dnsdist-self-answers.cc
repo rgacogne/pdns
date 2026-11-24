@@ -28,7 +28,16 @@
 
 namespace dnsdist::self_answers
 {
-static thread_local std::default_random_engine t_randomEngine;
+
+static std::default_random_engine& getRandomEngine()
+{
+  static thread_local std::optional<std::default_random_engine> t_randomEngine{std::nullopt};
+  if (!t_randomEngine.has_value()) {
+    std::random_device device;
+    t_randomEngine = std::default_random_engine(device());
+  }
+  return *t_randomEngine;
+}
 
 static void addRecordHeader(PacketBuffer& packet, size_t& position, uint16_t qclass, uint32_t ttl, QType qtype, uint16_t rdataLen)
 {
@@ -131,7 +140,7 @@ bool generateAnswerFromIPAddresses(DNSQuestion& dnsQuestion, const std::vector<C
   }
 
   if (addrs.size() > 1) {
-    shuffle(addrs.begin(), addrs.end(), t_randomEngine);
+    shuffle(addrs.begin(), addrs.end(), getRandomEngine());
   }
 
   unsigned int qnameWireLength = dnsQuestion.ids.qname.wirelength();
@@ -190,7 +199,7 @@ bool generateAnswerFromRDataEntries(DNSQuestion& dnsQuestion, const std::vector<
     ++numberOfRecords;
   }
   if (shuffledEntries.size() > 1) {
-    shuffle(shuffledEntries.begin(), shuffledEntries.end(), t_randomEngine);
+    shuffle(shuffledEntries.begin(), shuffledEntries.end(), getRandomEngine());
   }
 
   auto qnameWireLength = dnsQuestion.ids.qname.wirelength();
