@@ -185,7 +185,7 @@ void setupLuaBindingsDNSQuestion([[maybe_unused]] LuaContext& luaCtx)
     return EDNSOptionViewsToValues(*ednsOptions);
   });
   luaCtx.registerFunction<dnsheader (DNSQuestion::*)() const>("getHeader", [](const DNSQuestion& dnsQuestion) -> dnsheader {
-    return *(dnsQuestion.getHeader());
+    return *dnsQuestion.getHeader();
   });
   luaCtx.registerFunction<void (DNSQuestion::*)(dnsheader)>("setHeader", [](DNSQuestion& dnsQuestion, dnsheader newHeader) {
     dnsQuestion.editHeader([&newHeader](dnsheader& header) -> bool {
@@ -538,7 +538,7 @@ void setupLuaBindingsDNSQuestion([[maybe_unused]] LuaContext& luaCtx)
     return EDNSOptionViewsToValues(*ednsOptions);
   });
   luaCtx.registerFunction<dnsheader (DNSResponse::*)() const>("getHeader", [](const DNSResponse& dnsQuestion) -> dnsheader {
-    return *(dnsQuestion.getHeader());
+    return *dnsQuestion.getHeader();
   });
   luaCtx.registerFunction<void (DNSResponse::*)(dnsheader)>("setHeader", [](DNSResponse& dnsQuestion, dnsheader newHeader) {
     dnsQuestion.editHeader([&newHeader](dnsheader& header) -> bool {
