@@ -544,10 +544,7 @@ void DoHConnectionToBackend::updateIO(IOState newState, const FDMultiplexer::cal
 
   auto shared = std::dynamic_pointer_cast<DoHConnectionToBackend>(shared_from_this());
   if (shared) {
-    if (newState == IOState::NeedRead) {
-      d_ioState->update(newState, callback, std::move(shared), ttd);
-    }
-    else if (newState == IOState::NeedWrite) {
+    if (newState == IOState::NeedRead || newState == IOState::NeedWrite) {
       d_ioState->update(newState, callback, std::move(shared), ttd);
     }
   }

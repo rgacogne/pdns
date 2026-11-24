@@ -32,23 +32,16 @@ std::unique_ptr<CrossProtocolQuery> getInternalQueryFromDQ(DNSQuestion& dnsQuest
   if (protocol == dnsdist::Protocol::DoUDP || protocol == dnsdist::Protocol::DNSCryptUDP) {
     return dnsdist::udp::getUDPCrossProtocolQueryFromDQ(dnsQuestion);
   }
-#ifdef HAVE_DNS_OVER_HTTPS
-  else if (protocol == dnsdist::Protocol::DoH) {
-    return getTCPCrossProtocolQueryFromDQ(dnsQuestion);
-  }
-#endif
 #ifdef HAVE_DNS_OVER_QUIC
-  else if (protocol == dnsdist::Protocol::DoQ) {
+  if (protocol == dnsdist::Protocol::DoQ) {
     return getDOQCrossProtocolQueryFromDQ(dnsQuestion, isResponse);
   }
 #endif
 #ifdef HAVE_DNS_OVER_HTTP3
-  else if (protocol == dnsdist::Protocol::DoH3) {
+  if (protocol == dnsdist::Protocol::DoH3) {
     return getDOH3CrossProtocolQueryFromDQ(dnsQuestion, isResponse);
   }
 #endif
-  else {
-    return getTCPCrossProtocolQueryFromDQ(dnsQuestion);
-  }
+  return getTCPCrossProtocolQueryFromDQ(dnsQuestion);
 }
 }

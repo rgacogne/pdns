@@ -136,17 +136,12 @@ bool changeNameInDNSPacket(PacketBuffer& initialPacket, const DNSName& from, con
 
     auto place = idx < ancount ? DNSResourceRecord::ANSWER : (idx < (ancount + nscount) ? DNSResourceRecord::AUTHORITY : DNSResourceRecord::ADDITIONAL);
     pw.startRecord(rrname, ah.d_type, ah.d_ttl, ah.d_class, place, true);
-    if (nameOnlyTypes.count(ah.d_type)) {
+    if (nameOnlyTypes.count(ah.d_type) != 0) {
       rrname = pr.getName();
       // compression is not allowed for DNAME target per rfc6672 section 2.5
       pw.xfrName(rrname, ah.d_type != QType::DNAME);
     }
-    else if (noNameTypes.count(ah.d_type)) {
-      pr.xfrBlob(blob);
-      pw.xfrBlob(blob);
-    }
-    else if (ah.d_type == QType::RRSIG) {
-      /* good luck */
+    else if (noNameTypes.count(ah.d_type) != 0 || ah.d_type == QType::RRSIG) {
       pr.xfrBlob(blob);
       pw.xfrBlob(blob);
     }
